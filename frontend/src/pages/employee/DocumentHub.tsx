@@ -1,8 +1,8 @@
 // src/pages/employee/DocumentHub.tsx
 import { useRef, useState } from "react";
 import { useNavigate }      from "react-router-dom";
-import { useDocumentHub }   from "../../hooks/useDocumentHub";
-import type { HubDocument, RequirementItem } from "../../types/documentHub.types";
+import { useDocumentHub }   from "../../hooks/employee/useDocumentHub";
+import type { HubDocument, RequirementItem } from "../../types/employee/documentHub.types";
 
 import imgUpload      from "../../assets/icons/appdetail-upload-cloud.svg";
 import imgPdf         from "../../assets/icons/docup-pdf-icon.svg";

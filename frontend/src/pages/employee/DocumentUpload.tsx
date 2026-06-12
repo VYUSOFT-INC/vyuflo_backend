@@ -1,8 +1,8 @@
 // src/pages/employee/DocumentUpload.tsx
-import documentsApi        from "../../api/documents.api";
+import documentsApi        from "../../api/employee/documents.api";
 import { useRef, useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useApplication, useApplicationTasks } from "../../hooks/useApplications";
+import { useApplication, useApplicationTasks } from "../../hooks/employee/useApplications";
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 import imgProgressIcon from "../../assets/icons/docup-progress-icon.svg";

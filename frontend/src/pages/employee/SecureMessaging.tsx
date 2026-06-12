@@ -1,8 +1,9 @@
 // src/pages/employee/SecureMessaging.tsx
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useCurrentUser } from "../../hooks/useAuth";
-import { useMessages } from "../../hooks/useMessages";
-import type { Conversation, Message } from "../../types/message.types";
+import { useMessages } from "../../hooks/employee/useMessages";
+import messageApi from "../../api/employee/message.api";
+import type { Conversation, Message } from "../../types/employee/message.types";
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 // import imgDefaultAvatar from "../../assets/icons/user-avatar-2.jpg";
@@ -255,6 +256,153 @@ function EmptyChat() {
   );
 }
 
+// ── New Conversation Modal ────────────────────────────────────────────────────
+// Opens when user clicks pencil ✏️ icon in the Conversations header.
+// Fetches HR/attorney staff list → user picks one → createConversation() called.
+function NewConvModal({
+  onClose,
+  onCreate,
+  isCreating,
+}: {
+  onClose:    () => void;
+  onCreate:   (userId: string, name: string) => void;
+  isCreating: boolean;
+}) {
+  const [staff,   setStaff]   = useState<{ id: string; first_name: string; last_name: string; role: string; avatar_url?: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search,  setSearch]  = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+
+  useEffect(() => {
+    messageApi.listStaff()
+      .then(setStaff)
+      .catch(() => setStaff([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = staff.filter(s =>
+    `${s.first_name} ${s.last_name}`.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const selectedStaff = staff.find(s => s.id === selected);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="bg-white rounded-[16px] shadow-[0_20px_60px_rgba(0,0,0,0.15)]
+                      w-[400px] flex flex-col overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-[20px] py-[16px]
+                        border-b border-[#f1f5f9]">
+          <h3 className="text-[#0f172a] text-[15px] font-bold tracking-[-0.3px]">
+            New Conversation
+          </h3>
+          <button onClick={onClose}
+                  className="text-[#94a3b8] hover:text-[#374151] transition p-[4px] rounded-[6px]
+                             hover:bg-[#f1f5f9]">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="px-[16px] pt-[14px] pb-[8px]">
+          <div className="relative">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                 className="absolute left-[11px] top-1/2 -translate-y-1/2 text-[#94a3b8]">
+              <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
+              <path d="M21 21l-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+            <input
+              autoFocus
+              type="text"
+              placeholder="Search HR or attorney..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full bg-[#f8fafc] border border-[#f1f5f9] rounded-[10px]
+                         pl-[34px] pr-[12px] py-[9px] text-[13px] text-[#0f172a]
+                         placeholder:text-[#94a3b8] focus:outline-none
+                         focus:border-[#3a46e5] focus:ring-1 focus:ring-[#3a46e5]/20 transition"
+              style={{ fontFamily: "Inter, sans-serif" }}
+            />
+          </div>
+        </div>
+
+        {/* Staff list */}
+        <div className="flex-1 overflow-y-auto max-h-[280px] px-[10px] pb-[10px]">
+          {loading ? (
+            <div className="flex items-center justify-center py-[32px]">
+              <svg className="w-5 h-5 animate-spin text-[#3a46e5]" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-center text-[#94a3b8] text-[13px] py-[32px]">No staff found</p>
+          ) : (
+            filtered.map(s => (
+              <button
+                key={s.id}
+                onClick={() => setSelected(selected === s.id ? null : s.id)}
+                className={`w-full flex items-center gap-[12px] px-[10px] py-[10px]
+                            rounded-[10px] transition text-left ${
+                  selected === s.id
+                    ? "bg-[#f0f5ff] border border-[#e5edff]"
+                    : "hover:bg-[#f8fafc] border border-transparent"
+                }`}
+              >
+                {/* Avatar */}
+                <div className={`size-[36px] rounded-full flex items-center justify-center
+                                  shrink-0 text-white text-[13px] font-semibold ${
+                  s.role === "attorney" ? "bg-[#3a46e5]"
+                  : s.role === "hr"     ? "bg-[#f59e0b]"
+                  : "bg-[#10b981]"
+                }`}>
+                  {s.first_name[0]}{s.last_name[0]}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[#0f172a] text-[13px] font-semibold truncate">
+                    {s.first_name} {s.last_name}
+                  </p>
+                  <p className="text-[#64748b] text-[11px] capitalize">{s.role}</p>
+                </div>
+                {selected === s.id && (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" fill="#3a46e5"/>
+                    <path d="M8 12l3 3 5-5" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+                  </svg>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-[16px] py-[14px] border-t border-[#f1f5f9] flex items-center gap-[10px]">
+          <button onClick={onClose}
+                  className="flex-1 h-[38px] rounded-[10px] border border-[#e2e8f0]
+                             text-[#374151] text-[13px] font-medium hover:bg-[#f8fafc] transition">
+            Cancel
+          </button>
+          <button
+            disabled={!selected || isCreating}
+            onClick={() => {
+              if (!selected || !selectedStaff) return;
+              onCreate(selected, `${selectedStaff.first_name} ${selectedStaff.last_name}`);
+            }}
+            className="flex-1 h-[38px] rounded-[10px] text-white text-[13px] font-semibold
+                       hover:opacity-90 transition disabled:opacity-40"
+            style={{ background: "linear-gradient(135deg, #3a46e5, #7c3aed)" }}
+          >
+            {isCreating ? "Starting…" : "Start Conversation"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export default function SecureMessaging() {
   const { data: currentUser } = useCurrentUser();
@@ -264,8 +412,10 @@ export default function SecureMessaging() {
     activeConvId,
     setActiveConvId,
     sendMessage,
+    createConversation,
     isLoading,
     isSending,
+    isCreating,
     searchQuery,
     setSearchQuery,
     activeTab,
@@ -274,6 +424,7 @@ export default function SecureMessaging() {
 
   const [inputText,    setInputText]    = useState("");
   const [attachFile,   setAttachFile]   = useState<File | null>(null);
+  const [showNewConv,  setShowNewConv]  = useState(false);
   const messagesEndRef                  = useRef<HTMLDivElement>(null);
   const fileInputRef                    = useRef<HTMLInputElement>(null);
   const textareaRef                     = useRef<HTMLTextAreaElement>(null);
@@ -376,7 +527,11 @@ export default function SecureMessaging() {
               <h2 className="text-[#0f172a] text-[16px] font-semibold tracking-[-0.4px]">
                 Conversations
               </h2>
-              <button className="text-[#3a46e5] hover:bg-[#f0f5ff] rounded-[8px] p-[6px] transition">
+              <button
+                onClick={() => setShowNewConv(true)}
+                className="text-[#3a46e5] hover:bg-[#f0f5ff] rounded-[8px] p-[6px] transition"
+                title="New conversation"
+              >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                   <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"
                     stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
@@ -668,6 +823,21 @@ export default function SecureMessaging() {
           )}
         </div>
       </div>
+
+      {/* ── New Conversation Modal ── */}
+      {showNewConv && (
+        <NewConvModal
+          onClose={() => setShowNewConv(false)}
+          isCreating={isCreating}
+          onCreate={async (userId) => {
+            await createConversation({
+              thread_type:     "direct",
+              participant_ids: [userId],
+            });
+            setShowNewConv(false);
+          }}
+        />
+      )}
     </div>
   );
 }

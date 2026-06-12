@@ -2,14 +2,14 @@
 // import { useState,useEffect} from "react";
 // import { useNavigate, Link } from "react-router-dom";
 // import { createApplication } from "../../api/applications.api";
+// import { PageHeader, PageContent } from "../../components/layout/PageHeader";
 // import { useCurrentUser } from "../../hooks/useAuth";
 // import { useVisaTypes } from "../../hooks/useApplications";
-// import { Search, Bell, ChevronRight, Lock, Save, ArrowRight, Loader2 } from "lucide-react";
+// import { Lock, Save, ArrowRight, Loader2 } from "lucide-react";
 // import type { AxiosError } from "axios";
 
 // // ── Assets ────────────────────────────────────────────────────────────────────
-// import imgUserAvatar  from "../../assets/icons/user-avatar-2.jpg";
-// import imgCheckGreen  from "../../assets/icons/check-green.svg";
+// // import imgCheckGreen  from "../../assets/icons/check-green.svg";
 // import imgRadioFilled from "../../assets/icons/radio-filled.svg";
 // import imgReqDot      from "../../assets/icons/req-dot.svg";
 
@@ -39,8 +39,7 @@
 //   const fullName     = user ? `${user.first_name} ${user.last_name}` : "—";
 //   const email        = user?.email ?? "—";
 //   const role         = user?.roles?.[0] ?? "employee";
-//   const roleLabel    = role.charAt(0).toUpperCase() + role.slice(1);
-
+// 
 //   // ── Submit ────────────────────────────────────────────────────────────────
 //   async function handleSubmit(isDraft: boolean) {
 //     if (!selectedVisaId) { setError("Please select a visa type."); return; }
@@ -141,7 +140,7 @@
 //       </header>
 
 //       {/* SCROLLABLE CONTENT */}
-//       <main className="flex-1 overflow-y-auto px-[190px] py-[32px]">
+//       <main className="flex-1 overflow-y-auto px-[16px] sm:px-[24px] lg:px-[48px] py-[24px] sm:py-[32px]">
 //         <div className="max-w-[800px] flex flex-col gap-[40px]">
 
 //           <h1 className="text-[#0f172a] text-[24px] font-bold tracking-[-0.5px] leading-[32px] whitespace-nowrap">
@@ -218,7 +217,7 @@
 //               </span>
 //             </div>
 
-//             <div className="grid grid-cols-2 gap-[24px]">
+//             <div className="grid grid-cols-1 sm:grid-cols-2 gap-[16px] sm:gap-[24px]">
 
 //               <div className="flex flex-col gap-[6px]">
 //                 <label className="text-[#64748b] text-[12px] font-medium tracking-[-0.5px] leading-[16px]">
@@ -461,18 +460,18 @@
 // src/pages/employee/NewApplication.tsx
 import { useState,useEffect} from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { createApplication } from "../../api/applications.api";
+import { createApplication } from "../../api/employee/applications.api";
+
 import { useCurrentUser } from "../../hooks/useAuth";
-import { useVisaTypes } from "../../hooks/useApplications";
-import { Search, Bell, ChevronRight, Lock, Save, ArrowRight, Loader2 } from "lucide-react";
+import { useVisaTypes } from "../../hooks/employee/useApplications";
+import { Lock, Save, ArrowRight, Loader2 } from "lucide-react";
 import type { AxiosError } from "axios";
 
 // ── Assets ────────────────────────────────────────────────────────────────────
-import imgUserAvatar  from "../../assets/icons/user-avatar-2.jpg";
 import imgCheckGreen  from "../../assets/icons/check-green.svg";
 import imgRadioFilled from "../../assets/icons/radio-filled.svg";
 import imgReqDot      from "../../assets/icons/req-dot.svg";
-
+import { PageContent, PageHeader } from "../../components/layout/Pageheader";
 // ─────────────────────────────────────────────────────────────────────────────
 export default function NewApplication() {
   const navigate = useNavigate();
@@ -498,8 +497,6 @@ export default function NewApplication() {
   const selectedVisa = visaTypes.find(v => v.id === selectedVisaId);
   const fullName     = user ? `${user.first_name} ${user.last_name}` : "—";
   const email        = user?.email ?? "—";
-  const role         = user?.roles?.[0] ?? "employee";
-  const roleLabel    = role.charAt(0).toUpperCase() + role.slice(1);
 
   // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit(isDraft: boolean) {
@@ -540,69 +537,13 @@ export default function NewApplication() {
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden" style={{ fontFamily: "Inter, sans-serif" }}>
 
       {/* TOP HEADER */}
-      <header className="bg-white border-b border-[#f1f5f9] flex h-[72px] items-center
-                         justify-between px-[32px] shrink-0 sticky top-0 z-10">
-
-        <nav className="flex items-center gap-[8px]">
-          <Link
-            to="/applications"
-            className="text-[#64748b] text-[14px] font-normal tracking-[-0.5px] leading-[20px]
-                       hover:text-[#0f172a] transition-colors"
-          >
-            Applications
-          </Link>
-          <ChevronRight size={12} className="text-[#94a3b8] shrink-0" />
-          <span className="text-[#0f172a] text-[14px] font-medium tracking-[-0.5px] leading-[20px]">
-            New Application
-          </span>
-        </nav>
-
-        <div className="flex items-center gap-[16px] h-[40px]">
-          <button
-            type="button"
-            className="bg-white border border-[#e2e8f0] drop-shadow-[0px_1px_1px_rgba(0,0,0,0.05)]
-                       flex items-center justify-center rounded-[12px] shrink-0 size-[40px]
-                       hover:bg-[#f8fafc] transition-colors"
-            aria-label="Search"
-          >
-            <Search size={16} className="text-[#64748b]" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/notifications")}
-            className="bg-white border border-[#e2e8f0] drop-shadow-[0px_1px_1px_rgba(0,0,0,0.05)]
-                       flex items-center justify-center relative rounded-[12px] shrink-0 size-[40px]
-                       hover:bg-[#f8fafc] transition-colors"
-            aria-label="Notifications"
-          >
-            <Bell size={14} className="text-[#64748b]" />
-            <span className="absolute bg-[#5269f2] border border-white h-[8px] w-[8px]
-                             rounded-full top-[8px] right-[10px]" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/profile")}
-            className="flex items-center gap-[12px] border-l border-[#e2e8f0] pl-[17px] h-[34px]
-                       hover:opacity-80 transition-opacity overflow-clip"
-          >
-            <img src={imgUserAvatar} alt="" className="rounded-full object-cover shrink-0 size-[32px]" />
-            <div className="flex flex-col items-start">
-              <p className="text-[#0f172a] text-[14px] font-semibold tracking-[-0.5px] leading-[18px] whitespace-nowrap">
-                {fullName}
-              </p>
-              <p className="text-[#64748b] text-[12px] font-normal tracking-[-0.5px] leading-[16px] whitespace-nowrap">
-                {roleLabel}
-              </p>
-            </div>
-          </button>
-        </div>
-      </header>
-
-      {/* SCROLLABLE CONTENT */}
-      <main className="flex-1 overflow-y-auto px-[190px] py-[32px]">
-        <div className="max-w-[800px] flex flex-col gap-[40px]">
+      <PageHeader
+        title="New Application"
+        subtitle="Start your visa application"
+        showBell
+      />
+      <PageContent>
+        <div className="max-w-[1500px] mx-auto w-full flex flex-col gap-[24px]">
 
           <h1 className="text-[#0f172a] text-[24px] font-bold tracking-[-0.5px] leading-[32px] whitespace-nowrap">
             Create New Application
@@ -678,7 +619,7 @@ export default function NewApplication() {
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-[24px]">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-[16px] sm:gap-[24px]">
 
               <div className="flex flex-col gap-[6px]">
                 <label className="text-[#64748b] text-[12px] font-medium tracking-[-0.5px] leading-[16px]">
@@ -912,7 +853,7 @@ export default function NewApplication() {
           </div>
 
         </div>
-      </main>
+      </PageContent>
     </div>
   );
 }

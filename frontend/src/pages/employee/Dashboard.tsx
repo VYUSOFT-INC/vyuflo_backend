@@ -1,10 +1,10 @@
 // src/pages/employee/Dashboard.tsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import { useCurrentUser } from "../../hooks/useAuth";
-import { useDashboard } from "../../hooks/useDashboard";
-import type { ActivityItem } from "../../types/dashboard.types";
-import { Search } from "lucide-react";
+import { useDashboard } from "../../hooks/employee/useDashboard";
+import type { ActivityItem } from "../../types/employee/dashboard.types";
 
 import imgKpi1       from "../../assets/icons/kpi-apps.svg";
 import imgKpi2       from "../../assets/icons/kpi-docs.svg";
@@ -24,6 +24,7 @@ import imgMoreDots   from "../../assets/icons/more-dots.svg";
 import imgDonut      from "../../assets/icons/donut-chart.svg";
 import imgDotFilled  from "../../assets/icons/dot-filled.svg";
 import imgDotEmpty   from "../../assets/icons/dot-empty.svg";
+import { PageContent, PageHeader } from "../../components/layout/Pageheader";
 
 // ── Static guidance items ─────────────────────────────────────────────────────
 const GUIDANCE = [
@@ -89,66 +90,15 @@ export default function Dashboard() {
           h-[72px], bg-[rgba(255,255,255,0.8)], border-b border-[#f1f5f9]
           flex, items-center, justify-between, px-[32px]
       ══════════════════════════════════════════════════════════════════════ */}
-      <header className="bg-[rgba(255,255,255,0.8)] border-b border-[#f1f5f9] backdrop-blur-sm
-                         flex h-[72px] items-center justify-between px-[32px] shrink-0 sticky top-0 z-10">
-
-        {/* Left: title + subtitle */}
-        <div className="flex flex-col gap-[2px]">
-          <p className="font-bold leading-[28px] text-[#0f172a] text-[20px] tracking-[-0.5px] whitespace-nowrap">
-            Dashboard Overview
-          </p>
-          <p className="font-normal leading-[16px] text-[#64748b] text-[12px] tracking-[-0.5px] whitespace-nowrap">
-            Welcome back, {firstName}. Here's your visa status.
-          </p>
-        </div>
-
-        {/* Right: search input + bell button */}
-        <div className="flex gap-[16px] h-[40px] items-center">
-
-          {/* Search — bg-[#f8fafc], border-[#e2e8f0], rounded-[12px], h-[38px], w-[256px] */}
-          <div className="relative h-[38px] w-[256px]">
-            <input
-              type="text"
-              placeholder="Search applications..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="bg-[#f8fafc] border border-[#e2e8f0] font-normal h-[38px] items-start
-                         leading-[20px] pl-[36px] pr-[16px] py-[8px] rounded-[12px] text-[#1e293b]
-                         text-[14px] tracking-[-0.5px] w-[256px] focus:outline-none
-                         focus:ring-2 focus:ring-[#5269f2] focus:border-transparent
-                         placeholder:text-[#94a3b8]"
-            />
-            <Search
-              size={14}
-              className="absolute left-[12px] top-1/2 -translate-y-1/2 text-[#94a3b8]"
-            />
-          </div>
-
-          {/* Bell — bg-white, border-[#e2e8f0], drop-shadow, rounded-[12px], size-[40px] */}
-          <button
-            type="button"
-            onClick={() => navigate("/notifications")}
-            aria-label="Notifications"
-            className="bg-white border border-[#e2e8f0] drop-shadow-[0px_1px_1px_rgba(0,0,0,0.05)]
-                       flex items-center justify-center relative rounded-[12px] shrink-0 size-[40px]
-                       hover:bg-[#f8fafc] transition-colors"
-          >
-            {/* Bell SVG — matches Figma exactly: w-[14px], h-[16px] */}
-            <svg width="14" height="16" viewBox="0 0 14 16" fill="none">
-              <path d="M7 0C6.44772 0 6 0.447715 6 1V1.54914C3.71776 2.01014 2 4.00488 2 6.4V10.4L0.292893 12.1071C0.105357 12.2946 0 12.549 0 12.8142V13.6C0 14.1523 0.447715 14.6 1 14.6H5.26756C5.61337 15.4258 6.44004 16 7.4 16C8.35996 16 9.18663 15.4258 9.53244 14.6H13C13.5523 14.6 14 14.1523 14 13.6V12.8142C14 12.549 13.8946 12.2946 13.7071 12.1071L12 10.4V6.4C12 4.00488 10.2822 2.01014 8 1.54914V1C8 0.447715 7.55228 0 7 0Z" fill="#64748b"/>
-            </svg>
-            {/* Notification dot — bg-[#5269f2] */}
-            <span className="absolute bg-[#5269f2] border border-white h-[8px] w-[8px]
-                             rounded-full top-[8px] right-[10px]" />
-          </button>
-        </div>
-      </header>
-
-      {/* ══════════════════════════════════════════════════════════════════════
-          SCROLLABLE CONTENT  — Figma node 14:12891
-          pb-[97px], pt-[32px], px-[32px]
-      ══════════════════════════════════════════════════════════════════════ */}
-      <main className="flex-1 overflow-y-auto pb-[97px] pt-[32px] px-[32px]">
+      <PageHeader
+        title="Dashboard Overview"
+        subtitle={`Welcome back, ${firstName}. Here's your visa status.`}
+        showSearch
+        searchValue={search}
+        searchPlaceholder="Search applications..."
+        onSearchChange={setSearch}
+      />
+      <PageContent>
         <div className="flex flex-col gap-[32px] w-full max-w-[1200px]">
 
           {/* ── STATUS OVERVIEW ROW ─────────────────────────────────────────
@@ -277,7 +227,7 @@ export default function Dashboard() {
                     className="bg-[#f0f5ff] border border-[#cddbfe] flex gap-[16px] h-[139px]
                                items-start overflow-clip pb-[47px] pl-[21px] pr-[21px] pt-[21px]
                                relative rounded-[16px] flex-1 text-left
-                               hover:bg-[#e8eeff] transition-colors"
+                               hover:bg-[#e8eeff] transition-colors cursor-pointer"
                   >
                     <div className="bg-white drop-shadow-[0px_1px_1px_rgba(0,0,0,0.05)] flex items-center
                                     justify-center px-[15px] py-[10px] rounded-[12px] shrink-0 size-[48px]">
@@ -313,7 +263,7 @@ export default function Dashboard() {
                     onClick={() => navigate("/applications/new")}
                     className="bg-white border border-[#e2e8f0] flex gap-[16px] h-[139px]
                                items-start p-[21px] rounded-[16px] flex-1 text-left
-                               hover:bg-[#f8fafc] transition-colors"
+                               hover:bg-[#f8fafc] transition-colors cursor-pointer"
                   >
                     <div className="bg-[#f1f5f9] flex items-center justify-center px-[16px] py-[10px] rounded-[12px] shrink-0 size-[48px]">
                       <img src={imgStartIcon} alt="" className="w-[15.75px] h-[18px] object-contain" />
@@ -496,7 +446,7 @@ export default function Dashboard() {
             </div>{/* end RIGHT column */}
           </div>{/* end TWO COLUMN ROW */}
         </div>
-      </main>
+      </PageContent>
     </div>
   );
 }
