@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from app.models.models import UserLoginHistory
+from app.models.visamodels import UserLoginHistory
 from app.schemas.login_history import (
     LoginHistoryResponse,
     LoginHistoryListResponse,

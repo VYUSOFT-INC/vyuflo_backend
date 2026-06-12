@@ -3,7 +3,7 @@ from typing import Optional
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
-from app.models.models import VisaType
+from app.models.visamodels import VisaType
 from app.services.services import db_get_by_id, db_list
 
 

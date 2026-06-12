@@ -30,7 +30,7 @@ from app.services.services import (
     db_list,
     db_update,
 )
-from app.models.models import Application, ApplicationStatusHistory, ApplicationTask, VisaType
+from app.models.visamodels import Application, ApplicationStatusHistory, ApplicationTask, VisaType
 from app.schemas.application import (
     ApplicationCreate,
     ApplicationListResponse,

@@ -7,7 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.schemas.document import DocumentListResponse, DocumentResponse
+from app.schemas.ocr import OCRFieldResponse, OCRFieldUpdate, SaveOCRFieldsRequest
 from app.services.document_service import get_document_by_id, get_document_file_url, list_documents, upload_document
+from app.services.ocr_service import confirm_all_fields, get_ocr_fields, save_ocr_fields, save_or_update_ocr_fields, update_ocr_field
 
 document_router = APIRouter()
 
@@ -23,6 +25,18 @@ async def api_list_documents(
 ) -> DocumentListResponse:
     return await list_documents(db, current_user.user_id, application_id)
 
+
+@document_router.get(
+    "/documents/{document_id}/ocr-fields",
+    response_model=list[OCRFieldResponse],
+    summary="Get saved OCR fields for a document",
+)
+async def api_get_ocr_fields(
+    document_id:  uuid.UUID,
+    db:           AsyncSession = Depends(get_db),
+    current_user: uuid.UUID    = Depends(get_current_user),
+) -> list[OCRFieldResponse]:
+    return await get_ocr_fields(db, document_id, current_user.user_id)
 
 @document_router.post(
     "/documents/upload",
@@ -42,6 +56,56 @@ async def api_upload_document(
     return await upload_document(
         db, current_user.user_id, app_id, document_type, category, file
     )
+
+@document_router.post(
+    "/documents/{document_id}/ocr-fields",
+    response_model=list[OCRFieldResponse],
+    status_code=201,
+    summary="Save OCR extracted fields to database",
+)
+async def api_save_ocr_fields(
+    document_id:  uuid.UUID,
+    payload:      SaveOCRFieldsRequest,
+    db:           AsyncSession = Depends(get_db),
+    current_user: uuid.UUID    = Depends(get_current_user),
+) -> list[OCRFieldResponse]:
+    return await save_ocr_fields(db, document_id, current_user.user_id, payload)
+
+
+@document_router.post(
+    "/documents/{document_id}/ocr-fields/confirm-all",
+    summary="Confirm all OCR fields (Approve All button)",
+)
+async def api_confirm_all_fields(
+    document_id:  uuid.UUID,
+    db:           AsyncSession = Depends(get_db),
+    current_user: uuid.UUID    = Depends(get_current_user),
+) -> dict:
+    return await confirm_all_fields(db, document_id, current_user.user_id)
+
+
+# ── PATCH /documents/:id/ocr-fields/:field_id ────────────────────────────────
+# User edited a single field and clicked Confirm.
+@document_router.patch(
+    "/documents/{document_id}/ocr-fields/{field_id}",
+    response_model=OCRFieldResponse,
+    summary="Edit and confirm a single OCR field",
+)
+async def api_update_ocr_field(
+    document_id:  uuid.UUID,
+    field_id:     uuid.UUID,
+    payload:      OCRFieldUpdate,
+    db:           AsyncSession = Depends(get_db),
+    current_user: uuid.UUID    = Depends(get_current_user),
+) -> OCRFieldResponse:
+    return await update_ocr_field(
+        db,
+        field_id,
+        current_user.user_id,
+        payload.extracted_value or "",
+        payload.is_confirmed or False,
+    )
+
 
 # router.py — add this endpoint
 @document_router.get(
@@ -93,4 +157,22 @@ async def api_get_document_by_id(
         db=db,
         current_user_id=current_user.user_id,
         document_id=document_id,
+    )
+
+# ── routers/documents.py ─────────────────────────────────────────────────────
+
+@document_router.post(
+    "/documents/{document_id}/ocr-fields/save",
+    response_model=list[OCRFieldResponse],
+    status_code=200,
+    summary="Save or update OCR fields — upsert based on existing data",
+)
+async def api_save_or_update_ocr_fields(
+    document_id:  uuid.UUID,
+    payload:      SaveOCRFieldsRequest,
+    db:           AsyncSession = Depends(get_db),
+    current_user: uuid.UUID    = Depends(get_current_user),
+) -> list[OCRFieldResponse]:
+    return await save_or_update_ocr_fields(
+        db, document_id, current_user.user_id, payload
     )

@@ -4,12 +4,12 @@ from datetime import datetime, timezone
 from typing import Optional
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import joinedload
 
-from app.models.models import Document, DocumentType, ApplicationTask
+from app.models.visamodels import Document, DocumentOCRField, DocumentType, ApplicationTask
 from app.schemas.document import DocumentResponse, DocumentListResponse
-from app.services.services import db_create, db_get_by_id, db_list
+from app.services.services import db_create, db_get_by_id, db_list, db_update
 
 
 def _to_response(doc: Document) -> DocumentResponse:
@@ -218,3 +218,4 @@ async def get_document_by_id(
         ocr_status=document.ocr_status,
         version=document.version,
     )
+

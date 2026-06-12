@@ -10,7 +10,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.models.models import (
+from app.models.visamodels import (
     Message,
     MessageThread,
     MessageThreadParticipant,

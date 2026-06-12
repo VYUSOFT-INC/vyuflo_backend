@@ -28,7 +28,7 @@ from app.core.exceptions import (
     UnauthorizedException,
 )
 from app.core.redis import redis_set
-from app.models.models import Role, UserRole
+from app.models.visamodels import Role, UserProfile, UserRole
 
 # ── Generic type var for ORM models ──────────────────────────────────────────
 ModelT = TypeVar("ModelT")
@@ -175,6 +175,16 @@ async def get_user_role(db: AsyncSession, user_id: uuid.UUID):
         .where(UserRole.user_id == user_id)
     )
     return result.scalars().all()  # list of roles
+
+async def get_user_profile(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> UserProfile | None:
+    result = await db.execute(
+        select(UserProfile)
+        .where(UserProfile.user_id == user_id)
+    )
+    return result.scalars().first()
 
 async def db_upsert(
     db: AsyncSession,

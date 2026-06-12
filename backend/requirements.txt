@@ -35,3 +35,4 @@ python-dotenv==1.0.1
 structlog==24.4.0
 slowapi==0.1.9
 
+passlib

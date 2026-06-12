@@ -98,7 +98,6 @@ async def api_list_applications(
     db: AsyncSession = Depends(get_db),
     current_user_id: uuid.UUID = Depends(get_current_user),
 ) -> ApplicationListResponse:
-    print("sai")
     return await list_applications(
         db, current_user_id.user_id, status_filter, visa_type_id, limit, offset
     )

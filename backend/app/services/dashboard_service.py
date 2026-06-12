@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
  
-from app.models.models import (
+from app.models.visamodels import (
     Application,
     ApplicationStatusHistory,
     Document,
