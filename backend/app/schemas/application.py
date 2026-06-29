@@ -247,31 +247,28 @@ class TaskUpdate(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
-class TaskCompleteRequest(BaseModel):
-    """
-    PATCH /applications/{application_id}/tasks/{task_id}/complete
-    Marks a checklist item as done (or undone).
-    """
-
-    is_completed: bool
-
-    model_config = ConfigDict(from_attributes=True)
-
-
+# UPDATE TaskResponse — add document fields
 class TaskResponse(BaseModel):
-    id: uuid.UUID
+    id:             uuid.UUID
     application_id: uuid.UUID
-    task_name: str
-    description: Optional[str]
-    is_completed: bool
-    is_required: bool
-    sort_order: int
-    completed_at: Optional[datetime]
-    completed_by: Optional[uuid.UUID]
-    created_by: uuid.UUID
-    modified_by: Optional[uuid.UUID]
-    created_at: datetime
-    updated_at: Optional[datetime]
+    task_name:      str
+    description:    Optional[str]
+    is_required:    bool
+    is_completed:   bool
+    sort_order:     int
+    completed_at:   Optional[datetime]
+    completed_by:   Optional[uuid.UUID]
+    created_at:     datetime
+    updated_at:     datetime
+    document_id:          Optional[uuid.UUID] = None
+    document_name:        Optional[str]       = None   # file_name from Document
+    document_size_bytes:  Optional[int]       = None   # file_size_kb * 1024
+    document_uploaded_at: Optional[datetime]  = None   # document.created_at
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# UPDATE TaskCompleteRequest — add document_id
+class TaskCompleteRequest(BaseModel):
+    is_completed: bool
+    document_id:  Optional[uuid.UUID] = None   # ← ADD

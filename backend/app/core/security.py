@@ -34,11 +34,21 @@ def _create_token(data: dict[str, Any], expires_delta: timedelta) -> str:
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def create_access_token(subject: str, extra: Optional[dict] = None) -> str:
-    data = {"sub": subject, "type": "access"}
-    if extra:
-        data.update(extra)
-    return _create_token(data, timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+# def create_access_token(subject: str, extra: Optional[dict] = None) -> str:
+#     data = {"sub": subject, "type": "access"}
+#     if extra:
+#         data.update(extra)
+#     return _create_token(data, timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+
+def create_access_token(user_id: str, roles: list[str]) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=30)
+    payload = {
+        "sub":   user_id,
+        "roles": roles,
+        "type":  "access",
+        "exp":   expire,
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def create_refresh_token(subject: str) -> str:

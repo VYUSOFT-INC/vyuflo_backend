@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     SECRET_KEY: str = "sai"
 
+    ANTHROPIC_API_KEY : str
+    
     # ── Database ──────────────────────────────────────────────────────────────
     # DATABASE_URL: str = "postgresql+asyncpg://postgres:Charan@localhost:5433/visaflow"
     

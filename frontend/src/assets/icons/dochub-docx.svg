@@ -1,0 +1,7 @@
+<svg width="48" height="56" viewBox="0 0 48 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="48" height="56" rx="6" fill="#DBEAFE"/>
+  <path d="M8 0H32L48 16V50C48 53.3137 45.3137 56 42 56H8C4.68629 56 2 53.3137 2 50V6C2 2.68629 4.68629 0 8 0Z" fill="#DBEAFE"/>
+  <path d="M30 0L48 18H34C31.7909 18 30 16.2091 30 14V0Z" fill="#BFDBFE"/>
+  <rect x="8" y="26" width="32" height="20" rx="3" fill="#2563EB"/>
+  <text x="24" y="40" font-family="Inter, sans-serif" font-size="9" font-weight="700" fill="white" text-anchor="middle">DOCX</text>
+</svg>

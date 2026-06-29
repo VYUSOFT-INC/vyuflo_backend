@@ -14,7 +14,7 @@ class UserBasic(BaseModel):
     email:      str
     first_name: str
     last_name:  str
-    phone:      str | None
+    phone:      str | None = None
 
 # ── Token ─────────────────────────────────────────────────────────────────────
 class TokenResponse(BaseModel):
@@ -22,6 +22,7 @@ class TokenResponse(BaseModel):
     refresh_token: Optional[str] = None
     token_type:    str = "bearer"
     roles:list[str]| None = None
+    profile:Optional[str] = None
     user:UserBasic| None = None
     onboarding_step: int | None = None
     

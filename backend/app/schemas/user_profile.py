@@ -40,3 +40,9 @@ class UserProfileUpdate(BaseModel):
     onboarding_completed: Optional[bool] = None
     phone_number:Optional[str] = None
     country_code :Optional[str] = None
+
+class ProfilePictureResponse(BaseModel):
+    profile_picture_url: Optional[str]
+
+    class Config:
+        from_attributes = True

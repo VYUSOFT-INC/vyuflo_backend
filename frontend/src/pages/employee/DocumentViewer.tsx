@@ -1,451 +1,548 @@
-// src/pages/employee/DocumentUpload.tsx
-import { useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useDocuments } from "../../hooks/useDocuments";
-// import { useCurrentUser } from "../../hooks/useAuth";
+// src/pages/employee/DocumentViewer.tsx
+import { useState, useEffect }         from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { useDocument }                  from "../../hooks/employee/useDocuments";
+import { useOCR }                       from "../../hooks/employee/useOCR";
+import documentsApi                     from "../../api/employee/documents.api";
+// import axiosInstance                    from "../../api/axios";
 
-// ── Assets ────────────────────────────────────────────────────────────────────
-import imgProgressIcon from "../../assets/icons/docup2-progress-icon.svg";
-import imgIdentityIcon from "../../assets/icons/docup2-identity-icon.svg";
-import imgPdfIcon      from "../../assets/icons/docup2-pdf-icon.svg";
-import imgEyeIcon      from "../../assets/icons/docup2-eye-icon.svg";
-import imgTrashIcon    from "../../assets/icons/docup2-trash-icon.svg";
-import imgImgIcon      from "../../assets/icons/docup2-img-icon.svg";
-import imgEmployIcon   from "../../assets/icons/docup2-employ-icon.svg";
-import imgUploadIcon   from "../../assets/icons/docup2-upload-icon.svg";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-type DocStatus = "uploaded" | "pending_review" | "required" | "verified";
-
-interface DocRow {
-  id:          string;
-  title:       string;
-  titleLine2?: string;
-  description: string;
-  status:      DocStatus;
-  file?: {
-    name:  string;
-    size:  string;
-    date:  string;
-    note?: string;
-    type:  "pdf" | "img";
-  };
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function confBadge(score: number) {
+  if (score >= 90) return { bg: "bg-[#dcfce7]", text: "text-[#16a34a]" };
+  if (score >= 75) return { bg: "bg-[#fef9c3]", text: "text-[#ca8a04]" };
+  return               { bg: "bg-[#fee2e2]",    text: "text-[#dc2626]" };
 }
 
-// ── Status badge config ───────────────────────────────────────────────────────
-function getStatusBadge(status: DocStatus) {
-  switch (status) {
-    case "uploaded":
-    case "verified":
-      return {
-        bg: "bg-[#d1fae5]", border: "border border-[#a7f3d0]",
-        text: "text-[#047857]", label: "Uploaded",
-      };
-    case "pending_review":
-      return {
-        bg: "bg-[#fef3c7]", border: "border border-[#fde68a]",
-        text: "text-[#b45309]", label: "Pending\nReview",
-      };
-    default:
-      return {
-        bg: "bg-[#f3f4f6]", border: "border border-[#e5e7eb]",
-        text: "text-[#4b5563]", label: "Required",
-      };
-  }
+function PageStatus({ status }: { status: string }) {
+  if (status === "processed" || status === "confirmed")
+    return <span className="text-[#16a34a] text-[10px] font-semibold">Processed</span>;
+  if (status === "review_needed")
+    return <span className="text-[#d97706] text-[10px] font-semibold">Review</span>;
+  return <span className="text-[#6366f1] text-[10px] font-semibold">Processing</span>;
 }
 
-// ── Document data ─────────────────────────────────────────────────────────────
-const IDENTITY_DOCS: DocRow[] = [
-  {
-    id:          "passport",
-    title:       "Valid Passport",
-    description: "Biographical page showing photo, details,\nand expiration date.",
-    status:      "uploaded",
-    file:        { name: "passport_scan_2023.pdf", size: "2.4 MB", date: "Uploaded Oct 12", type: "pdf" },
-  },
-  {
-    id:          "national_id",
-    title:       "National ID / Driver's",
-    titleLine2:  "License",
-    description: "Front and back of your current government-\nissued ID.",
-    status:      "pending_review",
-    file:        { name: "drivers_license_front.jpg", size: "", date: "", note: "Awaiting manager approval", type: "img" },
-  },
-];
-
-const EMPLOYMENT_DOCS: DocRow[] = [
-  {
-    id:          "offer_letter",
-    title:       "Offer Letter",
-    description: "Signed offer letter from your sponsoring\nemployer.",
-    status:      "required",
-  },
-  {
-    id:          "employment_verification",
-    title:       "Employment Verification",
-    description: "Letter confirming your current employment\nstatus and salary.",
-    status:      "required",
-  },
-];
-
-// ── Upload Dropzone ───────────────────────────────────────────────────────────
-function UploadZone({ onFile }: { onFile: (f: File) => void }) {
-  const ref      = useRef<HTMLInputElement>(null);
-  const [drag, setDrag] = useState(false);
+// ── Spinner ───────────────────────────────────────────────────────────────────
+function Spinner({ color = "text-[#3a46e5]" }: { color?: string }) {
   return (
-    <div
-      onClick={() => ref.current?.click()}
-      onDragOver={e  => { e.preventDefault(); setDrag(true);  }}
-      onDragLeave={() => setDrag(false)}
-      onDrop={e => {
-        e.preventDefault(); setDrag(false);
-        if (e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0]);
-      }}
-      className={`border-2 border-dashed rounded-[12px] flex flex-col gap-[4px] items-center
-                  p-[26px] cursor-pointer transition w-full ${
-        drag
-          ? "border-[#2563eb] bg-[#eff6ff]"
-          : "border-[#d1d5db] bg-white hover:border-[#2563eb] hover:bg-[#f9fafb]"
-      }`}
-    >
-      <div className="bg-[#f3f4f6] rounded-full flex items-center justify-center size-[40px] shrink-0 mb-[8px]">
-        <img src={imgUploadIcon} alt="" className="w-[22.5px] h-[18px] object-contain" />
-      </div>
-      <p className="font-medium text-[#111827] text-[14px] leading-[20px] text-center whitespace-nowrap">
-        Click to upload or drag and drop
-      </p>
-      <p className="font-normal text-[#6b7280] text-[12px] leading-[16px] text-center whitespace-nowrap">
-        PDF, JPG, PNG (max. 10MB)
-      </p>
-      <input ref={ref} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
-        onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]); }} />
-    </div>
+    <svg className={`w-8 h-8 animate-spin ${color}`} fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+    </svg>
   );
 }
 
-// ── Doc Row Item ──────────────────────────────────────────────────────────────
-function DocRowItem({
-  doc, onUpload, onDelete,
-}: {
-  doc: DocRow;
-  onUpload: (id: string, file: File) => void;
-  onDelete: (id: string) => void;
-}) {
-  const badge         = getStatusBadge(doc.status);
-  const isPending     = doc.status === "pending_review";
-  // const isRequired    = doc.status === "required";
-  const hasBadgeLine2 = badge.label.includes("\n");
+// ─────────────────────────────────────────────────────────────────────────────
+export default function DocumentViewer() {
+  const navigate       = useNavigate();
+  const [searchParams] = useSearchParams();
+  const docId          = searchParams.get("doc_id")         ?? undefined;
+  const returnAppId    = searchParams.get("application_id") ?? undefined;
 
-  return (
-    <div className="flex gap-[24px] items-center p-[24px] w-full">
+  const { data: doc, isLoading: docLoading, error: docError } = useDocument(docId);
 
-      {/* Left: title + description — w-[303.33px] */}
-      <div className="flex flex-col gap-[8px] items-start shrink-0 w-[303px]">
-        <div className="flex gap-[12px] items-center w-full flex-wrap">
-          {/* Title — may be two lines */}
-          <div className="flex flex-col items-start shrink-0">
-            {doc.title.split("\n").map((line, i) => (
-              <span key={i} className="font-semibold text-[#111827] text-[16px] leading-[24px] whitespace-nowrap">
-                {line}
-              </span>
-            ))}
-            {doc.titleLine2 && (
-              <span className="font-semibold text-[#111827] text-[16px] leading-[24px] whitespace-nowrap">
-                {doc.titleLine2}
-              </span>
-            )}
-          </div>
-          {/* Status badge */}
-          <span className={`${badge.bg} ${badge.border} ${badge.text} font-medium text-[12px]
-                            leading-[16px] px-[11px] py-[5px] rounded-full shrink-0 whitespace-pre-wrap text-center`}>
-            {hasBadgeLine2
-              ? badge.label.split("\n").map((l, i) => <span key={i} className="block leading-[16px]">{l}</span>)
-              : badge.label}
-          </span>
+  const [fileUrl,     setFileUrl]     = useState<string | null>(null);
+  const [fileName,    setFileName]    = useState<string>("");
+  const [fileBlob,    setFileBlob]    = useState<Blob | null>(null);
+  const [zoom,        setZoom]        = useState(100);
+  const [rotation,    setRotation]    = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rightOpen,   setRightOpen]   = useState(true);
+
+  // Mobile tab: "pages" | "viewer" | "data"
+  const [mobileTab, setMobileTab] = useState<"pages" | "viewer" | "data">("viewer");
+
+  const totalPages = doc?.total_pages ?? 1;
+  const isPdf      = doc?.file_type === "pdf" || fileName.endsWith(".pdf");
+
+  const {
+    fields, avgConfidence, source,
+    isLoading: ocrLoading, error: ocrError,
+    loadFields, submitFields, confirmField,
+    saveEdit, startEdit, cancelEdit, updateEditValue,
+  } = useOCR(docId);
+
+  useEffect(() => {
+    if (!docId) return;
+    let objectUrl: string;
+    documentsApi.getFile(docId)
+      .then(({ blob, fileName: name }) => {
+        objectUrl = URL.createObjectURL(blob);
+        setFileUrl(objectUrl);
+        setFileName(name);
+        setFileBlob(blob);
+      })
+      .catch(err => console.error("Failed to load document file:", err));
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [docId]);
+
+  useEffect(() => {
+    if (fileBlob && fileName && fields.length === 0 && !ocrLoading) {
+      void loadFields(fileBlob, fileName);
+    }
+  }, [fileBlob, fileName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // async function handleNextDocument() {
+  //   if (!returnAppId) { navigate("/documents"); return; }
+  //   try {
+  //     const res  = await axiosInstance.get(`/documents?application_id=${returnAppId}`);
+  //     const docs = (res.data?.items ?? res.data ?? []) as { id: string }[];
+  //     const idx  = docs.findIndex(d => d.id === docId);
+  //     const next = docs[idx + 1];
+  //     if (next) navigate(`/documents/viewer?doc_id=${next.id}&application_id=${returnAppId}`);
+  //     else      navigate(`/applications/${returnAppId}`);
+  //   } catch {
+  //     navigate(returnAppId ? `/applications/${returnAppId}` : "/documents");
+  //   }
+  // }
+
+  function exportData() {
+    const rows = fields.map(f =>
+      `"${f.field_name}","${f.extracted_value}",${f.confidence_score},${f.is_confirmed}`
+    );
+    const csv  = ["Field Name,Extracted Value,Confidence,Confirmed", ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = `${doc?.name ?? "document"}_data.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleDownload() {
+    if (!fileUrl || !doc) return;
+    const a = document.createElement("a");
+    a.href = fileUrl; a.download = doc.name; a.click();
+  }
+
+  const confirmedCount = fields.filter(f => f.is_confirmed).length;
+  const reviewCount    = fields.filter(f => f.needs_review && !f.is_confirmed).length;
+
+  // ── Loading / Error ────────────────────────────────────────────────────────
+  if (docLoading) {
+    return <div className="flex items-center justify-center h-full py-[64px]"><Spinner /></div>;
+  }
+  if (docError || !doc) {
+    return (
+      <div className="flex items-center justify-center h-full py-[64px]">
+        <div className="text-center">
+          <p className="text-[#ef4444] text-[15px] font-medium mb-[4px]">Document not found</p>
+          <p className="text-[#64748b] text-[13px] mb-[12px]">{docError ?? "Check the document ID"}</p>
+          <button onClick={() => navigate("/documents")} className="text-[#3a46e5] text-[13px] font-medium hover:underline">
+            ← Back to Document Hub
+          </button>
         </div>
-        {/* Description — whitespace preserved */}
-        <p className="font-normal text-[#6b7280] text-[14px] leading-[20px]">
-          {doc.description.split("\n").map((line, i) => (
-            <span key={i}>{line}{i < doc.description.split("\n").length - 1 && <br />}</span>
-          ))}
-        </p>
+      </div>
+    );
+  }
+
+  // ── Reusable panel contents ────────────────────────────────────────────────
+
+  // Pages panel
+  const PagesPanel = () => (
+    <div className="flex flex-col h-full overflow-hidden bg-[#f8fafc]">
+
+      {/* Header */}
+      <div className="px-[16px] pt-[14px] pb-[12px] bg-white border-b border-[#f1f5f9] shrink-0">
+        <p className="text-[#0f172a] text-[14px] font-bold">Document Pages</p>
+        <p className="text-[#94a3b8] text-[11px] mt-[1px]">{totalPages} {totalPages === 1 ? "page" : "pages"}</p>
       </div>
 
-      {/* Right: file row or upload zone — flex-1 */}
-      <div className="flex-1 min-w-0">
-        {doc.file ? (
-          /* ── Uploaded file row ── */
-          <div className={`flex items-center justify-between p-[13px] rounded-[12px] border ${
-            isPending
-              ? "bg-[rgba(255,251,235,0.5)] border-[#fde68a]"
-              : "bg-[#f9fafb] border-[#e5e7eb]"
-          }`}>
-            {/* File info */}
-            <div className="flex gap-[12px] items-center min-w-0">
-              <img
-                src={doc.file.type === "pdf" ? imgPdfIcon : imgImgIcon}
-                alt=""
-                className="size-[24px] object-contain shrink-0"
-              />
-              <div className="flex flex-col min-w-0">
-                <span className="font-medium text-[#111827] text-[14px] leading-[20px] whitespace-nowrap">
-                  {doc.file.name}
+      {/* Page grid */}
+      <div className="flex-1 overflow-y-auto p-[16px]">
+        <div className={totalPages === 1 ? "flex justify-center" : "grid grid-cols-2 gap-[12px]"}>
+          {Array.from({ length: totalPages > 0 ? totalPages : 1 }).map((_, i) => {
+            const pageNum  = i + 1;
+            const isActive = currentPage === pageNum;
+            const status   = i === 0 ? "processed" : i === 2 ? "processing" : "processed";
+            return (
+              <div key={pageNum} onClick={() => { setCurrentPage(pageNum); setMobileTab("viewer"); }}
+                className={`cursor-pointer rounded-[10px] overflow-hidden border-2 transition-all bg-white shadow-sm w-full max-w-[220px] ${
+                  isActive
+                    ? "border-[#3a46e5] shadow-[0_0_0_3px_rgba(58,70,229,0.12)]"
+                    : "border-[#e5e7eb] hover:border-[#c7d2fe]"
+                }`}>
+                {/* Thumbnail */}
+                <div className="bg-[#f1f5f9] relative overflow-hidden" style={{ paddingTop: "70%" }}>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    {fileUrl && !isPdf ? (
+                      <img src={fileUrl} alt={`Page ${pageNum}`}
+                        className="w-full h-full object-cover"
+                        style={{ transform: `rotate(${rotation}deg)` }} />
+                    ) : (
+                      <div className="flex flex-col items-center gap-[6px]">
+                        <svg width="32" height="40" viewBox="0 0 28 34" fill="none">
+                          <rect width="28" height="34" rx="4" fill="#fef2f2"/>
+                          <path d="M6 4h12l6 6v20a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z" fill="#fee2e2"/>
+                          <path d="M16 4l6 6h-6V4z" fill="#fca5a5"/>
+                          <text x="5" y="24" fontSize="5" fill="#ef4444" fontWeight="bold">PDF</text>
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  {/* Active indicator */}
+                  {isActive && (
+                    <div className="absolute top-[6px] left-[6px] bg-[#3a46e5] rounded-full w-[18px] h-[18px] flex items-center justify-center shadow-sm">
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+                        <path d="M20 6L9 17l-5-5" stroke="white" strokeWidth="3" strokeLinecap="round"/>
+                      </svg>
+                    </div>
+                  )}
+                </div>
+                {/* Label */}
+                <div className="px-[8px] py-[6px] flex items-center justify-between bg-white border-t border-[#f1f5f9]">
+                  <span className="text-[#374151] text-[11px] font-medium">Page {pageNum}</span>
+                  <PageStatus status={status} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Viewer panel
+  const ViewerPanel = () => (
+    <div className="flex-1 min-w-0 bg-[#e8ecf0] flex flex-col overflow-hidden relative h-full">
+      <div className="absolute top-[12px] right-[14px] z-10 bg-white/90 backdrop-blur-sm border border-[#e5e7eb] rounded-[6px] px-[8px] py-[3px] text-[11px] text-[#64748b] font-medium shadow-sm">
+        Page {currentPage} of {totalPages}
+      </div>
+      <div className="flex-1 overflow-auto flex items-start justify-center p-[16px] sm:p-[28px] pt-[24px]">
+        {!fileUrl && !ocrLoading && fields.length === 0 && (
+          <div className="flex flex-col items-center gap-[12px] pt-[80px]">
+            <Spinner /><p className="text-[#64748b] text-[13px]">Loading document…</p>
+          </div>
+        )}
+        {ocrLoading && fields.length === 0 && (
+          <div className="flex flex-col items-center gap-[12px] pt-[80px]">
+            <Spinner /><p className="text-[#64748b] text-[13px]">Extracting data from document…</p>
+          </div>
+        )}
+        {fields.length > 0 && (
+          <div className="bg-white shadow-[0_8px_32px_rgba(0,0,0,0.12)] rounded-[8px] w-full max-w-[1000px] p-[16px] sm:p-[32px] flex flex-col gap-[20px] sm:gap-[24px] transition-transform duration-200 origin-top"
+            style={{ transform: `scale(${zoom / 100})` }}>
+            <div className="flex flex-col gap-[2px]">
+              <h2 className="text-[#111827] text-[20px] sm:text-[28px] font-bold leading-tight tracking-[-0.5px]">
+                {doc.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ").toUpperCase()}
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-[16px] gap-y-[16px] sm:gap-y-[20px]">
+              {fields.map(field => {
+                const isFullWidth = field.field_name.toLowerCase().includes("address") ||
+                  field.field_name.toLowerCase().includes("employer") ||
+                  field.field_name.toLowerCase().includes("issuing authority") ||
+                  field.field_name.toLowerCase().includes("mrz");
+                const borderColor = field.is_confirmed ? "#22c55e" : field.needs_review ? "#f59e0b" : "#d1d5db";
+                const bgColor     = field.is_confirmed ? "rgba(240,253,244,0.5)" : field.needs_review ? "rgba(255,251,235,0.5)" : "white";
+                return (
+                  <div key={field.id} className={`flex flex-col gap-[4px] ${isFullWidth ? "sm:col-span-2" : ""}`}>
+                    <label className="text-[#64748b] text-[11px] font-medium leading-[14px] tracking-[0.2px]">{field.field_name}</label>
+                    {field.is_editing ? (
+                      <input autoFocus value={field.edit_value} onChange={e => updateEditValue(field.id, e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") void saveEdit(field.id); }}
+                        className="h-[44px] px-[14px] rounded-[6px] text-[#111827] text-[15px] font-semibold border-2 border-[#3a46e5] focus:outline-none" />
+                    ) : (
+                      <div onClick={() => startEdit(field.id)}
+                        className="h-[44px] px-[14px] rounded-[6px] flex items-center text-[#111827] text-[15px] font-semibold border-2 cursor-pointer transition-colors hover:border-[#3a46e5]/50"
+                        style={{ borderColor, backgroundColor: bgColor }}>
+                        {field.extracted_value || <span className="text-[#94a3b8] font-normal text-[13px]">—</span>}
+                      </div>
+                    )}
+                    {field.needs_review && !field.is_confirmed && (
+                      <p className="flex items-center gap-[3px] text-[#d97706] text-[10px] leading-[14px]">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01" stroke="#d97706" strokeWidth="2" strokeLinecap="round"/>
+                        </svg>
+                        Please verify this is correct
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between pt-[8px] border-t border-[#f1f5f9] mt-[4px]">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="10" width="18" height="11" rx="2" stroke="#94a3b8" strokeWidth="1.5"/>
+                <circle cx="12" cy="5" r="2" stroke="#94a3b8" strokeWidth="1.5"/>
+                <path d="M12 7v3M8 14h.01M16 14h.01M9 17h6" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              <button onClick={async () => { await submitFields(); setRightOpen(true); setMobileTab("data"); }}
+                className="flex items-center gap-[6px] h-[34px] px-[20px] rounded-[8px] text-white text-[12px] font-semibold cursor-pointer hover:opacity-90 active:scale-[0.98] transition"
+                style={{ background: "linear-gradient(135deg, #3a46e5, #6366f1)" }}>
+                {source === "db" ? "Update" : "Submit"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      {/* Bottom nav */}
+      <div className="bg-white border-t border-[#e5e7eb] flex items-center justify-between px-[16px] sm:px-[20px] h-[44px] shrink-0">
+        <button disabled={currentPage <= 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+          className="flex items-center gap-[4px] text-[#374151] text-[12px] font-medium disabled:opacity-40 hover:text-[#3a46e5] transition">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+          Previous
+        </button>
+        <span className="text-[#64748b] text-[12px]">Page {currentPage} of {totalPages}</span>
+        <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+          className="flex items-center gap-[4px] text-[#374151] text-[12px] font-medium disabled:opacity-40 hover:text-[#3a46e5] transition">
+          Next
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  );
+
+  // Data panel
+  const DataPanel = () => (
+    <div className="flex flex-col h-full overflow-hidden bg-white">
+      <div className="px-[14px] py-[12px] border-b border-[#f1f5f9] shrink-0">
+        <div className="flex items-center justify-between mb-[10px]">
+          <span className="text-[#0f172a] text-[13px] font-bold tracking-[-0.3px]">Extracted Data</span>
+          <button onClick={() => { setRightOpen(false); setMobileTab("viewer"); }}
+            className="text-[#94a3b8] hover:text-[#374151] transition p-[2px]">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div className="bg-[#f1f5f9] rounded-full h-[6px] overflow-hidden mb-[4px]">
+          <div className="h-full rounded-full bg-[#22c55e] transition-all duration-700" style={{ width: `${avgConfidence}%` }} />
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[#94a3b8] text-[11px]">Average confidence</span>
+          <span className="text-[#0f172a] text-[12px] font-bold">{avgConfidence}%</span>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-[10px] py-[10px] flex flex-col gap-[8px]">
+        {ocrLoading && (
+          <div className="flex flex-col items-center gap-[8px] py-[40px]">
+            <Spinner /><p className="text-[#64748b] text-[12px] text-center">Extracting data…</p>
+          </div>
+        )}
+        {!ocrLoading && ocrError && (
+          <div className="bg-[#fef2f2] border border-[#fca5a5] rounded-[8px] p-[12px]">
+            <p className="text-[#dc2626] text-[12px] leading-[16px]">{ocrError}</p>
+            <button onClick={() => fileBlob && void loadFields(fileBlob, fileName)}
+              className="mt-[6px] text-[#3a46e5] text-[11px] font-medium hover:underline">Retry OCR</button>
+          </div>
+        )}
+        {!ocrLoading && !ocrError && fields.length === 0 && (
+          <div className="text-center py-[40px]">
+            <p className="text-[#94a3b8] text-[12px]">No fields extracted yet.</p>
+            <button onClick={() => fileBlob && void loadFields(fileBlob, fileName)}
+              className="mt-[8px] text-[#3a46e5] text-[12px] font-medium hover:underline">Run OCR</button>
+          </div>
+        )}
+        {fields.map(field => {
+          const cb = confBadge(field.confidence_score);
+          return (
+            <div key={field.id} className={`rounded-[10px] border overflow-hidden ${
+              field.is_confirmed ? "border-[#d1fae5]" : field.needs_review ? "border-[#fde68a]" : "border-[#e5e7eb]"
+            }`}>
+              <div className={`flex items-center justify-between px-[10px] py-[7px] ${
+                field.is_confirmed ? "bg-[#dcfce7]" : field.needs_review ? "bg-[#fef3c7]" : "bg-[#f8fafc]"
+              }`}>
+                <div className="flex items-center gap-[5px] min-w-0">
+                  <div className={`size-[14px] rounded-[3px] flex items-center justify-center shrink-0 ${
+                    field.is_confirmed ? "bg-[#16a34a]" : field.needs_review ? "bg-[#d97706]" : "bg-[#6366f1]"
+                  } bg-opacity-20`}>
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none">
+                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"
+                        stroke={field.is_confirmed ? "#16a34a" : field.needs_review ? "#d97706" : "#6366f1"}
+                        strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                  </div>
+                  <span className="text-[#111827] text-[11px] font-semibold truncate">{field.field_name}</span>
+                </div>
+                <span className={`${cb.bg} ${cb.text} text-[10px] font-bold px-[5px] py-[1px] rounded-full shrink-0 ml-[4px]`}>
+                  {field.confidence_score}%
                 </span>
-                {doc.file.note ? (
-                  <span className="font-normal text-[#d97706] text-[12px] leading-[16px] whitespace-nowrap">
-                    {doc.file.note}
-                  </span>
+              </div>
+              <div className="px-[10px] pt-[8px]">
+                {field.is_editing ? (
+                  <input autoFocus value={field.edit_value} onChange={e => updateEditValue(field.id, e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") saveEdit(field.id); }}
+                    className="w-full text-[12px] text-[#0f172a] bg-white border border-[#6366f1] rounded-[6px] px-[8px] py-[5px] focus:outline-none" />
                 ) : (
-                  <span className="font-normal text-[#6b7280] text-[12px] leading-[16px] whitespace-nowrap">
-                    {doc.file.size}{doc.file.size && doc.file.date ? " • " : ""}{doc.file.date}
-                  </span>
+                  <p className="text-[#0f172a] text-[13px] font-medium leading-[18px] break-words">
+                    {field.extracted_value || <span className="text-[#94a3b8]">—</span>}
+                  </p>
+                )}
+                {field.needs_review && !field.is_confirmed && (
+                  <p className="flex items-center gap-[3px] text-[#d97706] text-[10px] mt-[3px] leading-[14px]">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01" stroke="#d97706" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                    Please verify this date is correct
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-[4px] px-[10px] py-[7px]">
+                {field.is_editing ? (
+                  <>
+                    <button onClick={() => saveEdit(field.id)} className="text-[#3a46e5] text-[11px] font-medium hover:underline">Save</button>
+                    <span className="text-[#e5e7eb] text-[10px]">•</span>
+                    <button onClick={() => cancelEdit(field.id)} className="text-[#94a3b8] text-[11px] hover:text-[#374151] transition">Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => startEdit(field.id)}
+                      className="flex items-center gap-[3px] text-[#64748b] text-[11px] font-medium hover:text-[#374151] transition">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                      </svg>
+                      Edit
+                    </button>
+                    <span className="text-[#e5e7eb] text-[10px]">•</span>
+                    {field.is_confirmed ? (
+                      <span className="flex items-center gap-[3px] text-[#16a34a] text-[11px] font-medium">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                          <path d="M20 6L9 17l-5-5" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round"/>
+                        </svg>
+                        Confirmed
+                      </span>
+                    ) : (
+                      <button onClick={() => confirmField(field.id)}
+                        className="flex items-center gap-[3px] text-[#64748b] text-[11px] font-medium hover:text-[#16a34a] transition">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                          <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+                        </svg>
+                        Confirm
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
-            {/* Action buttons */}
-            <div className="flex gap-[8px] items-center pl-[16px] shrink-0">
-              <button
-                type="button"
-                className="flex flex-col items-center justify-center px-[8px] py-[6px]
-                           rounded-[8px] hover:bg-[#f3f4f6] transition"
-              >
-                <img src={imgEyeIcon} alt="View" className="w-[18px] h-[16px] object-contain" />
-              </button>
-              {!isPending && (
-                <button
-                  type="button"
-                  onClick={() => onDelete(doc.id)}
-                  className="flex flex-col items-center justify-center px-[8px] py-[6px]
-                             rounded-[8px] hover:bg-[#fee2e2] transition"
-                >
-                  <img src={imgTrashIcon} alt="Delete" className="w-[14px] h-[16px] object-contain" />
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          /* ── Upload dropzone ── */
-          <UploadZone onFile={file => onUpload(doc.id, file)} />
-        )}
+          );
+        })}
       </div>
     </div>
   );
-}
 
-// ── Main Component ────────────────────────────────────────────────────────────
-export default function DocumentUpload() {
-  const navigate = useNavigate();
-  // const { data: user } = useCurrentUser();
-  const { isLoading, error } = useDocuments();
-
-  const [identityDocs,   setIdentityDocs]   = useState<DocRow[]>(IDENTITY_DOCS);
-  const [employmentDocs, setEmploymentDocs] = useState<DocRow[]>(EMPLOYMENT_DOCS);
-  const [saving,         setSaving]         = useState(false);
-  const [submitting,     setSubmitting]     = useState(false);
-
-  const allDocs      = [...identityDocs, ...employmentDocs];
-  const uploaded     = allDocs.filter(d => d.file).length;
-  const total        = allDocs.length;
-  const progressPct  = total > 0 ? Math.round((uploaded / total) * 100) : 60;
-  // const firstName    = user?.first_name ?? "Alex";
-  // const lastName     = user?.last_name  ?? "Johnson";
-
-  function handleUpload(id: string, file: File) {
-    const size  = `${(file.size / 1024 / 1024).toFixed(1)} MB`;
-    const isImg = file.type.startsWith("image/");
-    const update = (docs: DocRow[]) =>
-      docs.map(d =>
-        d.id === id
-          ? { ...d, status: "uploaded" as DocStatus, file: { name: file.name, size, date: "Just now", type: isImg ? "img" : "pdf" as "img" | "pdf" } }
-          : d
-      );
-    setIdentityDocs(prev => update(prev));
-    setEmploymentDocs(prev => update(prev));
-  }
-
-  function handleDelete(id: string) {
-    const update = (docs: DocRow[]) =>
-      docs.map(d => d.id === id ? { ...d, status: "required" as DocStatus, file: undefined } : d);
-    setIdentityDocs(prev => update(prev));
-    setEmploymentDocs(prev => update(prev));
-  }
-
-  async function handleSaveDraft() {
-    setSaving(true);
-    setTimeout(() => { setSaving(false); navigate("/documents"); }, 800);
-  }
-
-  async function handleSubmit() {
-    setSubmitting(true);
-    setTimeout(() => { setSubmitting(false); navigate("/applications"); }, 800);
-  }
-
-  // ── Loading ──────────────────────────────────────────────────────────────────
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-[64px]">
-        <svg className="w-8 h-8 animate-spin text-[#2563eb]" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-      </div>
-    );
-  }
-
-  // ── Error ────────────────────────────────────────────────────────────────────
-  if (error) {
-    return (
-      <div className="flex items-center justify-center py-[64px]">
-        <div className="text-center">
-          <p className="text-[#ef4444] text-[16px] font-medium mb-[4px]">Failed to load documents</p>
-          <p className="text-[#6b7280] text-[14px]">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-[32px] pb-[48px]" style={{ fontFamily: "Inter, sans-serif" }}>
+    <div className="flex flex-col bg-[#f9fafb] overflow-hidden"
+      style={{ fontFamily: "Inter, sans-serif", height: "calc(100dvh - 56px)" }}>
 
-      {/* ── Page Header ── */}
-      <div className="flex flex-col gap-[8px]">
-        <h1 className="font-bold text-[#111827] text-[30px] leading-[36px] tracking-[-0.75px]">
-          Upload Your Documents
-        </h1>
-        <p className="font-normal text-[#4b5563] text-[18px] leading-[28px]">
-          Please provide the required documentation for your H-1B visa application. Ensure all files are clear and legible.
-        </p>
-      </div>
+      {/* ── TOP BAR ── */}
+      <div className="bg-white border-b border-[#e5e7eb] flex items-center h-[48px] sm:h-[52px] px-[12px] sm:px-[16px] shrink-0 gap-[8px] sm:gap-[12px]">
+        <button onClick={() => navigate(returnAppId ? `/applications/${returnAppId}` : "/documents")}
+          className="flex items-center gap-[6px] text-[#64748b] text-[12px] sm:text-[13px] font-medium hover:text-[#0f172a] transition whitespace-nowrap shrink-0">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M19 12H5M5 12l7 7M5 12l7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          <span className="hidden sm:inline">Back to Case</span>
+          <span className="sm:hidden">Back</span>
+        </button>
 
-      {/* ── Progress Summary Card ── */}
-      <div className="bg-white border border-[#f3f4f6] rounded-[16px]
-                      shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.05),0px_2px_4px_-1px_rgba(0,0,0,0.03)]
-                      flex flex-col gap-[12px] p-[33px] w-full">
-        {/* Header row */}
-        <div className="flex items-center justify-between pb-[12px]">
-          <div className="flex flex-col gap-[4px]">
-            <div className="flex gap-[8px] items-center">
-              <img src={imgProgressIcon} alt="" className="w-[22.5px] h-[20px] object-contain shrink-0" />
-              <span className="font-bold text-[#111827] text-[20px] leading-[28px] whitespace-nowrap">
-                Application Progress
-              </span>
-            </div>
-            <p className="font-normal text-[#6b7280] text-[14px] leading-[20px] whitespace-nowrap">
-              {uploaded} of {total} required documents uploaded
-            </p>
+        <div className="h-[20px] w-px bg-[#e5e7eb] shrink-0" />
+
+        <div className="flex items-center gap-[8px] min-w-0 flex-1">
+          <div className="bg-[#fee2e2] rounded-[5px] flex items-center justify-center w-[28px] h-[32px] shrink-0">
+            <span className="text-[#ef4444] text-[7px] font-black">PDF</span>
           </div>
-          {/* In Progress badge */}
-          <div className="bg-[rgba(37,99,235,0.1)] flex gap-[8px] items-center
-                          px-[16px] py-[8px] rounded-full shrink-0">
-            <div className="bg-[#2563eb] rounded-full size-[8px] shrink-0" />
-            <span className="font-semibold text-[#2563eb] text-[14px] leading-[20px] whitespace-nowrap">
-              In Progress
+          <div className="flex flex-col min-w-0">
+            <span className="text-[#0f172a] text-[12px] sm:text-[13px] font-semibold leading-[16px] truncate">{doc.name}</span>
+            <span className="text-[#94a3b8] text-[10px] sm:text-[11px] leading-[14px] hidden sm:block">
+              Uploaded 2 hours ago {doc.file_size_bytes ? `• ${(doc.file_size_bytes / 1024 / 1024).toFixed(1)} MB` : ""}
             </span>
           </div>
         </div>
 
-        {/* Progress bar — bg-[#f3f4f6], h-[16px], rounded-full */}
-        <div className="bg-[#f3f4f6] h-[16px] rounded-full w-full overflow-hidden">
-          <div
-            className="h-[16px] rounded-full transition-all duration-500"
-            style={{
-              width: `${progressPct}%`,
-              backgroundImage: "linear-gradient(to right, #2563eb, #7c3aed)",
-            }}
-          />
+        {/* Zoom — hidden on mobile */}
+        <div className="hidden sm:flex items-center gap-[3px] shrink-0">
+          <button onClick={() => setZoom(z => Math.max(50, z - 10))} className="size-[26px] border border-[#e5e7eb] rounded-[5px] text-[#374151] flex items-center justify-center hover:bg-[#f9fafb] transition text-[14px] font-medium">−</button>
+          <span className="text-[#374151] text-[12px] font-medium w-[42px] text-center">{zoom}%</span>
+          <button onClick={() => setZoom(z => Math.min(200, z + 10))} className="size-[26px] border border-[#e5e7eb] rounded-[5px] text-[#374151] flex items-center justify-center hover:bg-[#f9fafb] transition text-[14px] font-medium">+</button>
         </div>
 
-        {/* Labels */}
-        <div className="flex items-center justify-between">
-          <span className="font-medium text-[#4f46e5] text-[14px] leading-[20px]">
-            {progressPct}% Complete
+        {/* Rotate */}
+        <button onClick={() => setRotation(r => (r + 90) % 360)}
+          className="hidden sm:flex items-center gap-[5px] h-[30px] px-[10px] border border-[#e5e7eb] rounded-[7px] text-[#374151] text-[12px] font-medium hover:bg-[#f9fafb] transition shrink-0">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <path d="M23 4v6h-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          Rotate
+        </button>
+
+        {/* Download */}
+        <button onClick={handleDownload}
+          className="flex items-center gap-[5px] h-[30px] px-[8px] sm:px-[10px] border border-[#e5e7eb] rounded-[7px] text-[#374151] text-[12px] font-medium hover:bg-[#f9fafb] transition shrink-0">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          <span className="hidden sm:inline">Download</span>
+        </button>
+      </div>
+
+      {/* ── MOBILE TABS ── */}
+      <div className="lg:hidden flex items-center border-b border-[#e5e7eb] bg-white shrink-0">
+        {([
+          { id: "pages",  label: "Pages"  },
+          { id: "viewer", label: "Viewer" },
+          { id: "data",   label: `Data${fields.length > 0 ? ` (${fields.length})` : ""}` },
+        ] as const).map(tab => (
+          <button key={tab.id} onClick={() => setMobileTab(tab.id)}
+            className={`flex-1 py-[10px] text-[13px] font-medium border-b-2 transition-colors ${
+              mobileTab === tab.id
+                ? "border-[#3a46e5] text-[#3a46e5]"
+                : "border-transparent text-[#6b7280]"
+            }`}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── BODY ── */}
+      {/* Mobile: show one tab at a time */}
+      <div className="lg:hidden flex-1 min-h-0 overflow-hidden">
+        {mobileTab === "pages"  && <PagesPanel />}
+        {mobileTab === "viewer" && <ViewerPanel />}
+        {mobileTab === "data"   && <DataPanel  />}
+      </div>
+
+      {/* Desktop: 3-panel side by side */}
+      <div className="hidden lg:flex flex-1 min-h-0 overflow-hidden">
+        <div className="w-[168px] shrink-0 border-r border-[#e5e7eb]"><PagesPanel /></div>
+        <ViewerPanel />
+        {rightOpen && (
+          <div className="w-[280px] shrink-0 border-l border-[#e5e7eb]"><DataPanel /></div>
+        )}
+        {!rightOpen && fields.length > 0 && (
+          <div className="absolute bottom-[56px] right-[16px]">
+            <button onClick={async () => { await submitFields(); setRightOpen(true); }}
+              className="flex items-center gap-[6px] h-[34px] px-[12px] rounded-[8px] bg-white border border-[#e5e7eb] text-[#374151] text-[12px] font-medium shadow-md hover:bg-[#f9fafb] transition">
+              {source === "db" ? "Update" : "Submit"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── BOTTOM STATUS BAR ── */}
+      <div className="bg-white border-t border-[#e5e7eb] flex items-center justify-between h-[48px] px-[12px] sm:px-[16px] shrink-0">
+        <div className="flex items-center gap-[10px] sm:gap-[14px]">
+          <span className="flex items-center gap-[5px] text-[10px] sm:text-[11px] text-[#374151]">
+            <span className="size-[7px] rounded-full bg-[#22c55e] shrink-0" />
+            {confirmedCount} confirmed
           </span>
-          <span className="font-medium text-[#6b7280] text-[14px] leading-[20px]">100%</span>
-        </div>
-      </div>
-
-      {/* ── Document Categories ── */}
-      <div className="flex flex-col gap-[32px] pt-[8px] w-full">
-
-        {/* ── Identity Documents Section ── */}
-        <div className="bg-white border border-[#f3f4f6] rounded-[16px]
-                        shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.05),0px_2px_4px_-1px_rgba(0,0,0,0.03)]
-                        overflow-hidden w-full">
-          {/* Section header */}
-          <div className="bg-[rgba(249,250,251,0.8)] border-b border-[#f3f4f6]
-                          flex gap-[12px] items-center px-[24px] pb-[17px] pt-[16px]">
-            <div className="bg-[#dbeafe] rounded-[8px] flex items-center justify-center size-[32px] shrink-0">
-              <img src={imgIdentityIcon} alt="" className="w-[18px] h-[16px] object-contain" />
-            </div>
-            <span className="font-semibold text-[#111827] text-[18px] leading-[28px] whitespace-nowrap">
-              Identity Documents
+          {reviewCount > 0 && (
+            <span className="flex items-center gap-[5px] text-[10px] sm:text-[11px] text-[#d97706]">
+              <span className="size-[7px] rounded-full bg-[#f59e0b] shrink-0" />
+              {reviewCount} review
             </span>
-          </div>
-          {/* Rows */}
-          <div className="flex flex-col divide-y divide-[#f3f4f6]">
-            {identityDocs.map(doc => (
-              <DocRowItem key={doc.id} doc={doc} onUpload={handleUpload} onDelete={handleDelete} />
-            ))}
-          </div>
+          )}
         </div>
-
-        {/* ── Employment Documents Section ── */}
-        <div className="bg-white border border-[#f3f4f6] rounded-[16px]
-                        shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.05),0px_2px_4px_-1px_rgba(0,0,0,0.03)]
-                        overflow-hidden w-full">
-          {/* Section header */}
-          <div className="bg-[rgba(249,250,251,0.8)] border-b border-[#f3f4f6]
-                          flex gap-[12px] items-center px-[24px] pb-[17px] pt-[16px]">
-            <div className="bg-[#f3e8ff] rounded-[8px] flex items-center justify-center size-[32px] shrink-0">
-              <img src={imgEmployIcon} alt="" className="size-[16px] object-contain" />
-            </div>
-            <span className="font-semibold text-[#111827] text-[18px] leading-[28px] whitespace-nowrap">
-              Employment Documents
-            </span>
-          </div>
-          {/* Rows */}
-          <div className="flex flex-col divide-y divide-[#f3f4f6]">
-            {employmentDocs.map(doc => (
-              <DocRowItem key={doc.id} doc={doc} onUpload={handleUpload} onDelete={handleDelete} />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Sticky Footer Actions ── */}
-      <div className="sticky bottom-0 bg-white border-t border-[#e5e7eb]
-                      shadow-[0px_-4px_6px_-1px_rgba(0,0,0,0.05)]
-                      flex items-center justify-between px-[32px] py-[16px] -mx-[32px]">
-        <p className="font-normal text-[#4b5563] text-[14px] leading-[20px]">
-          Please ensure all documents are accurate before submitting.
-        </p>
-        <div className="flex gap-[16px] items-center">
-          {/* Save Draft */}
-          <button
-            type="button"
-            onClick={handleSaveDraft}
-            disabled={saving}
-            className="border border-[#d1d5db] flex items-center justify-center
-                       px-[25px] py-[11px] rounded-[8px] text-[#374151] text-[16px]
-                       font-medium leading-[24px] hover:bg-[#f9fafb] transition
-                       disabled:opacity-60 whitespace-nowrap"
-          >
-            {saving ? "Saving…" : "Save Draft"}
-          </button>
-          {/* Submit for Review */}
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="flex items-center justify-center px-[32px] py-[10px] rounded-[8px]
-                       text-white text-[16px] font-medium leading-[24px] opacity-80
-                       shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)]
-                       hover:opacity-100 transition disabled:opacity-40 whitespace-nowrap"
-            style={{ backgroundImage: "linear-gradient(to right, #2563eb, #7c3aed)" }}
-          >
-            {submitting ? "Submitting…" : "Submit for Review"}
-          </button>
-        </div>
+        <button onClick={exportData}
+          className="flex items-center gap-[6px] h-[32px] px-[14px] rounded-[8px] text-white text-[12px] font-semibold hover:opacity-90 transition"
+          style={{ background: 'linear-gradient(135deg, #3a46e5, #6366f1)' }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"
+              stroke="white" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          Export Data
+        </button>
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ from typing import List
 import uuid
 
 
-from app.models.models import Role, User, UserLoginHistory, UserRole
+from app.models.visamodels import Role, User, UserLoginHistory, UserRole
 from app.schemas.admin.dashboard import (
     DashboardCountsResponse,
     UserLoginCardResponse,

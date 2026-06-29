@@ -1,3 +1,4 @@
+// src/components/layout/Publiclayot.tsx
 import type { ReactNode } from 'react';
 import { Globe } from 'lucide-react';
 

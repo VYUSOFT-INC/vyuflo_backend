@@ -30,7 +30,7 @@ from app.services.services import (
     db_list,
     db_update,
 )
-from app.models.models import Application, ApplicationStatusHistory, ApplicationTask, VisaType
+from app.models.visamodels import Application, ApplicationStatusHistory, ApplicationTask, VisaType
 from app.schemas.application import (
     ApplicationCreate,
     ApplicationListResponse,
@@ -91,6 +91,20 @@ async def _assert_task_exists(
 # ===========================================================================
 # APPLICATION SERVICE
 # ===========================================================================
+
+
+STAGE_PROGRESS: dict[str, int] = {
+    "profile_eligibility": 25,
+    "documentation":       50,
+    "lca_filing":          75,
+    "uscis_submission":    90,
+}
+ 
+ 
+# =============================================================================
+# FULL FIXED FUNCTION — replaces create_application in application_service.py
+# =============================================================================
+ 
 async def create_application(
     db: AsyncSession,
     payload: ApplicationCreate,
@@ -98,40 +112,46 @@ async def create_application(
 ) -> ApplicationResponse:
     """
     POST /applications
-    Creates a new application in 'draft' status.
-    Auto-creates tasks from visa_type.required_documents.
+    Creates a new application, immediately activates it to
+    'profile_eligibility' stage, and auto-creates tasks from
+    visa_type.required_documents.
     """
+ 
+    # ── 1. Generate unique application number ─────────────────────────────────
     app_number = _generate_application_number()
-
-    # Check uniqueness
-    existing = await db_get_by_field(db, Application, "application_number", app_number)
+    existing   = await db_get_by_field(db, Application, "application_number", app_number)
     if existing:
-        app_number = _generate_application_number()
-    # ── Block duplicate drafts for same user + visa type ──────────────────
-    existing = await db.execute(
+        app_number = _generate_application_number()  # retry once on collision
+ 
+    # ── 2. Block duplicate drafts for same user + visa type ───────────────────
+    duplicate = await db.execute(
         select(Application).where(
             Application.user_id      == current_user_id,
             Application.visa_type_id == payload.visa_type_id,
             Application.status       == "draft",
         )
     )
-    if existing.scalars().first():
+    if duplicate.scalars().first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="You already have a draft application for this visa type. "
-                   "Please complete or delete it before creating a new one.",
+            detail=(
+                "You already have a draft application for this visa type. "
+                "Please complete or delete it before creating a new one."
+            ),
         )
+ 
+    # ── 3. Create the application row ─────────────────────────────────────────
     new_app = Application(
         application_number   = app_number,
         user_id              = current_user_id,
         visa_type_id         = payload.visa_type_id,
         sponsor_employer     = payload.sponsor_employer,
-        status               = "draft",
-        current_stage        = None,
-        progress_percent     = 0,
+        status               = "draft",        # will be updated below
+        current_stage        = None,            # will be updated below
+        progress_percent     = 0,              # will be updated below
         start_date           = payload.start_date,
         due_date             = payload.due_date,
-        is_draft             = payload.is_draft,    
+        is_draft             = True,           # will be updated below
         has_action_required  = False,
         assigned_attorney_id = payload.assigned_attorney_id,
         assigned_hr_id       = payload.assigned_hr_id,
@@ -139,16 +159,49 @@ async def create_application(
         created_by           = current_user_id,
     )
     new_app = await db_create(db, new_app)
-
-    # ── Auto-create tasks from visa_type.required_documents ──────────────────
+ 
+    # ── 4. Immediately activate — set stage, status, progress, start_date ─────
+    #       This is what makes the frontend timeline + progress bar work
+    #       on the very first load of ApplicationDetail.
+    await db_update(db, Application, new_app.id, {
+        "current_stage":    "profile_eligibility",
+        "status":           "in_progress",
+        "progress_percent": STAGE_PROGRESS["profile_eligibility"],  # 25
+        "start_date":       datetime.now(timezone.utc).date(),
+        "is_draft":         False,
+        "modified_by":      current_user_id,
+    })
+ 
+    # ── 5. Write first history row ────────────────────────────────────────────
+    #       Gives the timeline "Completed on <date>" for Profile & Eligibility
+    history = ApplicationStatusHistory(
+        application_id = new_app.id,
+        stage          = "profile_eligibility",
+        status         = "in_progress",
+        note           = "Profile & Eligibility completed on application creation",
+        completed_at   = datetime.now(timezone.utc),
+        changed_by     = current_user_id,
+        created_by     = current_user_id,
+    )
+    await db_create(db, history)
+ 
+    # ── 6. Auto-create tasks from visa_type.required_documents ───────────────
+    #       The seed data defines required_documents as a JSON list per visa type.
+    #       e.g. H-1B → ["Passport Copy", "Educational Transcripts", ...]
     visa_type = await db_get_by_id(db, VisaType, payload.visa_type_id)
-    visa_type = await db_get_by_id(db, VisaType, payload.visa_type_id)
+    if not visa_type:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Visa type {payload.visa_type_id} not found.",
+        )
+ 
     docs = visa_type.required_documents
+    # required_documents may be stored as a JSON string in the DB
     if isinstance(docs, str):
         import json
         docs = json.loads(docs)
-
-    for index, doc_name in enumerate(docs):
+ 
+    for index, doc_name in enumerate(docs or []):
         task = ApplicationTask(
             application_id = new_app.id,
             task_name      = doc_name,
@@ -159,9 +212,17 @@ async def create_application(
             created_by     = current_user_id,
         )
         await db_create(db, task)
-
-    return ApplicationResponse.model_validate(new_app)
-
+ 
+    # ── 7. Reload with visa_type relationship and return ──────────────────────
+    result = await db.execute(
+        select(Application)
+        .options(joinedload(Application.visa_type))
+        .where(Application.id == new_app.id)
+    )
+    refreshed = result.scalars().first()
+    return ApplicationResponse.model_validate(refreshed)
+ 
+ 
 # async def create_application(
 #     db: AsyncSession,
 #     payload: ApplicationCreate,
@@ -170,33 +231,67 @@ async def create_application(
 #     """
 #     POST /applications
 #     Creates a new application in 'draft' status.
+#     Auto-creates tasks from visa_type.required_documents.
 #     """
 #     app_number = _generate_application_number()
 
-#     # Check uniqueness (extremely unlikely collision but guard anyway)
+#     # Check uniqueness
 #     existing = await db_get_by_field(db, Application, "application_number", app_number)
 #     if existing:
-#         app_number = _generate_application_number()  # retry once
-
-#     new_app = Application(
-#         application_number=app_number,
-#         user_id=current_user_id,
-#         visa_type_id=payload.visa_type_id,
-#         sponsor_employer=payload.sponsor_employer,
-#         status="draft",
-#         current_stage=None,
-#         progress_percent=0,
-#         start_date=payload.start_date,
-#         due_date=payload.due_date,
-#         is_draft=payload.is_draft,
-#         has_action_required=False,
-#         assigned_attorney_id=payload.assigned_attorney_id,
-#         assigned_hr_id=payload.assigned_hr_id,
-#         notes=payload.notes,
-#         created_by=current_user_id,
+#         app_number = _generate_application_number()
+#     # ── Block duplicate drafts for same user + visa type ──────────────────
+#     existing = await db.execute(
+#         select(Application).where(
+#             Application.user_id      == current_user_id,
+#             Application.visa_type_id == payload.visa_type_id,
+#             Application.status       == "draft",
+#         )
 #     )
-
+#     if existing.scalars().first():
+#         raise HTTPException(
+#             status_code=status.HTTP_409_CONFLICT,
+#             detail="You already have a draft application for this visa type. "
+#                    "Please complete or delete it before creating a new one.",
+#         )
+#     new_app = Application(
+#         application_number   = app_number,
+#         user_id              = current_user_id,
+#         visa_type_id         = payload.visa_type_id,
+#         sponsor_employer     = payload.sponsor_employer,
+#         status               = "draft",
+#         current_stage        = None,
+#         progress_percent     = 0,
+#         start_date           = payload.start_date,
+#         due_date             = payload.due_date,
+#         is_draft             = payload.is_draft,    
+#         has_action_required  = False,
+#         assigned_attorney_id = payload.assigned_attorney_id,
+#         assigned_hr_id       = payload.assigned_hr_id,
+#         notes                = payload.notes,
+#         created_by           = current_user_id,
+#     )
 #     new_app = await db_create(db, new_app)
+
+#     # ── Auto-create tasks from visa_type.required_documents ──────────────────
+#     visa_type = await db_get_by_id(db, VisaType, payload.visa_type_id)
+#     visa_type = await db_get_by_id(db, VisaType, payload.visa_type_id)
+#     docs = visa_type.required_documents
+#     if isinstance(docs, str):
+#         import json
+#         docs = json.loads(docs)
+
+#     for index, doc_name in enumerate(docs):
+#         task = ApplicationTask(
+#             application_id = new_app.id,
+#             task_name      = doc_name,
+#             description    = f"Upload {doc_name} for {visa_type.code} application",
+#             is_required    = True,
+#             is_completed   = False,
+#             sort_order     = index + 1,
+#             created_by     = current_user_id,
+#         )
+#         await db_create(db, task)
+
 #     return ApplicationResponse.model_validate(new_app)
 
 
@@ -205,21 +300,17 @@ async def get_application(
     application_id: uuid.UUID,
     current_user_id: uuid.UUID,
 ) -> ApplicationResponse:
-    """
-    GET /applications/{application_id}
-    Returns full application detail.  Raises 404 if not found.
-    """
-    result = await _assert_application_exists(db, application_id)
-    visatype = await db_get_by_id(db, VisaType, result.visa_type_id)
-    # Optional ownership check — remove if admins/staff see all
-    if result.user_id != current_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this application.",
-        )
-    result.visa_type = visatype
-    return ApplicationResponse.model_validate(result)
-
+    result = await db.execute(
+        select(Application)
+        .options(joinedload(Application.visa_type))    # ← proper joinedload
+        .where(Application.id == application_id)
+    )
+    app = result.scalars().first()
+    if not app:
+        raise HTTPException(status_code=404, detail=f"Application {application_id} not found.")
+    if app.user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="You do not have access to this application.")
+    return ApplicationResponse.model_validate(app)
 
 from sqlalchemy.orm import joinedload
 
@@ -440,20 +531,16 @@ async def list_tasks(
     db: AsyncSession,
     application_id: uuid.UUID,
 ) -> List[TaskResponse]:
-    """
-    GET /applications/{application_id}/tasks
-    Returns checklist sorted by sort_order.
-    """
     await _assert_application_exists(db, application_id)
-    tasks = await db_list(
-        db,
-        ApplicationTask,
-        filters=[ApplicationTask.application_id == application_id],
-        limit=500,
-    )
-    tasks_sorted = sorted(tasks, key=lambda t: t.sort_order)
-    return [TaskResponse.model_validate(t) for t in tasks_sorted]
 
+    result = await db.execute(
+        select(ApplicationTask)
+        .options(joinedload(ApplicationTask.document))   # ← loads document in 1 query
+        .where(ApplicationTask.application_id == application_id)
+        .order_by(ApplicationTask.sort_order)
+    )
+    tasks = result.scalars().all()
+    return [_build_task_response(t) for t in tasks]
 
 async def create_task(
     db: AsyncSession,
@@ -504,6 +591,7 @@ async def update_task(
     return TaskResponse.model_validate(updated)
 
 
+# REPLACE complete_task — link document_id when completing
 async def complete_task(
     db: AsyncSession,
     application_id: uuid.UUID,
@@ -511,25 +599,55 @@ async def complete_task(
     payload: TaskCompleteRequest,
     current_user_id: uuid.UUID,
 ) -> TaskResponse:
-    """
-    PATCH /applications/{application_id}/tasks/{task_id}/complete
-    Marks a checklist item complete / incomplete and records who/when.
-    """
     await _assert_task_exists(db, application_id, task_id)
 
     update_data: dict = {
         "is_completed": payload.is_completed,
-        "modified_by": current_user_id,
+        "modified_by":  current_user_id,
     }
     if payload.is_completed:
         update_data["completed_at"] = datetime.now(timezone.utc)
         update_data["completed_by"] = current_user_id
+        if payload.document_id:                          # ← ADD
+            update_data["document_id"] = payload.document_id
     else:
         update_data["completed_at"] = None
         update_data["completed_by"] = None
+        update_data["document_id"]  = None               # ← ADD clear on undo
 
-    updated = await db_update(db, ApplicationTask, task_id, update_data)
-    return TaskResponse.model_validate(updated)
+    await db_update(db, ApplicationTask, task_id, update_data)
+
+    # Reload with document relationship
+    result = await db.execute(
+        select(ApplicationTask)
+        .options(joinedload(ApplicationTask.document))
+        .where(ApplicationTask.id == task_id)
+    )
+    updated = result.scalars().first()
+    return _build_task_response(updated)
+
+
+# ADD this helper function — builds TaskResponse with document fields
+def _build_task_response(task: ApplicationTask) -> TaskResponse:
+    doc = getattr(task, "document", None)
+    return TaskResponse(
+        id             = task.id,
+        application_id = task.application_id,
+        task_name      = task.task_name,
+        description    = task.description,
+        is_required    = task.is_required,
+        is_completed   = task.is_completed,
+        sort_order     = task.sort_order,
+        completed_at   = task.completed_at,
+        completed_by   = task.completed_by,
+        created_at     = task.created_at,
+        updated_at     = task.updated_at,
+        # document fields — only when document is linked
+        document_id          = doc.id                      if doc else None,
+        document_name        = doc.file_name               if doc else None,
+        document_size_bytes  = doc.file_size_kb * 1024     if doc and doc.file_size_kb else None,
+        document_uploaded_at = doc.created_at              if doc else None,
+    )
 
 
 async def delete_task(

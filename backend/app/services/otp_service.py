@@ -5,7 +5,7 @@ import string
 
 from app.core.email import send_email
 from app.services.services import db_create, utc_now
-from app.models.models import User, UserOTP
+from app.models.visamodels import User, UserOTP
 from app.core.config import settings
 
 
