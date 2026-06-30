@@ -31,7 +31,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.services import db_create, db_get_by_id, db_update
+from app.services.employee.services import db_create, db_get_by_id, db_update
 from app.models.visamodels import (
     Application,
     AuditLog,

@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import get_current_user
 from app.models.visamodels import User
 from app.services.attorney import template_library_service
 from app.schemas.attorney.template_library import (
@@ -71,7 +71,7 @@ async def list_templates(
 
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    # _perm:        None         = Depends(require_permission("content.manage_guides")),
+    # #_perm:        None         = Depends(require_permission("content.manage_guides")),
 ) -> LetterTemplateListResponse:
     """
     Screen 22 — powers the full template grid.
@@ -115,7 +115,7 @@ async def get_template(
     template_id:  uuid.UUID,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    # _perm:        None         = Depends(require_permission("content.manage_guides")),
+    # #_perm:        None         = Depends(require_permission("content.manage_guides")),
 ) -> LetterTemplateDetailResponse:
     """
     Screen 22 — Preview button opens full template content.
@@ -142,7 +142,7 @@ async def create_template(
     payload:      LetterTemplateCreate,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    # _perm:        None         = Depends(require_permission("content.manage_guides")),
+    # #_perm:        None         = Depends(require_permission("content.manage_guides")),
 ) -> LetterTemplateDetailResponse:
     """
     Screen 22 — '+ Create Template' button.
@@ -171,7 +171,7 @@ async def update_template(
     payload:      LetterTemplateUpdate,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    # _perm:        None         = Depends(require_permission("content.manage_guides")),
+    # #_perm:        None         = Depends(require_permission("content.manage_guides")),
 ) -> LetterTemplateDetailResponse:
     """
     Screen 22 — 3-dot menu → Edit.
@@ -197,7 +197,7 @@ async def delete_template(
     template_id:  uuid.UUID,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    # _perm:        None         = Depends(require_permission("content.manage_guides")),
+    # #_perm:        None         = Depends(require_permission("content.manage_guides")),
 ) -> dict:
     """
     Screen 22 — 3-dot menu → Delete.
@@ -226,7 +226,7 @@ async def use_template(
     payload:      UseTemplateRequest,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    # _perm:        None         = Depends(require_permission("documents.upload")),
+    # #_perm:        None         = Depends(require_permission("documents.upload")),
 ) -> UseTemplateResponse:
     """
     Screen 22 — 'Use' button.

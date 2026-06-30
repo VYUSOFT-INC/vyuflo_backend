@@ -10,7 +10,7 @@ from enum import Enum
 class UserBasic(BaseModel):
     model_config = ConfigDict(from_attributes=True)  # ✅ allows ORM object → pydantic
 
-    id:         uuid.UUID
+    id:         uuid.UUID | None = None
     email:      str
     first_name: str
     last_name:  str

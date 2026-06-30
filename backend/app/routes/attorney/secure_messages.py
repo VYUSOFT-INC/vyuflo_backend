@@ -49,7 +49,7 @@ from app.services.attorney.secure_messages_service import (
 )
 
 # Import your existing schemas for ThreadResponse — reused directly
-from app.schemas.message import ThreadListResponse, ThreadResponse
+from app.schemas.employee.message import ThreadListResponse, ThreadResponse
 
 secure_messages_router = APIRouter()
 

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import get_current_user
 from app.models.visamodels import User
 from app.services.attorney import lawyer_dashboard_service
 from app.schemas.attorney.lawyer_dashboard import (
@@ -43,7 +43,7 @@ lawyer_dashboard_router = APIRouter()
 async def get_lawyer_dashboard(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("dashboard.view_own")),
+    #_perm:        None         = Depends(require_permission("dashboard.view_own")),
 ) -> LawyerDashboardResponse:
     """
     25 - Lawyer Dashboard — single aggregated call on page load.
@@ -76,7 +76,7 @@ async def get_lawyer_dashboard(
 async def get_kpi_cards_only(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("dashboard.view_own")),
+    #_perm:        None         = Depends(require_permission("dashboard.view_own")),
 ) -> DashboardKpiCards:
     """
     25 - Lawyer Dashboard — KPI cards only.
@@ -105,7 +105,7 @@ async def get_recent_cases(
     offset: int = Query(default=0,  ge=0),
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("dashboard.view_own")),
+    #_perm:        None         = Depends(require_permission("dashboard.view_own")),
 ) -> RecentCasesResponse:
     """
     25 - Lawyer Dashboard — "View All" link next to Recent Cases table.

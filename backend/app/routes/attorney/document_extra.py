@@ -24,7 +24,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 
 # Your existing schema — reused directly
-from app.schemas.document import DocumentListResponse, DocumentResponse
+from app.schemas.employee.document import DocumentListResponse, DocumentResponse
 
 # New schemas — separate file, no conflict
 from app.schemas.attorney.document_extra import (
@@ -36,7 +36,7 @@ from app.schemas.attorney.document_extra import (
 )
 
 # Your existing service — reused for get_document_file_url
-from app.services.document_service import get_document_file_url
+from app.services.employee.document_service import get_document_file_url
 
 # New service functions — separate file, no conflict
 from app.services.attorney.document_extra_service import (

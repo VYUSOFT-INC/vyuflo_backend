@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import get_current_user
 from app.models.visamodels import User
 from app.services.attorney import notifications_reminders_service
 from app.schemas.attorney.notifications_reminders import (
@@ -45,7 +45,7 @@ notifications_reminders_router = APIRouter()
 async def get_tab_counts(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("notifications.view")),
+    #_perm:        None         = Depends(require_permission("notifications.view")),
 ) -> TabCountsResponse:
     """
     Screen 24 — called on page load and after any read/dismiss action.
@@ -80,7 +80,7 @@ async def list_updates(
 
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("notifications.view")),
+    #_perm:        None         = Depends(require_permission("notifications.view")),
 ) -> NotificationListResponse:
     """
     Screen 24 — All Updates tab.
@@ -123,7 +123,7 @@ async def list_deadlines(
 
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("notifications.view")),
+    #_perm:        None         = Depends(require_permission("notifications.view")),
 ) -> NotificationListResponse:
     """
     Screen 24 — Deadlines tab.
@@ -159,7 +159,7 @@ async def list_reminders(
 
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("notifications.view")),
+    #_perm:        None         = Depends(require_permission("notifications.view")),
 ) -> ReminderListResponse:
     """
     Screen 24 — Reminders tab.
@@ -206,7 +206,7 @@ async def mark_all_read(
 
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("notifications.view")),
+    #_perm:        None         = Depends(require_permission("notifications.view")),
 ) -> dict:
     """
     Screen 24 — "Mark All as Read" button (top right).

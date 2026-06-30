@@ -38,7 +38,7 @@ from app.schemas.attorney.application_extra import (
     DeadlineResponse,
     DeadlineUpdate,
 )
-from app.services.services import db_create, db_delete, db_update
+from app.services.employee.services import db_create, db_delete, db_update
 
 
 # ─────────────────────────────────────────────────────────────────────────────

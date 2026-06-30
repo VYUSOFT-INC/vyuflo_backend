@@ -35,9 +35,9 @@ from app.schemas.attorney.document_extra import (
     DocumentVersionResponse,
 )
 # Reuse your existing mapper — no duplication
-from app.schemas.document import DocumentResponse
-from app.services.document_service import _to_response
-from app.services.services import db_create, db_update
+from app.schemas.employee.document import DocumentResponse
+from app.services.employee.document_service import _to_response
+from app.services.employee.services import db_create, db_update
 
 
 # ─────────────────────────────────────────────────────────────────────────────

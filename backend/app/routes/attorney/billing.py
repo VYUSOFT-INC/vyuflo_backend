@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import get_current_user
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.models.visamodels import User
 from app.schemas.attorney.billing import (
@@ -86,7 +86,7 @@ async def get_dashboard_stats(
                                        pattern="^(this_month|last_month|ytd)$"),
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("billing:dashboard")),
+    #_perm:        None         = Depends(require_permission("billing:dashboard")),
 ):
     try:
         return await service_get_dashboard_stats(db, current_user.user_id, period)
@@ -108,7 +108,7 @@ async def get_top_unbilled_clients(
     limit:        int          = Query(10, ge=1, le=50),
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("billing:dashboard")),
+    #_perm:        None         = Depends(require_permission("billing:dashboard")),
 ):
     return await service_get_top_unbilled_clients(db, current_user.user_id, limit)
 
@@ -129,7 +129,7 @@ async def list_billing_clients(
     page_size:   int            = Query(20, ge=1, le=100),
     db:           AsyncSession  = Depends(get_db),
     current_user: User          = Depends(get_current_user),
-    _perm:        None          = Depends(require_permission("billing_clients:read")),
+    #_perm:        None          = Depends(require_permission("billing_clients:read")),
 ):
     items, total = await service_list_billing_clients(
         db, search=search, client_type=client_type, is_active=is_active,
@@ -150,7 +150,7 @@ async def get_billing_client(
     client_id:    uuid.UUID,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("billing_clients:read")),
+    #_perm:        None         = Depends(require_permission("billing_clients:read")),
 ):
     try:
         return await service_get_billing_client(db, client_id)
@@ -168,7 +168,7 @@ async def create_billing_client(
     payload:      BillingClientCreate,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("billing_clients:manage")),
+    #_perm:        None         = Depends(require_permission("billing_clients:manage")),
 ):
     try:
         return await service_create_billing_client(db, payload, current_user.user_id)
@@ -197,7 +197,7 @@ async def bulk_action_time_entries(
     payload:      BulkActionRequest,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("time_entries:bulk_action")),
+    #_perm:        None         = Depends(require_permission("time_entries:bulk_action")),
 ):
     try:
         return await service_bulk_action(db, payload, current_user.user_id)
@@ -233,7 +233,7 @@ async def list_time_entries(
     page_size:         int                 = Query(20, ge=1, le=100),
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("time_entries:read")),
+    #_perm:        None         = Depends(require_permission("time_entries:read")),
 ):
     items, total = await service_list_time_entries(
         db, attorney_id=current_user.user_id, search=search, status=status,
@@ -256,7 +256,7 @@ async def get_time_entry(
     entry_id:     uuid.UUID,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("time_entries:read")),
+    #_perm:        None         = Depends(require_permission("time_entries:read")),
 ):
     try:
         return await service_get_time_entry(db, entry_id, current_user.user_id)
@@ -279,7 +279,7 @@ async def create_time_entry(
     payload:      TimeEntryCreate,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("time_entries:create")),
+    #_perm:        None         = Depends(require_permission("time_entries:create")),
 ):
     try:
         return await service_create_time_entry(db, payload, current_user.user_id)
@@ -300,7 +300,7 @@ async def update_time_entry(
     payload:      TimeEntryUpdate,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("time_entries:update")),
+    #_perm:        None         = Depends(require_permission("time_entries:update")),
 ):
     try:
         return await service_update_time_entry(db, entry_id, payload, current_user.user_id)
@@ -320,7 +320,7 @@ async def delete_time_entry(
     entry_id:     uuid.UUID,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("time_entries:delete")),
+    #_perm:        None         = Depends(require_permission("time_entries:delete")),
 ):
     try:
         await service_delete_time_entry(db, entry_id, current_user.user_id)
@@ -350,7 +350,7 @@ async def draft_invoice_from_entries(
     payload:      InvoiceDraftFromEntries,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("invoices:create")),
+    #_perm:        None         = Depends(require_permission("invoices:create")),
 ):
     try:
         return await service_draft_from_entries(db, payload, current_user.user_id)
@@ -379,7 +379,7 @@ async def list_invoices(
     page_size:         int                 = Query(20, ge=1, le=100),
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("invoices:read")),
+    #_perm:        None         = Depends(require_permission("invoices:read")),
 ):
     items, total = await service_list_invoices(
         db, attorney_id=current_user.user_id, search=search, status=status,
@@ -402,7 +402,7 @@ async def get_invoice(
     invoice_id:   uuid.UUID,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("invoices:read")),
+    #_perm:        None         = Depends(require_permission("invoices:read")),
 ):
     try:
         return await service_get_invoice(db, invoice_id, current_user.user_id)
@@ -421,7 +421,7 @@ async def create_invoice(
     payload:      InvoiceCreate,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("invoices:create")),
+    #_perm:        None         = Depends(require_permission("invoices:create")),
 ):
     try:
         return await service_create_invoice(db, payload, current_user.user_id)
@@ -447,7 +447,7 @@ async def update_invoice_status(
     payload:      InvoiceStatusUpdateRequest,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("invoices:update")),
+    # _perm:        None         = Depends(require_permission("invoices:update")),
 ):
     try:
         return await service_update_invoice_status(db, invoice_id, payload, current_user.user_id)

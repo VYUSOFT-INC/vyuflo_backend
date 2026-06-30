@@ -36,7 +36,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_permission
+from app.core.dependencies import get_current_user
 from app.models.visamodels import User
 from app.services.attorney import invoice_detail_service
 from app.schemas.attorney.invoice_detail import (
@@ -61,7 +61,7 @@ async def get_invoice_detail(
     invoice_id:   uuid.UUID,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("invoices:read")),
+    #_perm:        None         = Depends(require_permission("invoices:read")),
 ):
     """
     Screen 21 — called when attorney opens an invoice.
@@ -95,7 +95,7 @@ async def update_invoice(
     payload:      InvoiceUpdateRequest,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("invoices:update")),
+    #_perm:        None         = Depends(require_permission("invoices:update")),
 ):
     """
     Screen 21 — partial update, only provided fields are written.
@@ -129,7 +129,7 @@ async def add_line_item(
     payload:      InvoiceLineItemCreate,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
-    _perm:        None         = Depends(require_permission("invoices:update")),
+    #_perm:        None         = Depends(require_permission("invoices:update")),
 ):
     """
     Screen 21 — adds a new row to the Billable Items table.
@@ -164,7 +164,7 @@ async def delete_line_item(
     line_item_id:  uuid.UUID,
     db:            AsyncSession = Depends(get_db),
     current_user:  User         = Depends(get_current_user),
-    _perm:         None         = Depends(require_permission("invoices:update")),
+    #_perm:         None         = Depends(require_permission("invoices:update")),
 ):
     """
     Screen 21 — removes a row from the Billable Items table.
