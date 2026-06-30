@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.visamodels import User
-from app.schemas.notification_schemas import (
+from app.schemas.employee.notification_schemas import (
     NotificationOut,
     NotificationListResponse,
     NotificationStatsResponse,
@@ -25,7 +25,7 @@ from app.schemas.notification_schemas import (
     NotificationPreferencesOut,
     UpdatePreferencesRequest,
 )
-from app.services.notification_service import (
+from app.services.employee.notification_service import (
     list_notifications,
     get_notification_stats,
     mark_notification_read,

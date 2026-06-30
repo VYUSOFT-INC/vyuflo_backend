@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.schemas.message import (
+from app.schemas.employee.message import (
+    MessageCreate,
     MessageListResponse,
     MessageResponse,
     MarkReadResponse,
@@ -17,7 +18,7 @@ from app.schemas.message import (
     ThreadListResponse,
     ThreadResponse,
 )
-from app.services.message_service import (
+from app.services.employee.message_service import (
     create_thread,
     get_thread,
     list_messages,
@@ -87,6 +88,60 @@ async def api_get_thread(
 # MESSAGES
 # =============================================================================
 
+from fastapi import Request
+from starlette.datastructures import UploadFile as StarletteUploadFile
+
+@message_router.post(
+    "/messages/conversations/{thread_id}/attachments",
+    response_model=MessageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def api_send_file_message(
+    thread_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> MessageResponse:
+    form = await request.form()
+
+    content = form.get("content")
+    file = form.get("file") or form.get("attachment") or form.get("document")
+
+    if content == "":
+        content = None
+
+    if not isinstance(file, StarletteUploadFile):
+        file = None
+
+    return await send_message(
+        db=db,
+        thread_id=thread_id,
+        user_id=current_user.user_id,
+        content=content,
+        file=file,
+    )
+
+
+@message_router.post(
+    "/messages/conversations/{thread_id}/messages",
+    response_model=MessageResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Send a message",
+)
+async def api_send_message(
+    thread_id: uuid.UUID,
+    payload: MessageCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> MessageResponse:
+    return await send_message(
+        db=db,
+        thread_id=thread_id,
+        user_id=current_user.user_id,
+        content=payload.content,
+        file=None,
+    )
+
 @message_router.get(
     "/messages/conversations/{thread_id}/messages",
     response_model=MessageListResponse,
@@ -106,33 +161,6 @@ async def api_list_messages(
 ) -> MessageListResponse:
     return await list_messages(db, thread_id, current_user.user_id, limit, offset)
 
-
-@message_router.post(
-    "/messages/conversations/{thread_id}/messages",
-    response_model=MessageResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Send a message",
-    description=(
-        "Send a text message or file attachment. "
-        "For file attachments, use multipart/form-data. "
-        "Automatically increments unread_count for all other participants."
-    ),
-)
-async def api_send_message(
-    thread_id:    uuid.UUID,
-    # ── multipart fields (file upload) ──
-    content:      Optional[str]      = Form(None),
-    file:         Optional[UploadFile] = File(None),
-    db:           AsyncSession       = Depends(get_db),
-    current_user: uuid.UUID          = Depends(get_current_user),
-) -> MessageResponse:
-    return await send_message(
-        db        = db,
-        thread_id = thread_id,
-        user_id   = current_user.user_id,
-        content   = content,
-        file      = file,
-    )
 
 
 # =============================================================================

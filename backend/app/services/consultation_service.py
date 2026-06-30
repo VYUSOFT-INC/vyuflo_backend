@@ -22,7 +22,7 @@ from app.models.visamodels import (
     ConsultationSlot,
     ConsultationBooking,
 )
-from app.schemas.consultation_schemas import (
+from app.schemas.employee.consultation_schemas import (
     CreateConsultationBookingRequest,
     AttorneyAvailabilityCreateRequest,
     AppointmentTypeCreateRequest,
@@ -32,7 +32,7 @@ from app.schemas.consultation_schemas import (
     AppointmentTypeOut,
     ConsultationSlotOut,
 )
-from app.services.services import db_create, db_get_by_id, db_update
+from app.services.employee.services import db_create, db_get_by_id, db_update
 
 
 def _now() -> datetime:

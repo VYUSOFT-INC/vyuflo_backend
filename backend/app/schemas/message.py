@@ -59,6 +59,7 @@ class ThreadResponse(BaseModel):
 
     # Online status of the OTHER participant (direct only)
     is_online:        bool
+    last_seen_at:     Optional[datetime] = None
 
     # Last message preview — powers left-panel snippet
     last_message:     Optional[str]        # = last_message_preview
@@ -110,7 +111,8 @@ class MessageResponse(BaseModel):
     # Call fields — populated when message_type = call_event
     call_duration_seconds: Optional[int]
     call_status:           Optional[CallStatus]
-
+    attachment_type: Optional[str] = None
+    is_image: bool = False
     # State
     is_read:    bool
     is_edited:  bool

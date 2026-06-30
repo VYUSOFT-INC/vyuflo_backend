@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import get_current_user   # your existing JWT dep
 from app.models.visamodels import User
-from app.schemas.payment_schemas import (
+from app.schemas.employee.payment_schemas import (
     FeeOut,
     FeeCreateRequest,
     FeeUpdateRequest,
@@ -32,7 +32,7 @@ from app.schemas.payment_schemas import (
     RefundCreateRequest,
     OutstandingFeeSummary,
 )
-from app.services.payment_service import (
+from app.services.employee.payment_service import (
     # Fees
     get_outstanding_fees,
     get_all_fees,

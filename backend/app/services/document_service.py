@@ -2,14 +2,15 @@ import uuid
 import os
 from datetime import datetime, timezone
 from typing import Optional
+from app.services.employee import storage
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import joinedload
 
 from app.models.visamodels import Document, DocumentOCRField, DocumentType, ApplicationTask
-from app.schemas.document import DocumentResponse, DocumentListResponse
-from app.services.services import db_create, db_get_by_id, db_list, db_update
+from app.schemas.employee.document import DocumentResponse, DocumentListResponse
+from app.services.employee.services import db_create, db_get_by_id, db_list, db_update
 
 
 def _to_response(doc: Document) -> DocumentResponse:
@@ -83,12 +84,15 @@ async def upload_document(
     if file_format == "jpeg":
         file_format = "jpg"
 
-    # 3. Save file — replace with your S3 / storage logic
-    storage_path = f"uploads/{user_id}/{doc_type.id}/{file.filename}"
-    os.makedirs(os.path.dirname(f"./{storage_path}"), exist_ok=True)
-    with open(f"./{storage_path}", "wb") as f_out:
-        f_out.write(content)
-
+    # 3. Save file (local in dev, S3 in prod)
+    safe_name    = os.path.basename(file.filename or f"document.{file_format}")
+    storage_path = f"users/{user_id}/documents/{document_type}/{safe_name}"
+    await storage.upload_file(
+        content,
+        storage_path,
+        file.content_type or "application/octet-stream",
+    )
+    
     # 4. Create Document record
     doc = Document(
         user_id          = user_id,
@@ -117,7 +121,7 @@ async def upload_document(
         )
         task = task_result.scalars().first()
         if task:
-            from app.services.services import db_update
+            from app.services.employee.services import db_update
             await db_update(db, ApplicationTask, task.id, {
                 "is_completed": True,
                 "completed_at": datetime.now(timezone.utc),

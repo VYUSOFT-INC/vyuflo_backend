@@ -81,6 +81,7 @@ class OnboardingProfileRequest(BaseModel):
     preferred_language:   str | None = None
     phone_number:         Optional[str] = None
     country_code:         Optional[str] = None
+    theme_color:          Optional[str] = None
 
 
 class OnboardingCompleteRequest(BaseModel):

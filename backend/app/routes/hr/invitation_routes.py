@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.email import send_invitation_email
 from app.models.visamodels import User
 from app.schemas.hr.invitation_schemas import (
     InviteByEmailRequest,
@@ -22,9 +23,11 @@ from app.schemas.hr.invitation_schemas import (
     ValidateTokenResponse,
 )
 from app.services.hr.invitation_service import (
+    _get_employer_profile,
     create_email_invite,
     create_code_invite,
     create_link_invite,
+    get_employee_detail,
     get_my_invitations,
     revoke_invitation,
     resend_email_invite,
@@ -35,7 +38,7 @@ from app.services.hr.invitation_service import (
     deactivate_employee,
 )
 
-invitation_router = APIRouter(prefix="/invitations", tags=["Invitations"])
+invitation_router = APIRouter(prefix="/hr")
 
 
 # =============================================================================
@@ -59,18 +62,19 @@ async def invite_by_email(
     The invite expires in `expires_days` days (default 7).
     """
     try:
-        invite = await create_email_invite(db, current_user.id, data)
+        invite = await create_email_invite(db, current_user.user_id, data)
         await db.commit()
 
-        # TODO: send actual email here
-        # await send_invitation_email(
-        #     to_email=data.email,
-        #     invite_token=invite.invite_token,
-        #     company_name=...,
-        #     hr_name=...,
-        #     personal_message=data.personal_message,
-        # )
+        employer = await _get_employer_profile(db, current_user.user_id)
 
+        await send_invitation_email(
+            to_email=data.email,
+            invite_token=invite.invite_token,
+            company_name=employer.company_name or "your company",
+            hr_name=current_user.email,
+            personal_message=data.personal_message,
+        )
+        print(invite,"invite")
         return invite
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -93,7 +97,7 @@ async def invite_by_code(
     Employee enters the code on VisaFlow to connect to the company.
     """
     try:
-        invite = await create_code_invite(db, current_user.id, data)
+        invite = await create_code_invite(db, current_user.user_id, data)
         await db.commit()
         return invite
     except ValueError as e:
@@ -116,7 +120,7 @@ async def invite_by_link(
     Anyone with the link can join (up to max_uses limit).
     """
     try:
-        invite = await create_link_invite(db, current_user.id, data)
+        invite = await create_link_invite(db, current_user.user_id, data)
         await db.commit()
         return invite
     except ValueError as e:
@@ -142,7 +146,7 @@ async def list_invitations(
 ):
     """HR lists all invitations they have sent, with optional status filter."""
     items, total = await get_my_invitations(
-        db, current_user.id, status_filter, limit, offset
+        db, current_user.user_id, status_filter, limit, offset
     )
     return {"items": items, "total": total}
 
@@ -159,7 +163,7 @@ async def revoke_invite(
 ):
     """HR revokes a pending invitation. The link/code will no longer work."""
     try:
-        await revoke_invitation(db, current_user.id, invitation_id)
+        await revoke_invitation(db, current_user.user_id, invitation_id)
         await db.commit()
         return {"message": "Invitation revoked successfully."}
     except (ValueError, PermissionError) as e:
@@ -173,16 +177,26 @@ async def revoke_invite(
 )
 async def resend_invite(
     invitation_id: uuid.UUID,
-    db:            AsyncSession = Depends(get_db),
-    current_user:  User         = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """HR resends an email invite — generates a new token and resets expiry to 7 days."""
     try:
-        invite = await resend_email_invite(db, current_user.id, invitation_id)
+        invite = await resend_email_invite(db, current_user.user_id, invitation_id)
         await db.commit()
 
-        # TODO: resend email
+        employer = await _get_employer_profile(db, current_user.user_id)
+
+        if invite.invited_email:
+            await send_invitation_email(
+                to_email=invite.invited_email,
+                invite_token=invite.invite_token,
+                company_name=employer.company_name or "your company",
+                hr_name=current_user.email,
+                personal_message=invite.personal_message,
+            )
+
         return invite
+
     except (ValueError, PermissionError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -244,7 +258,7 @@ async def accept_invitation(
             detail="Provide either invite_token or invite_code."
         )
     try:
-        result = await accept_invite(db, current_user.id, data)
+        result = await accept_invite(db, current_user.user_id, data)
         await db.commit()
         return result
     except ValueError as e:
@@ -272,7 +286,7 @@ async def list_employees(
     Includes active application count per employee.
     """
     items, total = await get_my_employees(
-        db, current_user.id, is_active, limit, offset
+        db, current_user.user_id, is_active, limit, offset
     )
     return {"items": items, "total": total}
 
@@ -289,7 +303,7 @@ async def update_employee(
 ):
     """HR updates job title, department, work email etc. for a linked employee."""
     try:
-        link = await update_employee_info(db, current_user.id, employee_link_id, data)
+        link = await update_employee_info(db, current_user.user_id, employee_link_id, data)
         await db.commit()
         return {"message": "Employee updated.", "id": str(link.id)}
     except (ValueError, PermissionError) as e:
@@ -310,8 +324,26 @@ async def remove_employee(
     The employee account remains — they just lose the company link.
     """
     try:
-        await deactivate_employee(db, current_user.id, employee_link_id)
+        await deactivate_employee(db, current_user.user_id, employee_link_id)
         await db.commit()
         return {"message": "Employee removed from company."}
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+
+
+
+@invitation_router.get(
+    "/employees/{employee_link_id}/detail",
+    summary="HR: Get full employee profile detail (Screen 21)",
+)
+async def get_employee_detail_route(
+    employee_link_id: uuid.UUID,
+    db:               AsyncSession = Depends(get_db),
+    current_user:     User         = Depends(get_current_user),
+):
+    try:
+        result = await get_employee_detail(db, current_user.user_id, employee_link_id)
+        return result
     except (ValueError, PermissionError) as e:
         raise HTTPException(status_code=400, detail=str(e))

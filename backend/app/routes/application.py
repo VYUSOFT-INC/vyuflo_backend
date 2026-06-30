@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # ---------------------------------------------------------------------------
 from app.core.database import get_db                        # your AsyncSession dep
 from app.core.dependencies import get_current_user   # your auth dep → UUID
-from app.schemas.application import (
+from app.schemas.employee.application import (
     ApplicationCreate,
     ApplicationListResponse,
     ApplicationResponse,
@@ -33,7 +33,7 @@ from app.schemas.application import (
     TaskResponse,
     TaskUpdate,
 )
-from app.services.application_services import (
+from app.services.employee.application_services import (
     complete_task,
     create_application,
     create_status_history,

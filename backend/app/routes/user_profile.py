@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.schemas.user_profile import ProfilePictureResponse, UserProfileResponse, UserProfileUpdate
-from app.services.user_profile_service import get_my_profile, update_my_profile, upload_profile_picture
+from app.schemas.employee.user_profile import ProfilePictureResponse, UserProfileResponse, UserProfileUpdate
+from app.services.employee.user_profile_service import get_my_profile, update_my_profile, upload_profile_picture
 import uuid
 
 user_profile_router = APIRouter()

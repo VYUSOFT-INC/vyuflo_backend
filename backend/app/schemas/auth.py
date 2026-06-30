@@ -10,7 +10,7 @@ from enum import Enum
 class UserBasic(BaseModel):
     model_config = ConfigDict(from_attributes=True)  # ✅ allows ORM object → pydantic
 
-    # id:         str
+    id:         uuid.UUID
     email:      str
     first_name: str
     last_name:  str
@@ -23,8 +23,8 @@ class TokenResponse(BaseModel):
     token_type:    str = "bearer"
     roles:list[str]| None = None
     profile:Optional[str] = None
+    theme_color:Optional[str] = None
     user:UserBasic| None = None
-    onboarding_step: int | None = None
     
 
 

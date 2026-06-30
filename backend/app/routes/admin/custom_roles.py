@@ -29,7 +29,7 @@ from fastapi import APIRouter, Query, status
 
 import app
 from app.core.dependencies import Current_User, DBSession
-from app.core.core_permissions import PermissionChecker
+# from app.core.core_permissions import PermissionChecker
 # import app.schemas.user_management
 from app.services.admin.user_management_service import (
     service_create_custom_role,
@@ -42,7 +42,7 @@ from app.schemas.admin.user_management import CustomRoleCreate
 
 custom_roles_router = APIRouter()
 
-_require_roles_manage = PermissionChecker("roles.manage")
+# _require_roles_manage = PermissionChecker("roles.manage")
 
 
 # =============================================================================
@@ -66,7 +66,7 @@ async def create_custom_role(
     payload:      CustomRoleCreate,
     db:           DBSession,
     current_user: Current_User,
-    _:            Current_User = _require_roles_manage,
+    # _:            Current_User = _require_roles_manage,
 ) -> dict:
     """
     Roles allowed:  app_admin

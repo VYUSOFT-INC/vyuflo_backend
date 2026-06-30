@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.schemas.visa_type import VisaTypeListResponse, VisaTypeResponse
-from app.services.visa_type_service import get_visa_type, list_visa_types
+from app.schemas.employee.visa_type import VisaTypeListResponse, VisaTypeResponse
+from app.services.employee.visa_type_service import get_visa_type, list_visa_types
 # from app.core.auth import get_current_user  # uncomment if auth required
 
 visa_type_router = APIRouter()

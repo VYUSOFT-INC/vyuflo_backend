@@ -65,9 +65,19 @@ async def service_get_system_status(db: AsyncSession) -> SystemStatusResponse:
     Reads service health rows from system_settings.
     Returns the System Status card data for ADMIN-12.
     """
+    # result = await db.execute(
+        # select(SystemSetting).where(
+            # SystemSetting.key.like("system.%_status").or_(
+                # SystemSetting.key.like("system.%_uptime"),
+                # SystemSetting.key == "system.status_page_url",
+            # )
+        # )
+    # )
+
     result = await db.execute(
         select(SystemSetting).where(
-            SystemSetting.key.like("system.%_status").or_(
+            or_(
+                SystemSetting.key.like("system.%_status"),
                 SystemSetting.key.like("system.%_uptime"),
                 SystemSetting.key == "system.status_page_url",
             )

@@ -6,8 +6,8 @@ from sqlalchemy import select, update, delete
 from fastapi import HTTPException
 
 from app.models.visamodels import Document, DocumentOCRField
-from app.schemas.ocr import OCRFieldResponse, SaveOCRFieldsRequest
-from app.services.services import db_update
+from app.schemas.employee.ocr import OCRFieldResponse, SaveOCRFieldsRequest
+from app.services.employee.services import db_update
 
 
 async def get_ocr_fields(

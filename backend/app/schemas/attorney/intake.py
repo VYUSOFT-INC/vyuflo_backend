@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -237,3 +237,32 @@ class ClientProfileResponse(BaseModel):
     active_case:     Optional[ActiveCaseSnapshot]
     billing_summary: BillingSummarySnapshot = Field(default_factory=BillingSummarySnapshot)
     recent_activity: List[ActivityItem]     = Field(default_factory=list)
+
+class AssignedApplicationResponse(BaseModel):
+    """
+    Row in the lawyer's worklist (Client Intake landing page).
+
+    Returned by GET /lawyer/applications. One per Application assigned
+    to the logged-in attorney. Includes intake session status so the
+    UI can render 'Start Intake' vs 'Continue Intake' vs 'View Submission'.
+    """
+
+    application_id:    uuid.UUID                         = Field(..., description="Application UUID")
+    client_name:       str                               = Field(..., description="Full name of the applicant")
+    client_email:      str                               = Field(default="",  description="Applicant email")
+    user_id:           Optional[uuid.UUID] = Field(default=None, description="Client's user UUID")  # ← ADD THIS
+
+
+    visa_type:         Optional[str]                     = Field(default=None, description="Visa code, e.g. 'H1B'")
+    visa_type_label:   Optional[str]                     = Field(default=None, description="Human-readable visa name")
+
+    status: Literal["pending_intake", "intake_in_progress", "intake_completed"] = Field(
+        ..., description="Intake session state"
+    )
+
+    intake_session_id: Optional[uuid.UUID]               = Field(default=None, description="None if no session yet")
+    intake_step:       Optional[int]                     = Field(default=None, ge=1, le=5)
+    assigned_at:       datetime                          = Field(..., description="When the application was created/assigned")
+    hr_reviewed_by:    Optional[str]                     = Field(default=None, description="HR reviewer name (V1: nullable)")
+
+    model_config = ConfigDict(from_attributes=True)

@@ -6,10 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.schemas.document import DocumentListResponse, DocumentResponse
-from app.schemas.ocr import OCRFieldResponse, OCRFieldUpdate, SaveOCRFieldsRequest
-from app.services.document_service import get_document_by_id, get_document_file_url, list_documents, upload_document
-from app.services.ocr_service import confirm_all_fields, get_ocr_fields, save_ocr_fields, save_or_update_ocr_fields, update_ocr_field
+from app.schemas.employee.document import DocumentListResponse, DocumentResponse
+from app.schemas.employee.ocr import OCRFieldResponse, OCRFieldUpdate, SaveOCRFieldsRequest
+from app.services.employee.document_service import get_document_by_id, get_document_file_url, list_documents, upload_document
+from app.services.employee.ocr_service import confirm_all_fields, get_ocr_fields, save_ocr_fields, save_or_update_ocr_fields, update_ocr_field
 
 document_router = APIRouter()
 

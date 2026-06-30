@@ -9,12 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from app.models.visamodels import UserLoginHistory
-from app.schemas.login_history import (
+from app.schemas.employee.login_history import (
     LoginHistoryResponse,
     LoginHistoryListResponse,
     LoginHistoryMarkSuspicious,
 )
-from app.services.services import db_update, db_get_by_id
+from app.services.employee.services import db_update, db_get_by_id
 
 
 async def list_login_history(

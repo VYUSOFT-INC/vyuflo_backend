@@ -45,3 +45,49 @@ async def get_current_user(
 # ── Typed aliases for route signatures ───────────────────────────────────────
 Current_User = Annotated[CurrentUserData, Depends(get_current_user)]
 DBSession     = Annotated[AsyncSession, Depends(get_db)]
+
+from functools import lru_cache
+from typing import Callable
+
+# Maps permission codes → which roles are allowed
+# Mirrors ROLE_PERMISSIONS_SEED exactly
+_PERMISSION_ROLE_MAP: dict[str, set[str]] = {
+    # Time Entries
+    "time_entries:read":        {"attorney", "app_admin"},
+    "time_entries:create":      {"attorney", "app_admin"},
+    "time_entries:update":      {"attorney", "app_admin"},
+    "time_entries:delete":      {"attorney", "app_admin"},
+    "time_entries:bulk_action": {"attorney", "app_admin"},
+    # Invoices
+    "invoices:read":            {"attorney", "app_admin"},
+    "invoices:create":          {"attorney", "app_admin"},
+    "invoices:update":          {"attorney", "app_admin"},
+    "invoices:send":            {"attorney", "app_admin"},
+    "invoices:void":            {"app_admin"},
+    # Billing Clients
+    "billing_clients:read":     {"attorney", "app_admin"},
+    "billing_clients:manage":   {"app_admin"},
+    # Dashboard
+    "billing:dashboard":        {"attorney", "app_admin"},
+    "billing:reports":          {"app_admin"},
+}
+
+
+def require_permission(permission_code: str) -> Callable:
+    """
+    FastAPI dependency factory.
+    Checks if any of the user's JWT roles are allowed for this permission.
+
+    Usage:
+        _perm: None = Depends(require_permission("billing:dashboard"))
+    """
+    def _check(current_user: CurrentUserData = Depends(get_current_user)) -> None:
+        allowed_roles = _PERMISSION_ROLE_MAP.get(permission_code, set())
+        user_roles    = set(current_user.roles)
+
+        if not user_roles.intersection(allowed_roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied. Required permission: '{permission_code}'",
+            )
+    return _check

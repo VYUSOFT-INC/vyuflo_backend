@@ -1,6 +1,11 @@
 # =============================================================================
-# app/schemas/notification_schemas.py
+# app/schemas/employee/notification_schemas.py
 # Pydantic v2 schemas for Notifications (TABLE 25) + Preferences (TABLE 26)
+#
+# Shared across ALL roles — employee, hr, attorney, app_admin. category and
+# notification_type are kept as plain `str` (not Literal) so new enum values
+# added at the DB layer (approval, compliance, employee, etc.) flow through
+# without requiring a schema change every time the model's enum grows.
 # =============================================================================
 from __future__ import annotations
 
@@ -81,13 +86,14 @@ class NotificationPreferencesOut(ORMBase):
     email_enabled: bool
     push_enabled:  bool
     sms_enabled:   bool
-    notify_case_updates:     bool
-    notify_deadlines:        bool
-    notify_document_updates: bool
-    notify_news:             bool
-    notify_security_alerts:  bool
-    notify_billing:          bool
-    notify_weekly_summary:   bool
+    notify_case_updates:      bool
+    notify_deadlines:         bool
+    notify_document_updates:  bool
+    notify_news:              bool
+    notify_security_alerts:   bool
+    notify_billing:           bool
+    notify_weekly_summary:    bool
+    notify_compliance_alerts: bool   # ← added — matches new model column
     updated_at: datetime
 
 
@@ -95,10 +101,11 @@ class UpdatePreferencesRequest(BaseModel):
     email_enabled: Optional[bool] = None
     push_enabled:  Optional[bool] = None
     sms_enabled:   Optional[bool] = None
-    notify_case_updates:     Optional[bool] = None
-    notify_deadlines:        Optional[bool] = None
-    notify_document_updates: Optional[bool] = None
-    notify_news:             Optional[bool] = None
-    notify_security_alerts:  Optional[bool] = None
-    notify_billing:          Optional[bool] = None
-    notify_weekly_summary:   Optional[bool] = None
+    notify_case_updates:      Optional[bool] = None
+    notify_deadlines:         Optional[bool] = None
+    notify_document_updates:  Optional[bool] = None
+    notify_news:              Optional[bool] = None
+    notify_security_alerts:   Optional[bool] = None
+    notify_billing:           Optional[bool] = None
+    notify_weekly_summary:    Optional[bool] = None
+    notify_compliance_alerts: Optional[bool] = None   # ← added

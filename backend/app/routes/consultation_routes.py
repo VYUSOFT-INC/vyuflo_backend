@@ -20,7 +20,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.visamodels import User
 from app.models.visamodels import ConsultationBooking
-from app.schemas.consultation_schemas import (
+from app.schemas.employee.consultation_schemas import (
     AttorneyProfileOut,
     AppointmentTypeOut,
     AppointmentTypeCreateRequest,
@@ -34,7 +34,7 @@ from app.schemas.consultation_schemas import (
     CancelBookingRequest,
     BookConsultationPageData,
 )
-from app.services.consultation_service import (
+from app.services.employee.consultation_service import (
     list_attorneys,
     get_attorney_by_id,
     list_appointment_types,

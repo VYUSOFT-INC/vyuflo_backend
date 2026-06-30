@@ -14,6 +14,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
+# from backend.app.routes.admin import permissions
 
 # ── Password ──────────────────────────────────────────────────────────────────
 _pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -40,11 +41,12 @@ def _create_token(data: dict[str, Any], expires_delta: timedelta) -> str:
 #         data.update(extra)
 #     return _create_token(data, timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
 
-def create_access_token(user_id: str, roles: list[str]) -> str:
+def create_access_token(user_id: str, roles: list[str], permissions: list[str] = []) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=30)
     payload = {
         "sub":   user_id,
         "roles": roles,
+        "permissions": permissions,  
         "type":  "access",
         "exp":   expire,
     }

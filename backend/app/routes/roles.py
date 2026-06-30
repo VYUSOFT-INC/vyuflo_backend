@@ -30,8 +30,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.visamodels import User                  # ⚠️ ADJUST if your user model differs
-from app.services import role_service
-from app.schemas.role import (
+from app.services.employee import role_service
+from app.schemas.employee.role import (
     AssignPermissionRequest,
     BulkPermissionsRequest,
     PermissionListResponse,

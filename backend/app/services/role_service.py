@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # ---------------------------------------------------------------------------
 # Project imports  (adjust paths to match your project layout)
 # ---------------------------------------------------------------------------
-from app.services.services import (
+from app.services.employee.services import (
     db_create,
     db_delete,
     db_get_by_field,
@@ -32,7 +32,7 @@ from app.services.services import (
     db_update,
 )
 from app.models.visamodels import Permission, Role, RolePermission, UserRole
-from app.schemas.role import (
+from app.schemas.employee.role import (
     AssignPermissionRequest,
     BulkPermissionsRequest,
     PermissionListResponse,

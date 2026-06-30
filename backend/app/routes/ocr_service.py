@@ -1,11 +1,14 @@
 # ocr_service/router.py
 
 import base64
+import uuid
 import httpx
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
+
+from app.core.dependencies import get_current_user
 
 load_dotenv()
 
@@ -66,6 +69,7 @@ class OCRResponse(BaseModel):
 @ocr_router.post("/ocr/extract", response_model=OCRResponse)
 async def extract_ocr(
     file: UploadFile = File(...),
+    current_user_id: uuid.UUID = Depends(get_current_user),
 ) -> OCRResponse:
 
     filename = file.filename or "upload"

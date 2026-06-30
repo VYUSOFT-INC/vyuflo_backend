@@ -22,7 +22,7 @@ from app.models.visamodels import (
     PaymentInvoice,
     PaymentRefund,
 )
-from app.schemas.payment_schemas import (
+from app.schemas.employee.payment_schemas import (
     FeeCreateRequest,
     FeeUpdateRequest,
     FeeWaiveRequest,

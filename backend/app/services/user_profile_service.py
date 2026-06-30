@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.visamodels import User, UserProfile
-from app.schemas.user_profile import UserProfileResponse, UserProfileUpdate
-from app.services.services import db_create, db_get_by_id, db_update, db_get_by_field
+from app.schemas.employee.user_profile import UserProfileResponse, UserProfileUpdate
+from app.services.employee.services import db_create, db_get_by_id, db_update, db_get_by_field
 
 
 async def get_my_profile(

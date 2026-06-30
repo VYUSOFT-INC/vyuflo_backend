@@ -16,6 +16,7 @@ from app.models.visamodels import *
 
 from app.routes import auth, onboarding
 from app.routes.document import document_router
+from app.routes.message import message_router
 from app.routes.application import application_router,application_task_router,application_history_router
 from app.services.seeddata_service import  seed_document_types, seed_fee_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types
 from app.routes.visa_types import visa_type_router
@@ -43,7 +44,16 @@ from app.routes.admin.admin_support import admin_support_router
 from app.routes.attorney.intake import intake_router
 from app.routes.attorney.analytics import analytics_router
 from app.routes.attorney.calendar import calendar_router
-
+from app.routes.attorney.document_extra import document_extra_router
+from app.routes.attorney.application_extra import application_extra_router
+from app.routes.attorney.help import help_router
+from app.routes.attorney.billing import billing_router
+from app.routes.attorney.secure_messages import secure_messages_router
+from app.routes.attorney.profile_settings import profile_settings_router
+from app.routes.attorney.invoice_detail import invoice_detail_router
+from app.routes.attorney.template_library import template_library_router
+from app.routes.attorney.notifications_reminders import notifications_reminders_router
+from app.routes.attorney.lawyer_dashboard import lawyer_dashboard_router
 
 
 
@@ -121,6 +131,7 @@ app.mount("/static", StaticFiles(directory="uploads"), name="static")
 app.include_router(auth.router,                prefix="/api/v1/auth",       tags=["Authentication"])
 app.include_router(onboarding.router,          prefix="/api/v1/onboarding", tags=["Onboarding"])
 app.include_router(document_router,            prefix="/api/v1", tags=["Documents"])
+app.include_router(message_router,            prefix="/api/v1", tags=["Message"])
 app.include_router(application_router,         prefix="/api/v1", tags=["Applications"])
 app.include_router(application_history_router, prefix="/api/v1", tags=["Application History"])
 app.include_router(application_task_router,    prefix="/api/v1", tags=["Application Tasks"])
@@ -135,7 +146,7 @@ app.include_router(payment_router,             prefix="/api/v1", tags=["Payments
 app.include_router(consultation_router, prefix="/api/v1", tags=["consultations"])
 app.include_router(notification_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(attorney_router, prefix="/api/v1", tags=["attorneys"])
-app.include_router(roles_router,       prefix="/api/v1")
+# app.include_router(roles_router,       prefix="/api/v1")
 # app.include_router(user_roles_router,  prefix="/api/v1", tags=["User Roles"])
 app.include_router(custom_roles_router,prefix="/api/v1",tags=["Custom Roles"])
 app.include_router(system_settings_router, prefix="/api/v1",tags=["System Settings"])
@@ -149,6 +160,20 @@ app.include_router(admin_support_router, prefix="/api/v1")
 app.include_router(intake_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(calendar_router, prefix="/api/v1")
+app.include_router(document_extra_router, prefix="/api/v1", tags=["Attroney-Documents"])
+app.include_router(application_extra_router, prefix="/api/v1", tags=["Attroney-Applications"])
+app.include_router(help_router, prefix="/api/v1", tags=["Attroney-Help"])
+app.include_router(billing_router,prefix="/api/v1")
+app.include_router(secure_messages_router, prefix="/api/v1", tags=["Secure Messages"])
+app.include_router(profile_settings_router,prefix="/api/v1", tags=["Profile Settings"] )
+app.include_router(invoice_detail_router, prefix="/api/v1", tags=["Invoice Detail"])
+app.include_router(template_library_router, prefix="/api/v1", tags=["Template Library"])
+app.include_router(notifications_reminders_router, prefix="/api/v1", tags=["Notification Reminders"])
+app.include_router(lawyer_dashboard_router, prefix="/api/v1", tags=["Lawyer Dashboard"])
+
+
+
+
 
 
 

@@ -255,7 +255,7 @@ from app.core.dependencies import Current_User, DBSession
 from app.core.email import send_email
 from app.core.exceptions import NotFoundException, UnauthorizedException
 from app.models.visamodels import User, UserProfile
-from app.schemas.auth import (
+from app.schemas.employee.auth import (
     LoginRequest,
     MessageResponse,
     PasswordResetComplete,
@@ -266,7 +266,7 @@ from app.schemas.auth import (
     SSORequest,
     TokenResponse,
 )
-from app.services.auth_services import (
+from app.services.employee.auth_services import (
     service_complete_password_reset,
     service_login,
     service_logout,
@@ -276,7 +276,7 @@ from app.services.auth_services import (
     service_sso_login,
     service_verify_reset_otp,
 )
-from app.services.services import db_get_by_field, db_get_by_id, get_user_role
+from app.services.employee.services import db_get_by_field, db_get_by_id, get_user_role
 from app.core.config import settings
 
 router = APIRouter()
@@ -306,15 +306,18 @@ def _set_ui_cookie(
     response: Response,
     user:     dict,
     profile:  str | None,
+    theme_color:str | None,
     roles:    list[str],
 ) -> None:
     # Build the dict first, then dumps without any extra wrapping
     data = {
+        "user_id":    str(user.get("id") or user.get("user_id") or ""),
         "first_name": user["first_name"],
         "last_name":  user["last_name"],
         "email":      user["email"],
         "profile":    profile,
         "roles":      roles,
+        "theme_color":theme_color,
     }
     # Use standard base64 encoding — avoids ALL quote/escape issues with cookies
     import base64
@@ -393,13 +396,14 @@ async def signup(
 
     # ── Set both cookies ───────────────────────────────────────────────────
     _set_refresh_cookie(response, result["refresh_token"])
-    _set_ui_cookie(response, result["user"], result["profile_picture"], result["roles"])
+    _set_ui_cookie(response, result["user"], result["profile_picture"],result["theme_color"], result["roles"])
 
     return TokenResponse(
         access_token    = result["access_token"],
         refresh_token   = None,           # never in body
         roles           = result["roles"],
         profile         = result["profile_picture"],
+        theme_color     = result["theme_color"],
         user            = result["user"],
         onboarding_step = result["onboarding_step"],
     )
@@ -426,13 +430,14 @@ async def login(
 
     # ── Set both cookies ───────────────────────────────────────────────────
     _set_refresh_cookie(response, result["refresh_token"])
-    _set_ui_cookie(response, result["user"], result["profile_picture"], result["roles"])
+    _set_ui_cookie(response, result["user"], result["profile_picture"],result["theme_color"], result["roles"],)
+
 
     return TokenResponse(
         access_token  = result["access_token"],
-        refresh_token = None,             # never in body
         roles         = result["roles"],
         profile       = result["profile_picture"],
+        theme_color = result["theme_color"],
         user          = result["user"],
     )
 
