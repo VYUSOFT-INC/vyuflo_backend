@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────────────────────
     # DATABASE_URL: str = "postgresql+asyncpg://postgres:Charan@localhost:5433/visaflow"
     
-    LOCAL_DATABASE_URL: str
+    LOCAL_DATABASE_URL: str = ""
     ZOHO_DATABASE_URL: str
     DATABASE_ENV: str = "local"  # "local" or "zoho"
     DEBUG: bool = False
