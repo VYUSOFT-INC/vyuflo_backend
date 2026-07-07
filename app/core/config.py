@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     STORAGE_BACKEND:       str = "local"  # "local" | "s3"
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    CORS_ORIGINS: List[str] = []
     COOKIE_SECURE: bool = True
 
     @field_validator("CORS_ORIGINS", mode="before")
