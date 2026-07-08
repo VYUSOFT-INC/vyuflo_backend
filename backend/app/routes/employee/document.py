@@ -49,12 +49,17 @@ async def api_upload_document(
     application_id: Optional[str]       = Form(None),
     document_type:  str                 = Form(...),
     category:       str                 = Form(...),
+    document_request_id: Optional[str] = Form(None),   # ADD 
     db:             AsyncSession         = Depends(get_db),
     current_user:   uuid.UUID            = Depends(get_current_user),
 ) -> DocumentResponse:
     app_id = uuid.UUID(application_id) if application_id else None
+    request_id = uuid.UUID(document_request_id) if document_request_id else None   # ← ADD
+
     return await upload_document(
-        db, current_user.user_id, app_id, document_type, category, file
+        db, current_user.user_id, app_id, document_type, category, file,
+        document_request_id=request_id,   # ADD
+
     )
 
 @document_router.post(
@@ -176,3 +181,10 @@ async def api_save_or_update_ocr_fields(
     return await save_or_update_ocr_fields(
         db, document_id, current_user.user_id, payload
     )
+
+
+
+
+
+
+

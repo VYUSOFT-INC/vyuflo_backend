@@ -35,6 +35,14 @@ from app.schemas.attorney.document_extra import (
     RejectedDocumentListResponse, 
 )
 
+from app.schemas.attorney.document_request import (
+    DocumentRequestCreate, DocumentRequestResponse, DocumentRequestListResponse,
+)
+from app.services.attorney.document_request_service import (
+    create_document_request, list_document_requests_for_application,
+    list_my_pending_requests, cancel_document_request,
+)
+
 # Your existing service — reused for get_document_file_url
 from app.services.employee.document_service import get_document_file_url
 
@@ -218,3 +226,53 @@ async def api_trigger_ocr(
     current_user              = Depends(get_current_user),
 ) -> dict:
     return await trigger_ocr(db, document_id, current_user.user_id)
+
+@document_extra_router.post(
+    "/documents/requests",
+    response_model=DocumentRequestResponse,
+    status_code=201,
+    summary="Attorney/HR requests an additional document from a client",
+)
+async def api_create_document_request(
+    payload: DocumentRequestCreate,
+    db:      AsyncSession = Depends(get_db),
+    current_user           = Depends(get_current_user),
+) -> DocumentRequestResponse:
+    return await create_document_request(db, current_user.user_id, payload)
+
+
+@document_extra_router.get(
+    "/applications/{application_id}/document-requests",
+    response_model=DocumentRequestListResponse,
+    summary="List all document requests for a case",
+)
+async def api_list_document_requests(
+    application_id: uuid.UUID,
+    db:             AsyncSession = Depends(get_db),
+    current_user                  = Depends(get_current_user),
+) -> DocumentRequestListResponse:
+    return await list_document_requests_for_application(db, current_user.user_id, application_id)
+
+
+@document_extra_router.get(
+    "/documents/requests/my-pending",
+    response_model=DocumentRequestListResponse,
+    summary="Client — view my pending document requests",
+)
+async def api_my_pending_requests(
+    db:           AsyncSession = Depends(get_db),
+    current_user               = Depends(get_current_user),
+) -> DocumentRequestListResponse:
+    return await list_my_pending_requests(db, current_user.user_id)
+
+
+@document_extra_router.patch(
+    "/documents/requests/{request_id}/cancel",
+    summary="Attorney/HR cancels a pending document request",
+)
+async def api_cancel_document_request(
+    request_id: uuid.UUID,
+    db:         AsyncSession = Depends(get_db),
+    current_user              = Depends(get_current_user),
+) -> dict:
+    return await cancel_document_request(db, current_user.user_id, request_id)

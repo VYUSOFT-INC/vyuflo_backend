@@ -38,6 +38,7 @@ from app.schemas.attorney.document_extra import (
 from app.schemas.employee.document import DocumentResponse
 from app.services.employee.document_service import _to_response
 from app.services.employee.services import db_create, db_update
+from app.models.visamodels import Application
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -321,14 +322,21 @@ async def list_documents_filtered(
     Use this one from the new router, or swap in gradually.
     """
     from app.models.visamodels import DocumentType as DocTypeModel
-    from app.schemas.document import DocumentListResponse
+    from app.schemas.employee.document import DocumentListResponse
 
     stmt = (
-        select(Document)
-        .options(joinedload(Document.document_type))
-        .where(Document.user_id == user_id)
-        .order_by(Document.created_at.desc())
-    )
+    select(Document)
+    .join(Application, Document.application_id == Application.id)
+    .options(joinedload(Document.document_type))
+    .where(Application.assigned_attorney_id == user_id)   # ← attorney's scope
+    .order_by(Document.created_at.desc())
+)
+    # stmt = (
+        # select(Document)
+        # .options(joinedload(Document.document_type))
+        # .where(Document.user_id == user_id)
+        # .order_by(Document.created_at.desc())
+    # )
 
     if application_id:
         stmt = stmt.where(Document.application_id == application_id)
