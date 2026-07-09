@@ -393,3 +393,61 @@ async def get_my_rejected_documents(
         )
         for d in docs
     ]
+
+# ADD
+
+async def _is_authorized_to_upload_for_client(db, actor_id, application):
+    from app.models.visamodels import Role, UserRole
+    from sqlalchemy import select
+
+    role_result = await db.execute(
+        select(Role.name)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .where(UserRole.user_id == actor_id)
+    )
+    role_names = {r for (r,) in role_result.all()}
+
+    if "app_admin" in role_names:
+        return True
+    if "attorney" in role_names and application.assigned_attorney_id == actor_id:
+        return True
+    if "hr" in role_names and application.assigned_hr_id == actor_id:
+        return True
+    return False
+
+
+async def upload_document_for_client(db, actor_id, application_id, document_type, category, file):
+    from sqlalchemy import select
+    from fastapi import HTTPException
+    from app.models.visamodels import Application, Notification
+    from app.services.employee.services import db_create
+
+    result = await db.execute(select(Application).where(Application.id == application_id))
+    application = result.scalars().first()
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found.")
+
+    if not await _is_authorized_to_upload_for_client(db, actor_id, application):
+        raise HTTPException(status_code=403, detail="You are not assigned to this case.")
+
+    from app.services.employee.document_service import upload_document
+    doc_response = await upload_document(
+        db=db, user_id=application.user_id, application_id=application_id,
+        document_type=document_type, category=category, file=file, actor_id=actor_id,
+    )
+
+    await db_create(db, Notification(
+        user_id=application.user_id,
+        notification_type="document_uploaded_by_staff",
+        category="case_update",
+        priority="medium",
+        title="A document was uploaded to your case",
+        body=f"Your attorney uploaded '{document_type}' on your behalf. You can review it anytime in your Documents tab.",
+        application_id=application_id,
+        document_id=doc_response.id,
+        actor_id=actor_id,
+        created_by=actor_id,
+    ))
+
+    return doc_response
+

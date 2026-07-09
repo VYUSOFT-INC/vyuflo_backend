@@ -11,6 +11,8 @@ from sqlalchemy.orm import joinedload
 from app.models.visamodels import Document, DocumentOCRField, DocumentType, ApplicationTask
 from app.schemas.employee.document import DocumentResponse, DocumentListResponse
 from app.services.employee.services import db_create, db_get_by_id, db_list, db_update
+from app.services.attorney.document_request_service import fulfill_document_request
+
 
 
 def _to_response(doc: Document) -> DocumentResponse:
@@ -61,7 +63,11 @@ async def upload_document(
     document_type:   str,     # e.g. "passport"
     category:        str,     # e.g. "identity"
     file:            UploadFile,
+    document_request_id: Optional[uuid.UUID] = None,   # ← ADD
+    actor_id:            Optional[uuid.UUID] = None,
 ) -> DocumentResponse:
+    creator_id = actor_id or user_id
+
     # 1. Find or create DocumentType
     result = await db.execute(
         select(DocumentType).where(DocumentType.name == document_type)
@@ -106,9 +112,19 @@ async def upload_document(
         ocr_status       = "not_started",
         version          = 1,
         is_draft         = False,
-        created_by       = user_id,
+        created_by       = creator_id,
     )
     doc = await db_create(db, doc)
+
+    from app.models.visamodels import DocumentActivity
+    await db_create(db, DocumentActivity(
+        document_id = doc.id,
+        action      = "uploaded",
+        actor_id    = creator_id,
+        actor_type  = "attorney" if (actor_id and actor_id != user_id) else "user",
+        note        = "Uploaded on behalf of client." if (actor_id and actor_id != user_id) else None,
+        created_by  = creator_id,
+    ))
 
     # 5. Auto-complete the matching task if application_id given
     if application_id:
@@ -135,6 +151,9 @@ async def upload_document(
         select(Document).options(joinedload(Document.document_type)).where(Document.id == doc.id)
     )
     doc_with_type = result.scalars().first()
+    if document_request_id:
+        await fulfill_document_request(db, document_request_id, doc.id, user_id)
+
     return _to_response(doc_with_type)
 
 # document_service.py — add this function

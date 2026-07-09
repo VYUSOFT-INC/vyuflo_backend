@@ -16,7 +16,7 @@ import os
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends,File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +56,7 @@ from app.services.attorney.document_extra_service import (
     list_documents_filtered,
     trigger_ocr,
     update_document_status,
+    upload_document_for_client,
 )
 
 document_extra_router = APIRouter()
@@ -276,3 +277,23 @@ async def api_cancel_document_request(
     current_user              = Depends(get_current_user),
 ) -> dict:
     return await cancel_document_request(db, current_user.user_id, request_id)
+
+# ADD 
+@document_extra_router.post(
+    "/documents/upload-for-client",
+    response_model=DocumentResponse,
+    status_code=201,
+    summary="Attorney/HR uploads a document on behalf of a client",
+)
+async def api_upload_document_for_client(
+    application_id: uuid.UUID    = Form(...),
+    document_type:  str          = Form(...),
+    category:       str          = Form(...),
+    file:           UploadFile   = File(...),
+    db:             AsyncSession = Depends(get_db),
+    current_user                  = Depends(get_current_user),
+) -> DocumentResponse:
+    return await upload_document_for_client(
+        db=db, actor_id=current_user.user_id, application_id=application_id,
+        document_type=document_type, category=category, file=file,
+    )
