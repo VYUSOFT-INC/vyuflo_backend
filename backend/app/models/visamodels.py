@@ -906,6 +906,8 @@ class DocumentActivity(Base):
     action = Column(
         Enum("uploaded", "status_changed", "verified", "rejected",
              "downloaded", "viewed", "version_updated", "ocr_completed",
+             "document_requested",     
+             "request_fulfilled",  
              name="doc_activity_enum"),
         nullable=False
     )
@@ -1188,6 +1190,9 @@ class Notification(Base):
              "approval_pending", "approval_resolved", "compliance_alert",
              "employee_onboarded", "employee_profile_updated",
              "task_assigned",
+             "document_requested",              
+             "document_request_fulfilled",       
+             "document_uploaded_by_staff",      
              name="notification_type_enum"),
         nullable=False
     )

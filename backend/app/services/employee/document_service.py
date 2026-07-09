@@ -68,6 +68,13 @@ async def upload_document(
 ) -> DocumentResponse:
     creator_id = actor_id or user_id
 
+    VALID_CATEGORIES = {"identity", "employment", "education", "legal", "personal", "other"}
+    if category not in VALID_CATEGORIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid category '{category}'. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}",
+        )
+
     # 1. Find or create DocumentType
     result = await db.execute(
         select(DocumentType).where(DocumentType.name == document_type)
