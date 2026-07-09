@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /Users/triplenin/Desktop/Charan/visa/functions/visa_flow_function)",
+      "Bash(cp -r /Users/triplenin/Desktop/Charan/visa/app /Users/triplenin/Desktop/Charan/visa/functions/visa_flow_function/)",
+      "Bash(cp /Users/triplenin/Desktop/Charan/visa/main.py /Users/triplenin/Desktop/Charan/visa/functions/visa_flow_function/)",
+      "Bash(catalyst --version)"
+    ]
+  }
+}
