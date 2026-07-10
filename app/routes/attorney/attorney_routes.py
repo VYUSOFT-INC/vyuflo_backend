@@ -19,7 +19,6 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.visamodels import User
 from app.schemas.attorney.attorney_schemas import (
-    AttorneyAssignListResponse,
     AttorneyListItem,
     AttorneyListResponse,
     AttorneySearchParams,
@@ -27,7 +26,6 @@ from app.schemas.attorney.attorney_schemas import (
 from app.services.attorney.attorney_service import (
     list_attorneys,
     get_attorney_by_id,
-    list_attorneys_for_assignment,
 )
 
 # from app.services.attorney import intake_service
@@ -133,23 +131,3 @@ async def api_get_attorney(
             detail="Attorney not found or not currently accepting cases.",
         )
     return attorney
-
-@attorney_router.get(
-    "/hr/attorneys",
-    response_model=AttorneyAssignListResponse,
-    summary="List attorneys for case assignment — HR Create Case Step 4",
-    description="""
-    Lightweight attorney list for HR to optionally assign to a new case.
-    Unlike GET /attorneys (Screen 20 marketplace), returns `user_id`
-    (matching Application.assigned_attorney_id) with no rating/fee/badge
-    enrichment.
-    """,
-)
-async def api_list_attorneys_for_assignment(
-    db:           AsyncSession = Depends(get_db),
-    current_user: User         = Depends(get_current_user),
-    # TODO: swap in your real HR role guard once wired up, e.g.:
-    # current_user: User = Depends(require_roles(["hr"])),
-):
-    attorneys = await list_attorneys_for_assignment(db)
-    return AttorneyAssignListResponse(attorneys=attorneys)

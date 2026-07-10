@@ -20,7 +20,7 @@ if not ANTHROPIC_API_KEY:
 ocr_router = APIRouter()
 
 CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
-CLAUDE_MODEL   = "claude-opus-4-5"
+CLAUDE_MODEL   = "claude-haiku-4-5-20251001"
 
 SYSTEM_PROMPT = """
 You are a document OCR extractor for an immigration application platform.

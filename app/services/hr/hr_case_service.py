@@ -297,213 +297,26 @@ async def _build_case_response(
 # CREATE CASE
 # =============================================================================
 
-# async def hr_create_case(
-#     db: AsyncSession,
-#     payload: HRCaseCreate,
-#     hr_user_id: uuid.UUID,
-# ) -> HRCaseCreateResponse:
-#     """
-#     POST /hr/cases
-#     HR creates an immigration case on behalf of a linked employee.
-
-#     Flow:
-#       1. Validate employee link belongs to this HR user
-#       2. Resolve visa_type_code → visa_type_id (UUID)
-#       3. Block duplicate active cases for same employee + visa
-#       4. Resolve sponsor_employer from EmployerProfile if not provided
-#       5. Create Application row (user_id = employee, assigned_hr_id = HR)
-#       6. Activate immediately to profile_eligibility stage
-#       7. Write first ApplicationStatusHistory row
-#       8. Auto-create checklist tasks from visa_type.required_documents
-#       9. Fire notifications
-#     """
-
-#     # ── 1. Validate employee link ─────────────────────────────────────────────
-#     link = await _resolve_employee_link(db, payload.employee_link_id, hr_user_id)
-#     employee_user_id = link.employee_id
-
-#     # ── 2. Resolve visa type ──────────────────────────────────────────────────
-#     visa_type = await _resolve_visa_type(db, payload.visa_type_code)
-
-#     # ── 3. Block duplicate active cases ───────────────────────────────────────
-#     duplicate = await db.execute(
-#         select(Application).where(
-#             Application.user_id      == employee_user_id,
-#             Application.visa_type_id == visa_type.id,
-#             Application.status.in_(list(_ACTIVE_STATUSES) + ["draft"]),
-#         )
-#     )
-#     if duplicate.scalars().first():
-#         raise HTTPException(
-#             status_code=status.HTTP_409_CONFLICT,
-#             detail=(
-#                 f"An active {payload.visa_type_code} case already exists for this employee. "
-#                 "Complete or withdraw it before creating a new one."
-#             ),
-#         )
-
-#     # ── 4. Resolve sponsor_employer ───────────────────────────────────────────
-#     sponsor = payload.sponsor_employer
-#     if not sponsor:
-#         emp_profile_result = await db.execute(
-#             select(EmployerProfile).where(EmployerProfile.user_id == hr_user_id)
-#         )
-#         emp_profile = emp_profile_result.scalars().first()
-#         if emp_profile:
-#             sponsor = emp_profile.company_name
-
-#     # ── 5. Pack notes (case_name + description + priority as JSON) ────────────
-#     packed_notes = _pack_notes(
-#         payload.case_name,
-#         payload.case_description,
-#         payload.priority,
-#     )
-
-#     # ── 6. Generate unique application number ─────────────────────────────────
-#     app_number = _generate_application_number()
-#     # Retry once on rare collision
-#     from app.services.employee.services import db_get_by_field
-#     if await db_get_by_field(db, Application, "application_number", app_number):
-#         app_number = _generate_application_number()
-
-#     # ── 7. Create Application row ─────────────────────────────────────────────
-#     new_app = Application(
-#         application_number   = app_number,
-#         user_id              = employee_user_id,       # the sponsored employee
-#         visa_type_id         = visa_type.id,
-#         sponsor_employer     = sponsor,
-#         status               = "draft",
-#         current_stage        = None,
-#         progress_percent     = 0,
-#         start_date           = None,
-#         due_date             = payload.target_date,
-#         is_draft             = True,
-#         has_action_required  = False,
-#         assigned_attorney_id = payload.attorney_user_id,
-#         assigned_hr_id       = hr_user_id,             # always the creating HR
-#         notes                = packed_notes,
-#         hr_notes             = payload.internal_notes,
-#         hr_approval_status   = "pending",
-#         created_by           = hr_user_id,
-#     )
-#     new_app = await db_create(db, new_app)
-
-#     # ── 8. Immediately activate ───────────────────────────────────────────────
-#     await db_update(db, Application, new_app.id, {
-#         "current_stage":    "profile_eligibility",
-#         "status":           "in_progress",
-#         "progress_percent": STAGE_PROGRESS["profile_eligibility"],
-#         "start_date":       datetime.now(timezone.utc).date(),
-#         "is_draft":         False,
-#         "modified_by":      hr_user_id,
-#     })
-
-#     # ── 9. Write first history row ────────────────────────────────────────────
-#     history = ApplicationStatusHistory(
-#         application_id = new_app.id,
-#         stage          = "profile_eligibility",
-#         status         = "in_progress",
-#         note           = f"Case created by HR: {payload.case_name}",
-#         completed_at   = datetime.now(timezone.utc),
-#         changed_by     = hr_user_id,
-#         created_by     = hr_user_id,
-#     )
-#     await db_create(db, history)
-
-#     # ── 10. Auto-create checklist tasks ───────────────────────────────────────
-#     docs = visa_type.required_documents
-#     if isinstance(docs, str):
-#         try:
-#             docs = json.loads(docs)
-#         except (json.JSONDecodeError, TypeError):
-#             docs = []
-
-#     for idx, doc_name in enumerate(docs or []):
-#         task = ApplicationTask(
-#             application_id = new_app.id,
-#             task_name      = doc_name,
-#             description    = f"Upload {doc_name} for {visa_type.code} application",
-#             is_required    = True,
-#             is_completed   = False,
-#             sort_order     = idx + 1,
-#             created_by     = hr_user_id,
-#         )
-#         await db_create(db, task)
-
-#     # ── 11. Reload with relationships ─────────────────────────────────────────
-#     result = await db.execute(
-#         select(Application)
-#         .options(joinedload(Application.visa_type))
-#         .where(Application.id == new_app.id)
-#     )
-#     refreshed = result.scalars().first()
-
-#     # ── 12. Fire notifications ────────────────────────────────────────────────
-#     await fire_case_created(db, refreshed, actor_id=hr_user_id)
-#     if payload.attorney_user_id:
-#         await fire_case_assigned_to_hr(
-#             db, refreshed,
-#             new_hr_id=hr_user_id,
-#             actor_id=hr_user_id,
-#         )
-
-#     # ── 13. Resolve employee name for slim response ───────────────────────────
-#     emp_user = await db_get_by_id(db, User, employee_user_id)
-#     full_name = (
-#         f"{emp_user.first_name} {emp_user.last_name}".strip()
-#         if emp_user else "Employee"
-#     )
-#     # ── 14. Auto-create case conversation ────────────────────────────────────
-#     #
-#     # Participants:   HR (actor) + employee (always) + attorney (if assigned)
-#     # Thread type:    "group" when attorney present, "direct" otherwise
-#     # Keyed on:       application_id — so re-running won't create a duplicate
-#     #
-#     extra_participants = [employee_user_id]
-#     if payload.attorney_user_id:
-#         extra_participants.append(payload.attorney_user_id)
- 
-#     if len(extra_participants) == 1:
-#         # No attorney yet — direct HR ↔ employee thread
-#         thread_type = "direct"
-#         thread_title = None
-#     else:
-#         # Attorney assigned at creation — group thread
-#         thread_type  = "group"
-#         thread_title = f"{payload.case_name} — Case Team"
- 
-#     hr_user_obj = await db_get_by_id(db, User, hr_user_id)
-#     hr_name = (
-#         f"{hr_user_obj.first_name} {hr_user_obj.last_name}".strip()
-#         if hr_user_obj else "HR"
-#     )
- 
-#     await get_or_create_thread_for_participants(
-#         db               = db,
-#         actor_id         = hr_user_id,
-#         participant_ids  = extra_participants,
-#         thread_type      = thread_type,
-#         title            = thread_title,
-#         application_id   = refreshed.id,
-#         initial_message  = (
-#             f"Case '{payload.case_name}' ({visa_type.code}) has been opened. "
-#             f"This conversation is the dedicated channel for the {full_name} case team. "
-#             f"HR contact: {hr_name}."
-#         ),
-#     )
-#     return HRCaseCreateResponse(
-#         id                 = refreshed.id,
-#         application_number = refreshed.application_number,
-#         message            = f"Case '{payload.case_name}' created successfully.",
-#         employee_name      = full_name,
-#         visa_type_code     = visa_type.code,
-#     )
-
 async def hr_create_case(
     db: AsyncSession,
     payload: HRCaseCreate,
     hr_user_id: uuid.UUID,
 ) -> HRCaseCreateResponse:
+    """
+    POST /hr/cases
+    HR creates an immigration case on behalf of a linked employee.
+
+    Flow:
+      1. Validate employee link belongs to this HR user
+      2. Resolve visa_type_code → visa_type_id (UUID)
+      3. Block duplicate active cases for same employee + visa
+      4. Resolve sponsor_employer from EmployerProfile if not provided
+      5. Create Application row (user_id = employee, assigned_hr_id = HR)
+      6. Activate immediately to profile_eligibility stage
+      7. Write first ApplicationStatusHistory row
+      8. Auto-create checklist tasks from visa_type.required_documents
+      9. Fire notifications
+    """
 
     # ── 1. Validate employee link ─────────────────────────────────────────────
     link = await _resolve_employee_link(db, payload.employee_link_id, hr_user_id)
@@ -539,7 +352,7 @@ async def hr_create_case(
         if emp_profile:
             sponsor = emp_profile.company_name
 
-    # ── 5. Pack notes ─────────────────────────────────────────────────────────
+    # ── 5. Pack notes (case_name + description + priority as JSON) ────────────
     packed_notes = _pack_notes(
         payload.case_name,
         payload.case_description,
@@ -547,15 +360,16 @@ async def hr_create_case(
     )
 
     # ── 6. Generate unique application number ─────────────────────────────────
-    from app.services.employee.services import db_get_by_field
     app_number = _generate_application_number()
+    # Retry once on rare collision
+    from app.services.employee.services import db_get_by_field
     if await db_get_by_field(db, Application, "application_number", app_number):
         app_number = _generate_application_number()
 
     # ── 7. Create Application row ─────────────────────────────────────────────
     new_app = Application(
         application_number   = app_number,
-        user_id              = employee_user_id,
+        user_id              = employee_user_id,       # the sponsored employee
         visa_type_id         = visa_type.id,
         sponsor_employer     = sponsor,
         status               = "draft",
@@ -566,7 +380,7 @@ async def hr_create_case(
         is_draft             = True,
         has_action_required  = False,
         assigned_attorney_id = payload.attorney_user_id,
-        assigned_hr_id       = hr_user_id,
+        assigned_hr_id       = hr_user_id,             # always the creating HR
         notes                = packed_notes,
         hr_notes             = payload.internal_notes,
         hr_approval_status   = "pending",
@@ -616,8 +430,6 @@ async def hr_create_case(
         )
         await db_create(db, task)
 
-    await db.commit()
-    
     # ── 11. Reload with relationships ─────────────────────────────────────────
     result = await db.execute(
         select(Application)
@@ -626,9 +438,14 @@ async def hr_create_case(
     )
     refreshed = result.scalars().first()
 
-
     # ── 12. Fire notifications ────────────────────────────────────────────────
     await fire_case_created(db, refreshed, actor_id=hr_user_id)
+    if payload.attorney_user_id:
+        await fire_case_assigned_to_hr(
+            db, refreshed,
+            new_hr_id=hr_user_id,
+            actor_id=hr_user_id,
+        )
 
     # ── 13. Resolve employee name for slim response ───────────────────────────
     emp_user = await db_get_by_id(db, User, employee_user_id)
@@ -636,25 +453,31 @@ async def hr_create_case(
         f"{emp_user.first_name} {emp_user.last_name}".strip()
         if emp_user else "Employee"
     )
-
     # ── 14. Auto-create case conversation ────────────────────────────────────
+    #
+    # Participants:   HR (actor) + employee (always) + attorney (if assigned)
+    # Thread type:    "group" when attorney present, "direct" otherwise
+    # Keyed on:       application_id — so re-running won't create a duplicate
+    #
     extra_participants = [employee_user_id]
     if payload.attorney_user_id:
         extra_participants.append(payload.attorney_user_id)
-
+ 
     if len(extra_participants) == 1:
-        thread_type  = "direct"
+        # No attorney yet — direct HR ↔ employee thread
+        thread_type = "direct"
         thread_title = None
     else:
+        # Attorney assigned at creation — group thread
         thread_type  = "group"
         thread_title = f"{payload.case_name} — Case Team"
-
+ 
     hr_user_obj = await db_get_by_id(db, User, hr_user_id)
     hr_name = (
         f"{hr_user_obj.first_name} {hr_user_obj.last_name}".strip()
         if hr_user_obj else "HR"
     )
-
+ 
     await get_or_create_thread_for_participants(
         db               = db,
         actor_id         = hr_user_id,
@@ -668,7 +491,6 @@ async def hr_create_case(
             f"HR contact: {hr_name}."
         ),
     )
-
     return HRCaseCreateResponse(
         id                 = refreshed.id,
         application_number = refreshed.application_number,
@@ -676,6 +498,7 @@ async def hr_create_case(
         employee_name      = full_name,
         visa_type_code     = visa_type.code,
     )
+
 
 # =============================================================================
 # LIST CASES

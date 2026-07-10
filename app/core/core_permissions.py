@@ -65,7 +65,7 @@ async def get_effective_permissions(
     role_permissions are reflected immediately without token re-issue.
     """
     # Import here to avoid circular imports at module load time
-    from app.models.models import UserRole, Role, RolePermission, Permission
+    from app.models.visamodels import UserRole, Role, RolePermission, Permission
 
     stmt = (
         select(distinct(Permission.code))
@@ -86,7 +86,7 @@ async def get_user_roles_from_db(
     db: AsyncSession,
 ) -> set[str]:
     """Returns the set of role name strings currently assigned to the user."""
-    from app.models.models import UserRole, Role
+    from app.models.visamodels import UserRole, Role
 
     stmt = (
         select(distinct(Role.name))

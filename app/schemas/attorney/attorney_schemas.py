@@ -106,24 +106,3 @@ class AttorneySearchParams(BaseModel):
     sort_by:       Optional[str]   = "rating"  # "rating"|"fee_asc"|"fee_desc"|"experience"
     page:          int = 1
     page_size:     int = 50
-
-# =============================================================================
-# HR "Assign Attorney" step (case creation Step 4) — deliberately lightweight.
-# No rating/fee/badges (that's Screen 20 marketplace stuff). Keyed by user_id
-# because Application.assigned_attorney_id is a FK to users.id, not
-# attorney_profiles.id.
-# =============================================================================
-
-class AttorneyAssignOption(BaseModel):
-    user_id:              uuid.UUID
-    full_name:            str
-    email:                str
-    profile_picture_url:  Optional[str] = None
-    law_firm_name:        Optional[str] = None
-    specialisations:      List[str] = []
-    active_cases:         int = 0
-    is_accepting:         bool = True
-
-
-class AttorneyAssignListResponse(BaseModel):
-    attorneys: List[AttorneyAssignOption]

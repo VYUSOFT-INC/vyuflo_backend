@@ -570,12 +570,11 @@ from app.models.visamodels import (
     Role,
     User,
     UserLoginHistory,
-    UserOTP,
     UserProfile,
     UserRole,
 )
 from app.schemas.employee.auth import ResetTokenStatus, UserRoleName
-from app.services.employee.otp_service import send_email_verification_otp, send_login_otp
+from app.services.employee.otp_service import send_email_verification_otp
 from app.services.employee.services import (
     _store_refresh_token,
     _verify_provider_token,
@@ -767,115 +766,115 @@ async def service_login(
 
 #login phone
 
-def _looks_like_email(identifier: str) -> bool:
-    return "@" in identifier
-
-
-async def _get_user_by_identifier(db: AsyncSession, identifier: str, channel: str) -> Optional[User]:
-    if channel == "email":
-        return await db_get_by_field(db, User, "email", identifier.lower())
-    return await db_get_by_field(db, User, "phone", identifier)
-
-
-async def service_request_login_otp(db: AsyncSession, *, identifier: str) -> dict:
-    """
-    Step 1 of passwordless login.
-    `identifier` is either an email address or a phone number — auto-detected.
-
-    Always returns a generic success message (no user enumeration), but only
-    actually generates + sends an OTP if a matching, active account exists.
-    """
-    identifier = identifier.strip()
-    channel = "email" if _looks_like_email(identifier) else "phone"
-
-    user = await _get_user_by_identifier(db, identifier, channel)
-
-    if user and user.is_active:
-        if channel == "phone" and not user.phone:
-            pass  # no phone on file — silently skip, same as "not found"
-        else:
-            await send_login_otp(db, user, channel)
-
-    return {
-        "message": f"If an account exists for that {channel}, a login code has been sent.",
-        "channel": channel,
-    }
-
-
-async def service_verify_login_otp(
-    db: AsyncSession,
-    *,
-    identifier: str,
-    otp_code: str,
-    ip_address: Optional[str] = None,
-    user_agent: Optional[str] = None,
-) -> dict:
-    """
-    Step 2 of passwordless login — verifies the OTP and issues tokens.
-    """
-    identifier = identifier.strip()
-    channel = "email" if _looks_like_email(identifier) else "phone"
-
-    user = await _get_user_by_identifier(db, identifier, channel)
-    if not user:
-        raise UnauthorizedException("Invalid or expired code")
-
+# def _looks_like_email(identifier: str) -> bool:
+    # return "@" in identifier
+# 
+# 
+# async def _get_user_by_identifier(db: AsyncSession, identifier: str, channel: str) -> Optional[User]:
+    # if channel == "email":
+        # return await db_get_by_field(db, User, "email", identifier.lower())
+    # return await db_get_by_field(db, User, "phone", identifier)
+# 
+# 
+# async def service_request_login_otp(db: AsyncSession, *, identifier: str) -> dict:
+    # """
+    # Step 1 of passwordless login.
+    # `identifier` is either an email address or a phone number — auto-detected.
+# 
+    # Always returns a generic success message (no user enumeration), but only
+    # actually generates + sends an OTP if a matching, active account exists.
+    # """
+    # identifier = identifier.strip()
+    # channel = "email" if _looks_like_email(identifier) else "phone"
+# 
+    # user = await _get_user_by_identifier(db, identifier, channel)
+# 
+    # if user and user.is_active:
+        # if channel == "phone" and not user.phone:
+            # pass  # no phone on file — silently skip, same as "not found"
+        # else:
+            # await send_login_otp(db, user, channel)
+# 
+    # return {
+        # "message": f"If an account exists for that {channel}, a login code has been sent.",
+        # "channel": channel,
+    # }
+# 
+# 
+# async def service_verify_login_otp(
+    # db: AsyncSession,
+    # *,
+    # identifier: str,
+    # otp_code: str,
+    # ip_address: Optional[str] = None,
+    # user_agent: Optional[str] = None,
+# ) -> dict:
+    # """
+    # Step 2 of passwordless login — verifies the OTP and issues tokens.
+    # """
+    # identifier = identifier.strip()
+    # channel = "email" if _looks_like_email(identifier) else "phone"
+# 
+    # user = await _get_user_by_identifier(db, identifier, channel)
+    # if not user:
+        # raise UnauthorizedException("Invalid or expired code")
+# 
     # ── Fetch most recent unused login OTP for this user ────────────────────
-    stmt = (
-        select(UserOTP)
-        .where(
-            UserOTP.user_id == user.id,
-            UserOTP.otp_type == "two_factor_auth",
-            UserOTP.is_used == False,
-        )
-        .order_by(UserOTP.created_at.desc())
-    )
-    otp_row = await db.scalar(stmt)
-
-    if not otp_row or otp_row.otp_code != otp_code:
-        raise UnauthorizedException("Invalid or expired code")
-
-    if otp_row.expires_at < utc_now():
-        raise UnauthorizedException("Invalid or expired code")
-
-    if not user.is_active:
-        raise UnauthorizedException("Your account has been suspended")
-
+    # stmt = (
+        # select(UserOTP)
+        # .where(
+            # UserOTP.user_id == user.id,
+            # UserOTP.otp_type == "two_factor_auth",
+            # UserOTP.is_used == False,
+        # )
+        # .order_by(UserOTP.created_at.desc())
+    # )
+    # otp_row = await db.scalar(stmt)
+# 
+    # if not otp_row or otp_row.otp_code != otp_code:
+        # raise UnauthorizedException("Invalid or expired code")
+# 
+    # if otp_row.expires_at < utc_now():
+        # raise UnauthorizedException("Invalid or expired code")
+# 
+    # if not user.is_active:
+        # raise UnauthorizedException("Your account has been suspended")
+# 
     # ── Mark OTP as used (single use) ───────────────────────────────────────
-    await db_update(db, UserOTP, otp_row.id, {"is_used": True})
-
+    # await db_update(db, UserOTP, otp_row.id, {"is_used": True})
+# 
     # ── Roles & profile ──────────────────────────────────────────────────────
-    roles        = await get_user_role(db, user.id)
-    user_profile = await get_user_profile(db, user.id)
-
+    # roles        = await get_user_role(db, user.id)
+    # user_profile = await get_user_profile(db, user.id)
+# 
     # ── Record successful login ─────────────────────────────────────────────
-    await db_update(db, User, user.id, {"last_login_at": utc_now()})
-    await db_create(db, UserLoginHistory(
-        user_id     = user.id,
-        status      = "success",
-        auth_method = "otp",
-        ip_address  = ip_address,
-    ))
-
+    # await db_update(db, User, user.id, {"last_login_at": utc_now()})
+    # await db_create(db, UserLoginHistory(
+        # user_id     = user.id,
+        # status      = "success",
+        # auth_method = "otp",
+        # ip_address  = ip_address,
+    # ))
+# 
     # ── Tokens ────────────────────────────────────────────────────────────
-    access_token  = create_access_token(str(user.id), roles, user.email, user.first_name or "", user.last_name or "")
-    refresh_token = create_refresh_token(str(user.id))
-    await _store_refresh_token(str(user.id), refresh_token)
+    # access_token  = create_access_token(str(user.id), roles, user.email, user.first_name or "", user.last_name or "")
+    # refresh_token = create_refresh_token(str(user.id))
+    # await _store_refresh_token(str(user.id), refresh_token)
 
-    return {
-        "access_token":    access_token,
-        "refresh_token":   refresh_token,
-        "roles":           roles,
-        "profile_picture": user_profile.profile_picture_url if user_profile else None,
-        "theme_color":     user_profile.theme_color if user_profile else None,
-        "user": {
-            "id":         user.id,
-            "first_name": user.first_name,
-            "last_name":  user.last_name,
-            "email":      user.email,
-            "phone":      user.phone,
-        },
-    }
+    # return {
+        # "access_token":    access_token,
+        # "refresh_token":   refresh_token,
+        # "roles":           roles,
+        # "profile_picture": user_profile.profile_picture_url if user_profile else None,
+        # "theme_color":     user_profile.theme_color if user_profile else None,
+        # "user": {
+            # "id":         user.id,
+            # "first_name": user.first_name,
+            # "last_name":  user.last_name,
+            # "email":      user.email,
+            # "phone":      user.phone,
+        # },
+    # }
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                       SSO LOGIN                                          ║

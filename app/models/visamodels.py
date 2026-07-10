@@ -514,7 +514,7 @@ class VisaType(Base):
     short_label               = Column(String(30),   nullable=True)
     display_order             = Column(Integer, default=0,    nullable=False)
     is_active                 = Column(Boolean, default=True, nullable=False)
-    lca_required = Column(Boolean, default=False, nullable=False)
+
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -906,6 +906,8 @@ class DocumentActivity(Base):
     action = Column(
         Enum("uploaded", "status_changed", "verified", "rejected",
              "downloaded", "viewed", "version_updated", "ocr_completed",
+             "document_requested",     
+             "request_fulfilled",  
              name="doc_activity_enum"),
         nullable=False
     )
@@ -1188,6 +1190,9 @@ class Notification(Base):
              "approval_pending", "approval_resolved", "compliance_alert",
              "employee_onboarded", "employee_profile_updated",
              "task_assigned",
+             "document_requested",              
+             "document_request_fulfilled",       
+             "document_uploaded_by_staff",      
              name="notification_type_enum"),
         nullable=False
     )
@@ -3495,3 +3500,49 @@ class LetterTemplate(Base):
     )
 
     visa_type = relationship("VisaType", back_populates="letter_templates")
+
+# =============================================================================
+# TABLE 73 — document_requests
+# =============================================================================
+
+class DocumentRequest(Base):
+    __tablename__ = "document_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    application_id  = Column(UUID(as_uuid=True), ForeignKey("applications.id"), nullable=False, index=True)
+    requested_by    = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)   # the attorney
+    requested_from  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)   # the client
+
+    document_name = Column(String(200), nullable=False)     # e.g. "Form W-2 (2024)"
+    details       = Column(Text, nullable=False)             # "Details / Reason"
+
+    priority = Column(
+        Enum("low", "normal", "high", "urgent", name="doc_request_priority_enum"),
+        nullable=False, default="normal"
+    )
+    due_date = Column(Date, nullable=True)
+
+    status = Column(
+        Enum("pending", "fulfilled", "cancelled", name="doc_request_status_enum"),
+        nullable=False, default="pending"
+    )
+
+    document_id  = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)  # filled in once uploaded
+    fulfilled_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_doc_requests_application_status", "application_id", "status"),
+        Index("ix_doc_requests_client_status", "requested_from", "status"),
+    )
+
+    application = relationship("Application")
+    requester   = relationship("User", foreign_keys=[requested_by])
+    client      = relationship("User", foreign_keys=[requested_from])
+    document    = relationship("Document", foreign_keys=[document_id])

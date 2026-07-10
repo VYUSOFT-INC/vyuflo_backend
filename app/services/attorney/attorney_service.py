@@ -23,14 +23,11 @@ from app.models.visamodels import (
     ConsultationBooking,
     ConsultationSlot,
     AppointmentType,
-    Application, 
 )
 from app.schemas.attorney.attorney_schemas import (
     AttorneyListItem,
     AttorneyListResponse,
     AttorneySearchParams,
-    AttorneyAssignOption,        # ← add
-    AttorneyAssignListResponse, 
 )
 
 
@@ -352,67 +349,3 @@ async def get_attorney_by_id(
             "visa_types_list":        _parse_json_list(profile.specialisations),
         }
     )
-
-async def list_attorneys_for_assignment(
-    db: AsyncSession,
-) -> List[AttorneyAssignOption]:
-    """
-    HR 'Assign Attorney' step (case creation Step 4).
-
-    Deliberately separate from list_attorneys() (Screen 20 marketplace):
-    - No rating/fee/badge computation — HR just needs to pick someone.
-    - Returns `user_id` (matches Application.assigned_attorney_id), not the
-      attorney_profiles.id that Screen 20 uses.
-    - `active_cases` = applications currently assigned to this attorney that
-      haven't reached a terminal status — a workload signal for HR, distinct
-      from the "completed bookings" total_cases metric on Screen 20.
-    """
-    result = await db.execute(
-        select(AttorneyProfile)
-        .options(selectinload(AttorneyProfile.user))
-        .where(
-            and_(
-                AttorneyProfile.is_active          == True,
-                AttorneyProfile.is_accepting_cases == True,
-            )
-        )
-        .order_by(AttorneyProfile.years_experience.desc().nullslast())
-    )
-    profiles = result.scalars().all()
-    if not profiles:
-        return []
-
-    user_ids = [p.user_id for p in profiles]
-
-    active_counts_result = await db.execute(
-        select(
-            Application.assigned_attorney_id,
-            func.count(Application.id).label("cnt"),
-        )
-        .where(
-            and_(
-                Application.assigned_attorney_id.in_(user_ids),
-                Application.status.notin_(["approved", "rejected", "withdrawn"]),
-            )
-        )
-        .group_by(Application.assigned_attorney_id)
-    )
-    active_counts = {row.assigned_attorney_id: row.cnt for row in active_counts_result}
-
-    options: List[AttorneyAssignOption] = []
-    for p in profiles:
-        if not p.user:
-            continue  # orphaned profile — skip rather than 500
-        options.append(
-            AttorneyAssignOption(
-                user_id=p.user_id,
-                full_name=f"{p.user.first_name} {p.user.last_name}",
-                email=p.user.email,
-                profile_picture_url=p.profile_photo_url,
-                law_firm_name=p.law_firm_name,
-                specialisations=_parse_json_list(p.specialisations),
-                active_cases=active_counts.get(p.user_id, 0),
-                is_accepting=p.is_accepting_cases,
-            )
-        )
-    return options

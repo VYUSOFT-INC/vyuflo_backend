@@ -46,20 +46,20 @@ class LoginRequest(BaseModel):
     remember_me: bool = False
 
 # ── Login — OTP (passwordless, email or phone) ─────────────────────────────────
-class LoginOTPRequestSchema(BaseModel):
-    """Step 1 – submit an email or phone number to receive a login code."""
-    identifier: str = Field(..., min_length=3, description="Email address or phone number")
+# class LoginOTPRequestSchema(BaseModel):
+#     """Step 1 – submit an email or phone number to receive a login code."""
+#     identifier: str = Field(..., min_length=3, description="Email address or phone number")
 
 
-class LoginOTPRequestResponse(BaseModel):
-    message: str
-    channel: str  # "email" | "phone"
+# class LoginOTPRequestResponse(BaseModel):
+#     message: str
+#     channel: str  # "email" | "phone"
 
 
-class LoginOTPVerifySchema(BaseModel):
-    """Step 2 – submit the identifier + 6-digit code to complete login."""
-    identifier: str = Field(..., min_length=3, description="Same email or phone used in step 1")
-    otp_code:   str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+# class LoginOTPVerifySchema(BaseModel):
+#     """Step 2 – submit the identifier + 6-digit code to complete login."""
+#     identifier: str = Field(..., min_length=3, description="Same email or phone used in step 1")
+#     otp_code:   str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
 # ── Signup ────────────────────────────────────────────────────────────────────
