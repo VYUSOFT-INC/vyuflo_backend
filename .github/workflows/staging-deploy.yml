@@ -1,0 +1,26 @@
+name: Deploy Backend to Staging
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Staging Server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /opt/vyuflo-staging/backend
+
+            git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/VYUSOFT-INC/vyuflo_backend.git
+            git pull origin main
+
+            cd /opt/vyuflo-staging
+            docker compose -f docker-compose.staging.yml up -d --build backend
