@@ -3,8 +3,7 @@ name: Deploy Backend to Staging
 on:
   push:
     branches:
-      - main
-
+      - staging
 jobs:
   deploy:
     runs-on: ubuntu-latest
