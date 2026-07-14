@@ -500,12 +500,17 @@ class VisaType(Base):
     name        = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
 
+    # category = Column(
+        # Enum("employment", "student", "visitor", "permanent_resident", "exchange",
+            #  name="visa_category_enum"),
+        # nullable=False
+    # )
     category = Column(
-        Enum("employment", "student", "visitor", "permanent_resident", "exchange",
-             name="visa_category_enum"),
-        nullable=False
+    Enum("employment", "student", "visitor", "permanent_resident", "exchange",
+         "dependent", "family_based",
+         name="visa_category_enum"),
+    nullable=False
     )
-
     requires_employer_sponsor = Column(Boolean, default=False, nullable=False)
     required_documents        = Column(Text,    nullable=True)
     typical_processing_days   = Column(Integer, nullable=True)
