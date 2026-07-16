@@ -1,0 +1,75 @@
+name: Deploy
+
+on:
+  push:
+    branches: [dev, staging, pre-live, main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [dev, staging, pre-live, prod]
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || (github.ref_name == 'main' && 'prod' || github.ref_name) }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-env:
+    name: Resolve environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.map.outputs.environment }}
+    steps:
+      - name: Map branch / input → environment
+        id: map
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref_name }}" = "main" ]; then
+            echo "environment=prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  ci:
+    name: CI before deploy
+    needs: resolve-env
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy → ${{ needs.resolve-env.outputs.environment }}
+    needs: [resolve-env, ci]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve-env.outputs.environment }}
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+            COMPOSE_FILE="${{ secrets.COMPOSE_FILE }}"
+            DEPLOY_BRANCH="${{ secrets.DEPLOY_BRANCH }}"
+
+            if [ -z "$DEPLOY_PATH" ] || [ -z "$COMPOSE_FILE" ] || [ -z "$DEPLOY_BRANCH" ]; then
+              echo "Missing DEPLOY_PATH, COMPOSE_FILE, or DEPLOY_BRANCH secret for this environment."
+              exit 1
+            fi
+
+            cd "$DEPLOY_PATH/backend"
+
+            git remote set-url origin "https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git"
+            git fetch origin "$DEPLOY_BRANCH"
+            git checkout "$DEPLOY_BRANCH"
+            git pull origin "$DEPLOY_BRANCH"
+
+            cd "$DEPLOY_PATH"
+            docker compose -f "$COMPOSE_FILE" up -d --build backend
+
+            echo "Deployed ${{ github.sha }} → ${{ needs.resolve-env.outputs.environment }}"
