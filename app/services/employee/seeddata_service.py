@@ -160,6 +160,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.visamodels import (
+    NotificationTemplate,
     Role,
     Permission,
     RolePermission,
@@ -173,6 +174,7 @@ from app.models.visamodels import (
 )
 
 from app.models.seeds import (
+    NOTIFICATION_TEMPLATES_SEED,
     ROLES_SEED,
     PERMISSIONS_SEED,
     ROLE_PERMISSIONS_SEED,
@@ -484,3 +486,20 @@ async def seed_support_articles(db: AsyncSession):
 
     await db.commit()
     print("✅ Support articles seeded")
+
+
+async def seed_notification_templates(db: AsyncSession) -> None:
+    """
+    Idempotent — skips already-seeded event_keys.
+    Safe to run on every startup or migration.
+    """
+    for item in NOTIFICATION_TEMPLATES_SEED:
+        exists = (await db.execute(
+            select(NotificationTemplate).where(
+                NotificationTemplate.event_key == item["event_key"]
+            )
+        )).scalar_one_or_none()
+        if not exists:
+            db.add(NotificationTemplate(**item))
+    await db.commit()
+    print("✅ NotificationTemplate seeded")
