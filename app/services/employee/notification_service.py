@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import uuid
@@ -9,10 +8,12 @@ from typing import Optional
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.email import send_email
 from app.models.visamodels import (
     Application,
     Deadline,
+    EmployerProfile,
     Notification,
     NotificationPreferences,
     User,
@@ -41,7 +42,6 @@ async def _get_or_create_prefs(
     db: AsyncSession,
     user_id: uuid.UUID,
 ) -> NotificationPreferences:
-    """Fetch preferences row; auto-create with defaults on first call."""
     result = await db.execute(
         select(NotificationPreferences).where(
             NotificationPreferences.user_id == user_id
@@ -60,11 +60,133 @@ async def _get_user(db: AsyncSession, user_id: uuid.UUID) -> Optional[User]:
     return result.scalar_one_or_none()
 
 
-def _render(template: str, context: dict[str, str]) -> str:
-    """Simple safe placeholder replacement — never eval/Jinja2 (SSTI risk)."""
-    for key, value in context.items():
-        template = template.replace(f"{{{{{key}}}}}", value)
-    return template
+async def _get_company_context(
+    db: AsyncSession,
+    hr_user_id: Optional[uuid.UUID],
+) -> dict:
+    """
+    Fetches HR company branding from EmployerProfile.
+    Used to personalise emails with company name + logo per HR tenant.
+    Falls back to Vyuflo defaults if no HR or no profile found.
+    """
+    defaults = {
+        "company_name":     "Vyuflo",
+        "company_logo_url": f"{settings.FRONTEND_URL}/logo192.png",
+        "portal_url":       settings.FRONTEND_URL,
+        "hr_name":          "Your HR Team",
+        "support_email":    settings.SMTP_FROM_EMAIL,
+    }
+
+    if not hr_user_id:
+        return defaults
+
+    result = await db.execute(
+        select(EmployerProfile).where(EmployerProfile.user_id == hr_user_id)
+    )
+    profile = result.scalar_one_or_none()
+
+    if not profile:
+        return defaults
+
+    hr_user = await _get_user(db, hr_user_id)
+    hr_name = (
+        f"{hr_user.first_name} {hr_user.last_name}".strip()
+        if hr_user else "Your HR Team"
+    )
+
+    return {
+        "company_name":     profile.company_name or "Vyuflo",
+        "company_logo_url": profile.logo_url or f"{settings.FRONTEND_URL}/logo192.png",
+        "portal_url":       settings.FRONTEND_URL,
+        "hr_name":          hr_name,
+        "support_email":    settings.SMTP_FROM_EMAIL,
+    }
+
+
+def _build_branded_html(
+    company_name:     str,
+    logo_url:         str,
+    body_text:        str,
+    portal_url:       str,
+    cta_label:        Optional[str] = None,
+    cta_url:          Optional[str] = None,
+) -> str:
+    """
+    Wraps plain notification body in a clean branded HTML email.
+    Each HR company gets their own logo + company name in the header.
+    CTA button is optional — shown when cta_label + cta_url are provided.
+    """
+    body_html_content = body_text.replace("\n", "<br>")
+
+    cta_block = ""
+    if cta_label and cta_url:
+        full_cta_url = cta_url if cta_url.startswith("http") else f"{portal_url}{cta_url}"
+        cta_block = f"""
+        <br>
+        <a href="{full_cta_url}"
+           style="display:inline-block;background:#4f46e5;color:#ffffff;
+                  padding:12px 24px;border-radius:8px;text-decoration:none;
+                  font-weight:600;font-size:14px;margin-top:8px;">
+          {cta_label}
+        </a>"""
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:Inter,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background:#f9fafb;padding:32px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0"
+             style="background:#ffffff;border-radius:12px;overflow:hidden;
+                    box-shadow:0 1px 4px rgba(0,0,0,0.08);
+                    max-width:600px;width:100%;">
+
+        <!-- ── Header: company logo + name ── -->
+        <tr>
+          <td style="background:#4f46e5;padding:24px 32px;text-align:center;">
+            <img src="{logo_url}"
+                 alt="{company_name}"
+                 height="40"
+                 style="max-height:40px;object-fit:contain;"
+                 onerror="this.style.display='none'">
+            <p style="color:#c7d2fe;margin:8px 0 0;font-size:13px;">
+              {company_name}
+            </p>
+          </td>
+        </tr>
+
+        <!-- ── Body ── -->
+        <tr>
+          <td style="padding:32px;">
+            <div style="font-size:15px;color:#111827;line-height:1.7;">
+              {body_html_content}
+              {cta_block}
+            </div>
+          </td>
+        </tr>
+
+        <!-- ── Footer ── -->
+        <tr>
+          <td style="padding:20px 32px;border-top:1px solid #f3f4f6;
+                     text-align:center;">
+            <p style="font-size:12px;color:#9ca3af;margin:0;">
+              This notification was sent by {company_name} via
+              <a href="{portal_url}"
+                 style="color:#4f46e5;text-decoration:none;">Vyuflo</a>.
+              If you have questions, contact your HR team.
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
 
 
 async def _create_notification(
@@ -111,20 +233,32 @@ async def _create_notification(
 
 
 async def _maybe_send_email(
-    db: AsyncSession,
-    notif: Notification,
-    user_id: uuid.UUID,
-    subject: str,
-    body_text: str,
+    db:                  AsyncSession,
+    notif_id:            uuid.UUID,
+    user_id:             uuid.UUID,
+    subject:             str,
+    body_text:           str,
     category_pref_field: str,
+    # ── Branding + template params (optional) ────────────────────────────────
+    hr_user_id:          Optional[uuid.UUID] = None,  # for company logo/name
+    cta_label:           Optional[str]       = None,  # e.g. "View Application"
+    cta_url:             Optional[str]       = None,  # e.g. "/applications/uuid"
+    event_key:           Optional[str]       = None,  # for template lookup
+    template_context:    Optional[dict]      = None,  # template {{placeholders}}
 ) -> None:
     """
-    Send email if the user has email_enabled AND the specific category enabled.
-    Marks sent_via_email=True on the notification row.
-    category_pref_field: name of the bool column on NotificationPreferences
-    e.g. 'notify_case_updates', 'notify_deadlines', 'notify_document_updates'
+    Sends a branded HTML email if user preferences allow it.
+
+    Flow:
+      1. Check email_enabled + category pref
+      2. Fetch HR company branding (company_name, logo_url)
+      3. Try to render from NotificationTemplate if event_key provided
+      4. Fall back to _build_branded_html() wrapping plain body_text
+      5. Send via SMTP
+      6. Mark notification.sent_via_email = True
     """
     try:
+        # 1. Check preferences
         prefs = await _get_or_create_prefs(db, user_id)
         if not prefs.email_enabled:
             return
@@ -135,19 +269,71 @@ async def _maybe_send_email(
         if not user or not user.email:
             return
 
-        await send_email(to=user.email, subject=subject, body=body_text)
+        # 2. Fetch company branding
+        company = await _get_company_context(db, hr_user_id)
 
-        # Mark sent on the notification row
-        notif.sent_via_email = True
-        await db.flush()
+        # 3. Try NotificationTemplate rendering
+        final_subject  = subject
+        final_body     = body_text
+        template_html  = None
+
+        if event_key and template_context is not None:
+            full_context = {
+                **company,
+                "user_name": f"{user.first_name} {user.last_name}".strip(),
+                **template_context,
+            }
+            try:
+                from app.services.admin.notification_template import (
+                    dispatch_notification_from_template,
+                )
+                rendered = await dispatch_notification_from_template(
+                    db, event_key, user_id, full_context
+                )
+                if rendered:
+                    if rendered.get("subject"):
+                        final_subject = rendered["subject"]
+                    if rendered.get("body"):
+                        final_body = rendered["body"]
+                    if rendered.get("body_html"):
+                        template_html = rendered["body_html"]
+            except Exception:
+                pass  # silent fallback — always send something
+
+        # 4. Build branded HTML if template didn't supply one
+        body_html = template_html or _build_branded_html(
+            company_name=company["company_name"],
+            logo_url=company["company_logo_url"],
+            body_text=final_body,
+            portal_url=company["portal_url"],
+            cta_label=cta_label,
+            cta_url=cta_url,
+        )
+
+        # 5. Send
+        await send_email(
+            to=user.email,
+            subject=final_subject,
+            body=final_body,
+            body_html=body_html,
+        )
+
+        # 6. Mark sent
+        result = await db.execute(
+            select(Notification).where(Notification.id == notif_id)
+        )
+        notif = result.scalar_one_or_none()
+        if notif:
+            notif.sent_via_email = True
+            await db.flush()
 
     except Exception:
-        # Never let email failure break the main flow
-        logger.exception("Failed to send email for notification %s", notif.id)
+        logger.exception("Failed to send email for notification %s", notif_id)
+        await db.rollback()
 
 
 # =============================================================================
-# READ-SIDE  (called by routes)
+# READ-SIDE
 # =============================================================================
 
 async def list_notifications(
@@ -160,7 +346,6 @@ async def list_notifications(
     limit: int = 20,
     offset: int = 0,
 ) -> NotificationListResponse:
-    # ── Base query — never show dismissed ────────────────────────────────────
     base = (
         select(Notification)
         .where(
@@ -177,17 +362,10 @@ async def list_notifications(
     if priority:
         base = base.where(Notification.priority == priority)
 
-    # ── Count total matching rows ─────────────────────────────────────────────
     count_q = select(func.count()).select_from(base.subquery())
-    total = (await db.execute(count_q)).scalar_one()
-
-    # ── Fetch page ────────────────────────────────────────────────────────────
-    rows = (
-        await db.execute(base.limit(limit).offset(offset))
-    ).scalars().all()
-
-    # ── Unread / urgent counts always for the whole user (ignore filters) ─────
-    stats = await _raw_stats(db, user_id)
+    total   = (await db.execute(count_q)).scalar_one()
+    rows    = (await db.execute(base.limit(limit).offset(offset))).scalars().all()
+    stats   = await _raw_stats(db, user_id)
 
     return NotificationListResponse(
         items=[NotificationOut.model_validate(n) for n in rows],
@@ -200,56 +378,47 @@ async def list_notifications(
 
 async def _raw_stats(db: AsyncSession, user_id: uuid.UUID) -> dict:
     from datetime import timedelta
-
-    now = _now()
+    now      = _now()
     week_ago = now - timedelta(days=7)
 
-    unread = (
-        await db.execute(
-            select(func.count(Notification.id)).where(
-                Notification.user_id == user_id,
-                Notification.is_read == False,  # noqa: E712
-                Notification.is_dismissed == False,  # noqa: E712
-            )
+    unread = (await db.execute(
+        select(func.count(Notification.id)).where(
+            Notification.user_id     == user_id,
+            Notification.is_read     == False,  # noqa: E712
+            Notification.is_dismissed == False,  # noqa: E712
         )
-    ).scalar_one()
+    )).scalar_one()
 
-    urgent = (
-        await db.execute(
-            select(func.count(Notification.id)).where(
-                Notification.user_id == user_id,
-                Notification.priority == "urgent",
-                Notification.is_read == False,  # noqa: E712
-                Notification.is_dismissed == False,  # noqa: E712
-            )
+    urgent = (await db.execute(
+        select(func.count(Notification.id)).where(
+            Notification.user_id     == user_id,
+            Notification.priority    == "urgent",
+            Notification.is_read     == False,  # noqa: E712
+            Notification.is_dismissed == False,  # noqa: E712
         )
-    ).scalar_one()
+    )).scalar_one()
 
-    week = (
-        await db.execute(
-            select(func.count(Notification.id)).where(
-                Notification.user_id == user_id,
-                Notification.created_at >= week_ago,
-                Notification.is_dismissed == False,  # noqa: E712
-            )
+    week = (await db.execute(
+        select(func.count(Notification.id)).where(
+            Notification.user_id      == user_id,
+            Notification.created_at   >= week_ago,
+            Notification.is_dismissed == False,  # noqa: E712
         )
-    ).scalar_one()
+    )).scalar_one()
 
-    news = (
-        await db.execute(
-            select(func.count(Notification.id)).where(
-                Notification.user_id == user_id,
-                Notification.category == "news",
-                Notification.is_dismissed == False,  # noqa: E712
-            )
+    news = (await db.execute(
+        select(func.count(Notification.id)).where(
+            Notification.user_id      == user_id,
+            Notification.category     == "news",
+            Notification.is_dismissed == False,  # noqa: E712
         )
-    ).scalar_one()
+    )).scalar_one()
 
     return {
         "unread_count": unread,
         "urgent_count": urgent,
-        "week_count": week,
-        "news_count": news,
+        "week_count":   week,
+        "news_count":   news,
     }
 
 
@@ -272,7 +441,7 @@ async def mark_notification_read(
 ) -> MarkReadResponse:
     result = await db.execute(
         select(Notification).where(
-            Notification.id == notif_id,
+            Notification.id      == notif_id,
             Notification.user_id == user_id,
         )
     )
@@ -296,8 +465,8 @@ async def mark_all_read(
     stmt = (
         update(Notification)
         .where(
-            Notification.user_id == user_id,
-            Notification.is_read == False,  # noqa: E712
+            Notification.user_id      == user_id,
+            Notification.is_read      == False,  # noqa: E712
             Notification.is_dismissed == False,  # noqa: E712
         )
         .values(is_read=True, read_at=_now())
@@ -306,7 +475,8 @@ async def mark_all_read(
         stmt = stmt.where(Notification.category == category)
 
     result = await db.execute(stmt)
-    count = result.rowcount
+    await db.flush()
+    count  = result.rowcount
     return MarkReadResponse(updated=count, message=f"{count} notification(s) marked as read.")
 
 
@@ -317,7 +487,7 @@ async def dismiss_notification(
 ) -> MarkReadResponse:
     result = await db.execute(
         select(Notification).where(
-            Notification.id == notif_id,
+            Notification.id      == notif_id,
             Notification.user_id == user_id,
         )
     )
@@ -331,7 +501,6 @@ async def dismiss_notification(
         notif.is_read = True
         notif.read_at = _now()
     await db.flush()
-
     return MarkReadResponse(updated=1, message="Notification dismissed.")
 
 
@@ -344,7 +513,7 @@ async def get_preferences(
     user_id: uuid.UUID,
 ) -> NotificationPreferencesOut:
     prefs = await _get_or_create_prefs(db, user_id)
-    await db.commit()
+    # Note: no db.commit() here — router handles the commit
     return NotificationPreferencesOut.model_validate(prefs)
 
 
@@ -353,20 +522,18 @@ async def update_preferences(
     user_id: uuid.UUID,
     body: UpdatePreferencesRequest,
 ) -> NotificationPreferencesOut:
-    prefs = await _get_or_create_prefs(db, user_id)
-
+    prefs       = await _get_or_create_prefs(db, user_id)
     update_data = body.model_dump(exclude_none=True)
     for field, value in update_data.items():
         setattr(prefs, field, value)
-
     await db.flush()
     return NotificationPreferencesOut.model_validate(prefs)
 
 
 # =============================================================================
 # EVENT TRIGGERS
-# Call these from other services AFTER db.flush() so IDs are available.
-# Each function is fire-and-forget — they never raise to the caller.
+# Each fire_* function now passes hr_user_id + cta info to _maybe_send_email
+# so every email gets the correct company logo + name + CTA button
 # =============================================================================
 
 async def fire_case_created(
@@ -375,23 +542,22 @@ async def fire_case_created(
     *,
     actor_id: uuid.UUID,
 ) -> None:
-    """
-    Fires when a new visa application is created.
-    Notifies:
-      - The employee (confirmation)
-      - Assigned HR (if set at creation time)
-      - Assigned Attorney (if set at creation time)
-    """
-    try:
-        actor = await _get_user(db, actor_id)
-        actor_label = f"{actor.first_name} {actor.last_name}" if actor else "System"
-        case_ref = application.application_number
-        app_url = f"/applications/{application.id}"
+    app_id  = application.id
+    app_num = application.application_number
+    user_id = application.user_id
+    hr_id   = application.assigned_hr_id
+    att_id  = application.assigned_attorney_id
 
-        # ── Notify employee ───────────────────────────────────────────────────
+    try:
+        actor       = await _get_user(db, actor_id)
+        actor_label = f"{actor.first_name} {actor.last_name}" if actor else "System"
+        case_ref    = app_num
+        app_url     = f"/applications/{app_id}"
+
+        # Employee notification
         emp_notif = await _create_notification(
             db,
-            user_id=application.user_id,
+            user_id=user_id,
             notification_type="case_status_updated",
             category="case_update",
             priority="high",
@@ -400,7 +566,7 @@ async def fire_case_created(
                 f"Application {case_ref} has been successfully created. "
                 "Your attorney will review and begin processing soon."
             ),
-            application_id=application.id,
+            application_id=app_id,
             case_reference=case_ref,
             actor_id=actor_id,
             actor_label=actor_label,
@@ -408,50 +574,61 @@ async def fire_case_created(
             cta_primary_url=app_url,
         )
         await _maybe_send_email(
-            db, emp_notif, application.user_id,
-            subject=f"VisaFlow — Application {case_ref} Created",
+            db, emp_notif.id, user_id,
+            subject=f"Vyuflo — Application {case_ref} Created",
             body_text=(
                 f"Hi,\n\nYour visa application {case_ref} has been created.\n"
-                f"Track your progress: {app_url}\n\nVisaFlow Team"
+                f"Track your progress at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
             ),
             category_pref_field="notify_case_updates",
+            hr_user_id=hr_id,
+            cta_label="View Application",
+            cta_url=app_url,
+            event_key="case_status_updated",
+            template_context={
+                "application_number": case_ref,
+                "action_url":         f"{settings.FRONTEND_URL}{app_url}",
+            },
         )
 
-        # ── Notify assigned HR ────────────────────────────────────────────────
-        if application.assigned_hr_id:
+        # HR notification
+        if hr_id:
             hr_notif = await _create_notification(
                 db,
-                user_id=application.assigned_hr_id,
+                user_id=hr_id,
                 notification_type="case_status_updated",
                 category="case_update",
                 priority="high",
                 title=f"New case assigned — {case_ref}",
                 body=(
                     f"A new visa application ({case_ref}) has been created "
-                    f"and assigned to you for review."
+                    "and assigned to you for review."
                 ),
-                application_id=application.id,
+                application_id=app_id,
                 case_reference=case_ref,
                 actor_id=actor_id,
                 actor_label=actor_label,
                 cta_primary_label="Review Case",
-                cta_primary_url=app_url,
+                cta_primary_url=f"/employer/cases/{app_id}",
             )
             await _maybe_send_email(
-                db, hr_notif, application.assigned_hr_id,
-                subject=f"VisaFlow — New Case Assigned: {case_ref}",
+                db, hr_notif.id, hr_id,
+                subject=f"Vyuflo — New Case Assigned: {case_ref}",
                 body_text=(
                     f"A new application ({case_ref}) has been assigned to you.\n"
-                    f"Review it: {app_url}\n\nVisaFlow Team"
+                    f"Review it at: {settings.FRONTEND_URL}/employer/cases/{app_id}\n\nVyuflo Team"
                 ),
                 category_pref_field="notify_case_updates",
+                hr_user_id=hr_id,
+                cta_label="Review Case",
+                cta_url=f"/employer/cases/{app_id}",
             )
 
-        # ── Notify assigned Attorney ──────────────────────────────────────────
-        if application.assigned_attorney_id:
+        # Attorney notification
+        if att_id:
             att_notif = await _create_notification(
                 db,
-                user_id=application.assigned_attorney_id,
+                user_id=att_id,
                 notification_type="case_status_updated",
                 category="case_update",
                 priority="high",
@@ -460,25 +637,29 @@ async def fire_case_created(
                     f"Case {case_ref} has been assigned to you. "
                     "Please review and begin the eligibility assessment."
                 ),
-                application_id=application.id,
+                application_id=app_id,
                 case_reference=case_ref,
                 actor_id=actor_id,
                 actor_label=actor_label,
                 cta_primary_label="Open Case",
-                cta_primary_url=app_url,
+                cta_primary_url=f"/lawyer/cases/{app_id}",
             )
             await _maybe_send_email(
-                db, att_notif, application.assigned_attorney_id,
-                subject=f"VisaFlow — New Case Assigned: {case_ref}",
+                db, att_notif.id, att_id,
+                subject=f"Vyuflo — New Case Assigned: {case_ref}",
                 body_text=(
                     f"Case {case_ref} has been assigned to you.\n"
-                    f"Open it here: {app_url}\n\nVisaFlow Team"
+                    f"Open it at: {settings.FRONTEND_URL}/lawyer/cases/{app_id}\n\nVyuflo Team"
                 ),
                 category_pref_field="notify_case_updates",
+                hr_user_id=hr_id,
+                cta_label="Open Case",
+                cta_url=f"/lawyer/cases/{app_id}",
             )
 
     except Exception:
-        logger.exception("fire_case_created failed for application %s", application.id)
+        logger.exception("fire_case_created failed for application %s", app_id)
+        await db.rollback()
 
 
 async def fire_case_assigned_to_hr(
@@ -486,23 +667,20 @@ async def fire_case_assigned_to_hr(
     application: Application,
     *,
     new_hr_id: uuid.UUID,
-    actor_id: uuid.UUID,
+    actor_id:  uuid.UUID,
 ) -> None:
-    """
-    Fires when an HR user is explicitly assigned (or reassigned) to a case.
-    Notifies:
-      - The HR user being assigned
-      - The employee (so they know who their HR contact is)
-    """
-    try:
-        actor = await _get_user(db, actor_id)
-        actor_label = f"{actor.first_name} {actor.last_name}" if actor else "System"
-        hr_user = await _get_user(db, new_hr_id)
-        hr_name = f"{hr_user.first_name} {hr_user.last_name}" if hr_user else "HR"
-        case_ref = application.application_number
-        app_url = f"/applications/{application.id}"
+    app_id  = application.id
+    app_num = application.application_number
+    user_id = application.user_id
 
-        # ── Notify HR ─────────────────────────────────────────────────────────
+    try:
+        actor       = await _get_user(db, actor_id)
+        actor_label = f"{actor.first_name} {actor.last_name}" if actor else "System"
+        hr_user     = await _get_user(db, new_hr_id)
+        hr_name     = f"{hr_user.first_name} {hr_user.last_name}" if hr_user else "HR"
+        case_ref    = app_num
+        app_url     = f"/employer/cases/{app_id}"
+
         hr_notif = await _create_notification(
             db,
             user_id=new_hr_id,
@@ -514,7 +692,7 @@ async def fire_case_assigned_to_hr(
                 f"{actor_label} has assigned case {case_ref} to you. "
                 "Please review the case details and take necessary action."
             ),
-            application_id=application.id,
+            application_id=app_id,
             case_reference=case_ref,
             actor_id=actor_id,
             actor_label=actor_label,
@@ -522,48 +700,50 @@ async def fire_case_assigned_to_hr(
             cta_primary_url=app_url,
         )
         await _maybe_send_email(
-            db, hr_notif, new_hr_id,
-            subject=f"VisaFlow — Case {case_ref} Assigned to You",
+            db, hr_notif.id, new_hr_id,
+            subject=f"Vyuflo — Case {case_ref} Assigned to You",
             body_text=(
                 f"Hi {hr_name},\n\n"
                 f"Case {case_ref} has been assigned to you by {actor_label}.\n"
-                f"Open it: {app_url}\n\nVisaFlow Team"
+                f"Open it at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
             ),
             category_pref_field="notify_case_updates",
+            hr_user_id=new_hr_id,
+            cta_label="Open Case",
+            cta_url=app_url,
         )
 
-        # ── Notify employee ───────────────────────────────────────────────────
         emp_notif = await _create_notification(
             db,
-            user_id=application.user_id,
+            user_id=user_id,
             notification_type="participant_added",
             category="case_update",
             priority="medium",
             title="HR contact assigned to your case",
-            body=(
-                f"{hr_name} has been assigned as your HR contact for case {case_ref}."
-            ),
-            application_id=application.id,
+            body=f"{hr_name} has been assigned as your HR contact for case {case_ref}.",
+            application_id=app_id,
             case_reference=case_ref,
             actor_id=actor_id,
             actor_label=actor_label,
             cta_primary_label="View Case",
-            cta_primary_url=app_url,
+            cta_primary_url=f"/applications/{app_id}",
         )
         await _maybe_send_email(
-            db, emp_notif, application.user_id,
-            subject=f"VisaFlow — HR Assigned to Your Case {case_ref}",
+            db, emp_notif.id, user_id,
+            subject=f"Vyuflo — HR Assigned to Your Case {case_ref}",
             body_text=(
                 f"Hi,\n\n{hr_name} has been assigned to your case {case_ref}.\n"
-                f"View your application: {app_url}\n\nVisaFlow Team"
+                f"View your application at: {settings.FRONTEND_URL}/applications/{app_id}\n\nVyuflo Team"
             ),
             category_pref_field="notify_case_updates",
+            hr_user_id=new_hr_id,
+            cta_label="View Case",
+            cta_url=f"/applications/{app_id}",
         )
 
     except Exception:
-        logger.exception(
-            "fire_case_assigned_to_hr failed for application %s", application.id
-        )
+        logger.exception("fire_case_assigned_to_hr failed for application %s", app_id)
+        await db.rollback()
 
 
 async def fire_case_status_changed(
@@ -572,28 +752,20 @@ async def fire_case_status_changed(
     *,
     old_status: str,
     new_status: str,
-    actor_id: uuid.UUID,
-    note: Optional[str] = None,
+    actor_id:   uuid.UUID,
+    note:       Optional[str] = None,
 ) -> None:
-    """
-    Fires when application.status changes.
-    Notifies:
-      - Employee (always)
-      - HR (if assigned)
-      - Attorney (if assigned)
+    app_id  = application.id
+    app_num = application.application_number
+    user_id = application.user_id
+    hr_id   = application.assigned_hr_id
+    att_id  = application.assigned_attorney_id
 
-    Priority escalation:
-      action_needed / rfe_response → urgent
-      approved / rejected          → high
-      in_progress / submitted      → medium
-    """
     try:
-        actor = await _get_user(db, actor_id)
+        actor       = await _get_user(db, actor_id)
         actor_label = f"{actor.first_name} {actor.last_name}" if actor else "System"
-        case_ref = application.application_number
-        app_url = f"/applications/{application.id}"
+        case_ref    = app_num
 
-        # Map status → priority
         priority_map = {
             "action_needed": "urgent",
             "rfe_response":  "urgent",
@@ -604,7 +776,6 @@ async def fire_case_status_changed(
         }
         priority = priority_map.get(new_status, "low")
 
-        # Human-readable status labels
         status_labels = {
             "draft":         "Draft",
             "in_progress":   "In Progress",
@@ -621,21 +792,20 @@ async def fire_case_status_changed(
         if note:
             body += f"\n\nNote: {note}"
 
-        recipients: list[tuple[uuid.UUID, str]] = [
-            (application.user_id, "employee"),
+        recipients: list[tuple[uuid.UUID, str, str]] = [
+            (user_id, "employee", f"/applications/{app_id}"),
         ]
-        if application.assigned_hr_id:
-            recipients.append((application.assigned_hr_id, "hr"))
-        if application.assigned_attorney_id:
-            recipients.append((application.assigned_attorney_id, "attorney"))
+        if hr_id:
+            recipients.append((hr_id, "hr", f"/employer/cases/{app_id}"))
+        if att_id:
+            recipients.append((att_id, "attorney", f"/lawyer/cases/{app_id}"))
 
-        for recipient_id, role in recipients:
-            # Tailor title for role
-            if role == "employee":
-                title = f"Case update — {new_label}"
-            else:
-                title = f"Case {case_ref} status changed to {new_label}"
-
+        for recipient_id, role, role_url in recipients:
+            title = (
+                f"Case update — {new_label}"
+                if role == "employee"
+                else f"Case {case_ref} status changed to {new_label}"
+            )
             notif = await _create_notification(
                 db,
                 user_id=recipient_id,
@@ -644,29 +814,37 @@ async def fire_case_status_changed(
                 priority=priority,
                 title=title,
                 body=body,
-                application_id=application.id,
+                application_id=app_id,
                 case_reference=case_ref,
                 actor_id=actor_id,
                 actor_label=actor_label,
                 cta_primary_label="View Case",
-                cta_primary_url=app_url,
+                cta_primary_url=role_url,
             )
             await _maybe_send_email(
-                db, notif, recipient_id,
-                subject=f"VisaFlow — Case {case_ref}: {new_label}",
+                db, notif.id, recipient_id,
+                subject=f"Vyuflo — Case {case_ref}: {new_label}",
                 body_text=(
                     f"Hi,\n\nCase {case_ref} has been updated.\n"
                     f"New status: {new_label}\n"
                     f"{('Note: ' + note) if note else ''}\n\n"
-                    f"View it here: {app_url}\n\nVisaFlow Team"
+                    f"View it at: {settings.FRONTEND_URL}{role_url}\n\nVyuflo Team"
                 ),
                 category_pref_field="notify_case_updates",
+                hr_user_id=hr_id,
+                cta_label="View Case",
+                cta_url=role_url,
+                event_key="case_status_updated",
+                template_context={
+                    "application_number": case_ref,
+                    "new_status":         new_label,
+                    "action_url":         f"{settings.FRONTEND_URL}{role_url}",
+                },
             )
 
     except Exception:
-        logger.exception(
-            "fire_case_status_changed failed for application %s", application.id
-        )
+        logger.exception("fire_case_status_changed failed for application %s", app_id)
+        await db.rollback()
 
 
 async def fire_hr_approval_changed(
@@ -674,23 +852,24 @@ async def fire_hr_approval_changed(
     application: Application,
     *,
     new_approval_status: str,
-    actor_id: uuid.UUID,
-    hr_notes: Optional[str] = None,
+    actor_id:            uuid.UUID,
+    hr_notes:            Optional[str] = None,
 ) -> None:
-    """
-    Fires when HR approves / rejects / requests changes on a case.
-    Notifies the employee.
-    """
+    app_id  = application.id
+    app_num = application.application_number
+    user_id = application.user_id
+    hr_id   = application.assigned_hr_id
+
     try:
-        actor = await _get_user(db, actor_id)
+        actor       = await _get_user(db, actor_id)
         actor_label = f"{actor.first_name} {actor.last_name}" if actor else "HR"
-        case_ref = application.application_number
-        app_url = f"/applications/{application.id}"
+        case_ref    = app_num
+        app_url     = f"/applications/{app_id}"
 
         messages = {
-            "approved":           ("Your case has been approved by HR", "high"),
-            "rejected":           ("Your case has been rejected by HR", "urgent"),
-            "changes_requested":  ("HR has requested changes to your case", "urgent"),
+            "approved":          ("Your case has been approved by HR", "high"),
+            "rejected":          ("Your case has been rejected by HR", "urgent"),
+            "changes_requested": ("HR has requested changes to your case", "urgent"),
         }
         title, priority = messages.get(
             new_approval_status,
@@ -703,13 +882,13 @@ async def fire_hr_approval_changed(
 
         notif = await _create_notification(
             db,
-            user_id=application.user_id,
+            user_id=user_id,
             notification_type="case_status_updated",
             category="case_update",
             priority=priority,
             title=title,
             body=body,
-            application_id=application.id,
+            application_id=app_id,
             case_reference=case_ref,
             actor_id=actor_id,
             actor_label=actor_label,
@@ -717,39 +896,38 @@ async def fire_hr_approval_changed(
             cta_primary_url=app_url,
         )
         await _maybe_send_email(
-            db, notif, application.user_id,
-            subject=f"VisaFlow — HR Review Update for {case_ref}",
+            db, notif.id, user_id,
+            subject=f"Vyuflo — HR Review Update for {case_ref}",
             body_text=(
-                f"Hi,\n\n{body}\n\nView your application: {app_url}\n\nVisaFlow Team"
+                f"Hi,\n\n{body}\n\n"
+                f"View your application at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
             ),
             category_pref_field="notify_case_updates",
+            hr_user_id=hr_id,
+            cta_label="View Case",
+            cta_url=app_url,
         )
 
     except Exception:
-        logger.exception(
-            "fire_hr_approval_changed failed for application %s", application.id
-        )
+        logger.exception("fire_hr_approval_changed failed for application %s", app_id)
+        await db.rollback()
 
 
 async def fire_document_uploaded(
     db: AsyncSession,
     *,
-    document_id: uuid.UUID,
-    document_name: str,
-    application_id: Optional[uuid.UUID],
-    case_reference: Optional[str],
-    uploader_id: uuid.UUID,
-    notify_hr_id: Optional[uuid.UUID] = None,
+    document_id:        uuid.UUID,
+    document_name:      str,
+    application_id:     Optional[uuid.UUID],
+    case_reference:     Optional[str],
+    uploader_id:        uuid.UUID,
+    notify_hr_id:       Optional[uuid.UUID] = None,
     notify_attorney_id: Optional[uuid.UUID] = None,
 ) -> None:
-    """
-    Fires when a document is uploaded.
-    Notifies HR and/or attorney that a new document needs review.
-    """
     try:
-        uploader = await _get_user(db, uploader_id)
+        uploader    = await _get_user(db, uploader_id)
         actor_label = f"{uploader.first_name} {uploader.last_name}" if uploader else "Employee"
-        doc_url = f"/documents/{document_id}"
+        doc_url     = f"/documents/{document_id}"
 
         recipients: list[uuid.UUID] = []
         if notify_hr_id:
@@ -761,14 +939,13 @@ async def fire_document_uploaded(
             notif = await _create_notification(
                 db,
                 user_id=recipient_id,
-                notification_type="missing_document",  # closest type for document events
+                notification_type="missing_document",
                 category="case_update",
                 priority="medium",
                 title=f"New document uploaded — {document_name}",
                 body=(
                     f"{actor_label} has uploaded \"{document_name}\" "
-                    f"{('for case ' + case_reference) if case_reference else ''}."
-                    " Please review."
+                    f"{('for case ' + case_reference) if case_reference else ''}. Please review."
                 ),
                 application_id=application_id,
                 document_id=document_id,
@@ -779,34 +956,37 @@ async def fire_document_uploaded(
                 cta_primary_url=doc_url,
             )
             await _maybe_send_email(
-                db, notif, recipient_id,
-                subject=f"VisaFlow — Document Uploaded: {document_name}",
+                db, notif.id, recipient_id,
+                subject=f"Vyuflo — Document Uploaded: {document_name}",
                 body_text=(
                     f"Hi,\n\n{actor_label} uploaded \"{document_name}\".\n"
-                    f"Review it: {doc_url}\n\nVisaFlow Team"
+                    f"Review it at: {settings.FRONTEND_URL}{doc_url}\n\nVyuflo Team"
                 ),
                 category_pref_field="notify_document_updates",
+                hr_user_id=notify_hr_id,
+                cta_label="Review Document",
+                cta_url=doc_url,
             )
 
     except Exception:
         logger.exception("fire_document_uploaded failed for document %s", document_id)
+        await db.rollback()
 
 
 async def fire_document_verified(
     db: AsyncSession,
     *,
-    document_id: uuid.UUID,
-    document_name: str,
+    document_id:    uuid.UUID,
+    document_name:  str,
     application_id: Optional[uuid.UUID],
     case_reference: Optional[str],
-    employee_id: uuid.UUID,
-    verifier_id: uuid.UUID,
+    employee_id:    uuid.UUID,
+    verifier_id:    uuid.UUID,
 ) -> None:
-    """Notifies employee that their document has been verified."""
     try:
-        verifier = await _get_user(db, verifier_id)
+        verifier    = await _get_user(db, verifier_id)
         actor_label = f"{verifier.first_name} {verifier.last_name}" if verifier else "Staff"
-        app_url = f"/applications/{application_id}" if application_id else "/documents"
+        app_url     = f"/applications/{application_id}" if application_id else "/documents"
 
         notif = await _create_notification(
             db,
@@ -815,9 +995,7 @@ async def fire_document_verified(
             category="case_update",
             priority="medium",
             title=f"Document verified — {document_name}",
-            body=(
-                f"Your document \"{document_name}\" has been verified by {actor_label}."
-            ),
+            body=f"Your document \"{document_name}\" has been verified by {actor_label}.",
             application_id=application_id,
             document_id=document_id,
             case_reference=case_reference,
@@ -827,35 +1005,37 @@ async def fire_document_verified(
             cta_primary_url=app_url,
         )
         await _maybe_send_email(
-            db, notif, employee_id,
-            subject=f"VisaFlow — Document Verified: {document_name}",
+            db, notif.id, employee_id,
+            subject=f"Vyuflo — Document Verified: {document_name}",
             body_text=(
-                f"Hi,\n\nYour document \"{document_name}\" has been verified "
-                f"by {actor_label}.\n\nView your application: {app_url}\n\nVisaFlow Team"
+                f"Hi,\n\nYour document \"{document_name}\" has been verified by {actor_label}.\n\n"
+                f"View your application at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
             ),
             category_pref_field="notify_document_updates",
+            cta_label="View Application",
+            cta_url=app_url,
         )
 
     except Exception:
         logger.exception("fire_document_verified failed for document %s", document_id)
+        await db.rollback()
 
 
 async def fire_document_rejected(
     db: AsyncSession,
     *,
-    document_id: uuid.UUID,
-    document_name: str,
-    application_id: Optional[uuid.UUID],
-    case_reference: Optional[str],
-    employee_id: uuid.UUID,
-    reviewer_id: uuid.UUID,
+    document_id:      uuid.UUID,
+    document_name:    str,
+    application_id:   Optional[uuid.UUID],
+    case_reference:   Optional[str],
+    employee_id:      uuid.UUID,
+    reviewer_id:      uuid.UUID,
     rejection_reason: Optional[str] = None,
 ) -> None:
-    """Notifies employee that their document was rejected and needs re-upload."""
     try:
-        reviewer = await _get_user(db, reviewer_id)
+        reviewer    = await _get_user(db, reviewer_id)
         actor_label = f"{reviewer.first_name} {reviewer.last_name}" if reviewer else "Staff"
-        doc_url = f"/documents/{document_id}"
+        doc_url     = f"/documents/{document_id}"
 
         body = f"Your document \"{document_name}\" was rejected by {actor_label}."
         if rejection_reason:
@@ -868,7 +1048,7 @@ async def fire_document_rejected(
             notification_type="missing_document",
             category="case_update",
             priority="urgent",
-            title=f"Document rejected — action required",
+            title="Document rejected — action required",
             body=body,
             application_id=application_id,
             document_id=document_id,
@@ -879,16 +1059,20 @@ async def fire_document_rejected(
             cta_primary_url=doc_url,
         )
         await _maybe_send_email(
-            db, notif, employee_id,
-            subject=f"VisaFlow — Action Required: Document Rejected ({document_name})",
+            db, notif.id, employee_id,
+            subject=f"Vyuflo — Action Required: Document Rejected ({document_name})",
             body_text=(
-                f"Hi,\n\n{body}\n\nUpload here: {doc_url}\n\nVisaFlow Team"
+                f"Hi,\n\n{body}\n\n"
+                f"Upload here: {settings.FRONTEND_URL}{doc_url}\n\nVyuflo Team"
             ),
             category_pref_field="notify_document_updates",
+            cta_label="Re-upload Document",
+            cta_url=doc_url,
         )
 
     except Exception:
         logger.exception("fire_document_rejected failed for document %s", document_id)
+        await db.rollback()
 
 
 async def fire_deadline_approaching(
@@ -897,79 +1081,73 @@ async def fire_deadline_approaching(
     *,
     days_remaining: int,
 ) -> None:
-    """
-    Fires when a deadline is within N days.
-    Called by the APScheduler daily job in deadline_scheduler.py.
-    Uses deadline.reminder_sent to prevent duplicate notifications.
-    """
+    deadline_id    = deadline.id
+    deadline_title = deadline.title
+    deadline_date  = deadline.due_date
+    deadline_appid = deadline.application_id
+    deadline_uid   = deadline.user_id
+
     try:
         if deadline.reminder_sent:
-            return  # Already notified, skip
+            return
 
         priority = "urgent" if days_remaining <= 7 else "high"
-        app_url = f"/applications/{deadline.application_id}" if deadline.application_id else "/deadlines"
+        app_url  = f"/applications/{deadline_appid}" if deadline_appid else "/applications"
 
         notif = await _create_notification(
             db,
-            user_id=deadline.user_id,
+            user_id=deadline_uid,
             notification_type="deadline_approaching",
             category="deadline",
             priority=priority,
-            title=f"Deadline in {days_remaining} days — {deadline.title}",
+            title=f"Deadline in {days_remaining} days — {deadline_title}",
             body=(
-                f"The deadline \"{deadline.title}\" is due in {days_remaining} day(s) "
-                f"({deadline.due_date.strftime('%b %d, %Y')}). Please take action."
+                f"The deadline \"{deadline_title}\" is due in {days_remaining} day(s) "
+                f"({deadline_date.strftime('%b %d, %Y')}). Please take action."
             ),
-            application_id=deadline.application_id,
-            case_reference=None,
+            application_id=deadline_appid,
             cta_primary_label="View Deadline",
             cta_primary_url=app_url,
         )
         await _maybe_send_email(
-            db, notif, deadline.user_id,
-            subject=f"VisaFlow — Deadline Approaching: {deadline.title} ({days_remaining} days)",
+            db, notif.id, deadline_uid,
+            subject=f"Vyuflo — Deadline Approaching: {deadline_title} ({days_remaining} days)",
             body_text=(
                 f"Hi,\n\nYou have a deadline coming up:\n\n"
-                f"  {deadline.title}\n"
-                f"  Due: {deadline.due_date.strftime('%B %d, %Y')}\n"
+                f"  {deadline_title}\n"
+                f"  Due: {deadline_date.strftime('%B %d, %Y')}\n"
                 f"  Days remaining: {days_remaining}\n\n"
-                f"View it here: {app_url}\n\nVisaFlow Team"
+                f"View it at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
             ),
             category_pref_field="notify_deadlines",
+            cta_label="View Deadline",
+            cta_url=app_url,
         )
 
-        # Mark reminder_sent so the scheduler won't fire again
         deadline.reminder_sent = True
         await db.flush()
 
     except Exception:
-        logger.exception(
-            "fire_deadline_approaching failed for deadline %s", deadline.id
-        )
-
+        logger.exception("fire_deadline_approaching failed for deadline %s", deadline_id)
+        await db.rollback()
 
 
 async def fire_approval_pending(
     db: AsyncSession,
     application: Application,
     *,
-    hr_id: uuid.UUID,
+    hr_id:         uuid.UUID,
     employee_name: str,
     deadline_days: Optional[int] = None,
 ) -> None:
-    """
-    Fires when a case reaches a stage requiring HR approval before
-    attorney filing (e.g. after employee + attorney complete their parts).
-    Notifies the assigned HR user.
-    """
+    app_id  = application.id
+    app_num = application.application_number
+
     try:
-        case_ref = application.application_number
-        app_url = f"/employer/cases/{application.id}"
- 
-        deadline_clause = (
-            f" Deadline in {deadline_days} day(s)." if deadline_days is not None else ""
-        )
- 
+        case_ref        = app_num
+        app_url         = f"/employer/cases/{app_id}"
+        deadline_clause = f" Deadline in {deadline_days} day(s)." if deadline_days is not None else ""
+
         notif = await _create_notification(
             db,
             user_id=hr_id,
@@ -981,7 +1159,7 @@ async def fire_approval_pending(
                 f"Case {case_ref} for {employee_name} is ready for HR review "
                 f"before attorney filing.{deadline_clause}"
             ),
-            application_id=application.id,
+            application_id=app_id,
             case_reference=case_ref,
             actor_label=employee_name,
             cta_primary_label="Review Now",
@@ -989,45 +1167,48 @@ async def fire_approval_pending(
             cta_secondary_label="Delegate",
         )
         await _maybe_send_email(
-            db, notif, hr_id,
-            subject=f"VisaFlow — Approval Needed: {case_ref}",
+            db, notif.id, hr_id,
+            subject=f"Vyuflo — Approval Needed: {case_ref}",
             body_text=(
-                f"Hi,\n\n{employee_name}'s case {case_ref} needs your approval"
-                f"{deadline_clause}\n\nReview it: {app_url}\n\nVisaFlow Team"
+                f"Hi,\n\n{employee_name}'s case {case_ref} needs your approval.{deadline_clause}\n\n"
+                f"Review it at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
             ),
             category_pref_field="notify_case_updates",
+            hr_user_id=hr_id,
+            cta_label="Review Now",
+            cta_url=app_url,
         )
+
     except Exception:
-        logger.exception("fire_approval_pending failed for application %s", application.id)
- 
- 
+        logger.exception("fire_approval_pending failed for application %s", app_id)
+        await db.rollback()
+
+
 async def fire_approval_resolved(
     db: AsyncSession,
     application: Application,
     *,
     employee_id: uuid.UUID,
-    decision: str,          # "approved" | "rejected" | "changes_requested"
-    actor_id: uuid.UUID,
+    decision:    str,
+    actor_id:    uuid.UUID,
 ) -> None:
-    """
-    Fires when HR's approval decision on a case is finalized.
-    Notifies the employee. (Distinct from fire_hr_approval_changed which
-    already exists — kept separate so callers can choose the lighter-weight
-    'approval' category event vs the full case_update event.)
-    """
+    app_id  = application.id
+    app_num = application.application_number
+    hr_id   = application.assigned_hr_id
+
     try:
-        actor = await _get_user(db, actor_id)
+        actor       = await _get_user(db, actor_id)
         actor_label = f"{actor.first_name} {actor.last_name}" if actor else "HR"
-        case_ref = application.application_number
-        app_url = f"/applications/{application.id}"
- 
+        case_ref    = app_num
+        app_url     = f"/applications/{app_id}"
+
         labels = {
             "approved":          ("Your petition was approved by HR", "high"),
             "rejected":          ("Your petition was rejected by HR", "urgent"),
             "changes_requested": ("HR requested changes to your petition", "urgent"),
         }
         title, priority = labels.get(decision, (f"HR decision on {case_ref}", "medium"))
- 
+
         notif = await _create_notification(
             db,
             user_id=employee_id,
@@ -1036,7 +1217,7 @@ async def fire_approval_resolved(
             priority=priority,
             title=title,
             body=f"{actor_label} has resolved the HR review for case {case_ref}.",
-            application_id=application.id,
+            application_id=app_id,
             case_reference=case_ref,
             actor_id=actor_id,
             actor_label=actor_label,
@@ -1044,26 +1225,27 @@ async def fire_approval_resolved(
             cta_primary_url=app_url,
         )
         await _maybe_send_email(
-            db, notif, employee_id,
-            subject=f"VisaFlow — HR Decision on {case_ref}",
-            body_text=f"Hi,\n\n{title}.\n\nView it: {app_url}\n\nVisaFlow Team",
+            db, notif.id, employee_id,
+            subject=f"Vyuflo — HR Decision on {case_ref}",
+            body_text=f"Hi,\n\n{title}.\n\nView it at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team",
             category_pref_field="notify_case_updates",
+            hr_user_id=hr_id,
+            cta_label="View Case",
+            cta_url=app_url,
         )
+
     except Exception:
-        logger.exception("fire_approval_resolved failed for application %s", application.id)
- 
- 
+        logger.exception("fire_approval_resolved failed for application %s", app_id)
+        await db.rollback()
+
+
 async def fire_employee_onboarded(
     db: AsyncSession,
     *,
-    hr_id: uuid.UUID,
-    employee_id: uuid.UUID,
+    hr_id:         uuid.UUID,
+    employee_id:   uuid.UUID,
     employee_name: str,
 ) -> None:
-    """
-    Fires when an invited employee completes profile setup and joins the
-    company roster. Notifies HR so they can assign an attorney / start a case.
-    """
     try:
         notif = await _create_notification(
             db,
@@ -1082,30 +1264,34 @@ async def fire_employee_onboarded(
             cta_primary_url="/employer/employees",
         )
         await _maybe_send_email(
-            db, notif, hr_id,
-            subject=f"VisaFlow — {employee_name} Joined Your Company",
+            db, notif.id, hr_id,
+            subject=f"Vyuflo — {employee_name} Joined Your Company",
             body_text=(
-                f"Hi,\n\n{employee_name} accepted your invitation and completed "
-                f"setup.\n\nView the employee roster: /employer/employees\n\nVisaFlow Team"
+                f"Hi,\n\n{employee_name} accepted your invitation and completed setup.\n\n"
+                f"View the employee roster at: {settings.FRONTEND_URL}/employer/employees\n\nVyuflo Team"
             ),
             category_pref_field="notify_case_updates",
+            hr_user_id=hr_id,
+            cta_label="View Employee",
+            cta_url="/employer/employees",
         )
+
     except Exception:
         logger.exception("fire_employee_onboarded failed for employee %s", employee_id)
- 
- 
+        await db.rollback()
+
+
 async def fire_employee_profile_updated(
     db: AsyncSession,
     *,
-    hr_id: uuid.UUID,
-    employee_id: uuid.UUID,
-    employee_name: str,
+    hr_id:          uuid.UUID,
+    employee_id:    uuid.UUID,
+    employee_name:  str,
     fields_changed: Optional[list[str]] = None,
 ) -> None:
-    """Fires when an employee updates personal/employment info HR may need to review."""
     try:
         changed = ", ".join(fields_changed) if fields_changed else "their profile"
-        notif = await _create_notification(
+        await _create_notification(
             db,
             user_id=hr_id,
             notification_type="employee_profile_updated",
@@ -1118,42 +1304,28 @@ async def fire_employee_profile_updated(
             cta_primary_label="View Employee",
             cta_primary_url="/employer/employees",
         )
-        # Low priority — no email by default, in-app only
+        # Low priority — in-app only, no email
+
     except Exception:
-        logger.exception(
-            "fire_employee_profile_updated failed for employee %s", employee_id
-        )
- 
- 
+        logger.exception("fire_employee_profile_updated failed for employee %s", employee_id)
+        await db.rollback()
+
+
 async def fire_compliance_alert(
     db: AsyncSession,
     *,
-    hr_id: uuid.UUID,
-    title: str,
-    body: str,
+    hr_id:          uuid.UUID,
+    title:          str,
+    body:           str,
     affected_count: Optional[int] = None,
-    cta_url: str = "/employer/employees",
-    priority: str = "urgent",
+    cta_url:        str           = "/employer/employees",
+    priority:       str           = "urgent",
 ) -> None:
-    """
-    Generic compliance alert trigger — used for I-9 expirations, LCA posting
-    deadlines, work authorization expiry, etc. Called by a scheduled job
-    (similar pattern to fire_deadline_approaching) that scans for upcoming
-    compliance deadlines across the HR's employee roster.
- 
-    Example call site (in a daily scheduler job):
-        await fire_compliance_alert(
-            db, hr_id=hr.id,
-            title="I-9 Expiring — 3 Employees",
-            body="3 employees have I-9 employment authorization expiring within 30 days.",
-            affected_count=3,
-        )
-    """
     try:
         full_body = body
         if affected_count is not None:
             full_body += f" ({affected_count} employee{'s' if affected_count != 1 else ''} affected.)"
- 
+
         notif = await _create_notification(
             db,
             user_id=hr_id,
@@ -1166,10 +1338,15 @@ async def fire_compliance_alert(
             cta_primary_url=cta_url,
         )
         await _maybe_send_email(
-            db, notif, hr_id,
-            subject=f"VisaFlow Compliance Alert — {title}",
-            body_text=f"Hi,\n\n{full_body}\n\nView details: {cta_url}\n\nVisaFlow Team",
+            db, notif.id, hr_id,
+            subject=f"Vyuflo Compliance Alert — {title}",
+            body_text=f"Hi,\n\n{full_body}\n\nView details at: {settings.FRONTEND_URL}{cta_url}\n\nVyuflo Team",
             category_pref_field="notify_compliance_alerts",
+            hr_user_id=hr_id,
+            cta_label="View Employees",
+            cta_url=cta_url,
         )
+
     except Exception:
         logger.exception("fire_compliance_alert failed for hr %s", hr_id)
+        await db.rollback()

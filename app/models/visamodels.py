@@ -500,12 +500,17 @@ class VisaType(Base):
     name        = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
 
+    # category = Column(
+        # Enum("employment", "student", "visitor", "permanent_resident", "exchange",
+            #  name="visa_category_enum"),
+        # nullable=False
+    # )
     category = Column(
-        Enum("employment", "student", "visitor", "permanent_resident", "exchange",
-             name="visa_category_enum"),
-        nullable=False
+    Enum("employment", "student", "visitor", "permanent_resident", "exchange",
+         "dependent", "family_based",
+         name="visa_category_enum"),
+    nullable=False
     )
-
     requires_employer_sponsor = Column(Boolean, default=False, nullable=False)
     required_documents        = Column(Text,    nullable=True)
     typical_processing_days   = Column(Integer, nullable=True)
@@ -2753,6 +2758,55 @@ class AuditLog(Base):
 
     actor = relationship("User", foreign_keys=[actor_id])
 
+# TABLE 57b — payment_gateway_configs
+# =============================================================================
+ 
+class PaymentGatewayConfig(Base):
+    """
+    Admin Subscription screen → "Payment Gateway Configuration" panel.
+    One row per gateway (stripe / paypal / bank_transfer).
+    Credentials are stored encrypted at the application layer — this column
+    holds ciphertext only, never plaintext keys.
+    """
+    __tablename__ = "payment_gateway_configs"
+ 
+    id       = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # gateway  = Column(
+        # Enum("stripe", "paypal", "bank_transfer", name="payment_gateway_enum"),
+        # nullable=False, unique=True
+    # )
+    gateway = Column(
+    Enum("stripe", "braintree", "paypal", "apple_pay", "manual",
+         name="payment_gateway_enum"),
+    nullable=False, default="stripe"
+            )
+    is_connected = Column(Boolean, default=False, nullable=False)
+    is_enabled   = Column(Boolean, default=False, nullable=False)  # on/off toggle in UI
+ 
+    # Ciphertext only — encrypt/decrypt in the service layer, never log this column.
+    credentials_encrypted = Column(Text, nullable=True)
+ 
+    transaction_fee_percent_bps = Column(Integer, nullable=True)  # 290 = 2.90%
+    transaction_fee_fixed_cents = Column(Integer, nullable=True)  # 30 = $0.30
+    settlement_days_min         = Column(Integer, nullable=True)
+    settlement_days_max         = Column(Integer, nullable=True)
+    supported_methods           = Column(String(255), nullable=True)  # "Card, ACH"
+ 
+    connected_at = Column(DateTime(timezone=True), nullable=True)
+ 
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+ 
+    __table_args__ = (
+        Index("ix_payment_gateway_configs_gateway", "gateway"),
+    )
+ 
+ 
 
 # =============================================================================
 # TABLE 58 — appointment_types
