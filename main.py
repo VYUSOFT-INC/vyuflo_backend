@@ -81,7 +81,7 @@ async def _ensure_pg_enum_values(enum_name: str, values: tuple[str, ...]) -> Non
     from sqlalchemy import text
 
     async with engine.connect() as conn:
-        conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+        conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
         for value in values:
             await conn.execute(
                 text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{value}'")
