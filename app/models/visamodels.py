@@ -515,6 +515,7 @@ class VisaType(Base):
     required_documents        = Column(Text,    nullable=True)
     typical_processing_days   = Column(Integer, nullable=True)
     government_fee_usd        = Column(Integer, nullable=True)
+    lca_required = Column(Boolean, nullable=False, default=False)
     uscis_url                 = Column(String(1000), nullable=True)
     short_label               = Column(String(30),   nullable=True)
     display_order             = Column(Integer, default=0,    nullable=False)
