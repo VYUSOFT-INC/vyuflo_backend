@@ -277,6 +277,7 @@ async def seed_visa_types(db: AsyncSession):
             required_documents=required_docs,
             typical_processing_days=visa_data.get("typical_processing_days"),
             government_fee_usd=visa_data.get("government_fee_usd"),
+            lca_required=visa_data.get("lca_required", False),
             uscis_url=visa_data.get("uscis_url"),
             display_order=visa_data.get("display_order", 0),
             is_active=visa_data.get("is_active", True),
