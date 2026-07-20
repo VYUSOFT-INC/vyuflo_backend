@@ -8,6 +8,9 @@
 | `HOST` | `167.99.152.174` | prod droplet IP |
 | `USER` | `root` | `deploy` |
 | `SSH_KEY` | private key PEM (see below) | private key PEM |
+
+**Staging shortcut:** if you already use `staging-deploy.yml`, you can keep **repository-level** secrets instead:
+`STAGING_HOST`, `STAGING_USER`, `STAGING_SSH_KEY`. `deploy.yml` uses those automatically when target environment is `staging`.
 | `DEPLOY_PATH` | `/opt/vyuflo-staging` | `/opt/vyuflo-prod` |
 | `COMPOSE_FILE` | `docker-compose.staging.yml` | `docker-compose.prod.yml` |
 | `DEPLOY_BRANCH` | `main` (fallback when branch is not passed) | `main` |
