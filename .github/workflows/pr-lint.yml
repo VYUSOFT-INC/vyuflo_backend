@@ -1,0 +1,144 @@
+name: PR Lint — Title & Description
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+    branches: [dev, staging, pre-live, main]
+
+permissions:
+  pull-requests: read
+
+concurrency:
+  group: pr-lint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint-pr:
+    name: Validate PR title & body
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title (Conventional Commits)
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Allowed types — keep in sync with .github/pull_request_template.md
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+          requireScope: false
+          # Title must look like: feat: add HR deadline API
+          # or: fix(auth): handle expired refresh token
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" must start with a lowercase letter.
+            Example: "feat: add invitation email retry"
+          ignoreLabels: |
+            ignore-pr-lint
+
+      - name: Validate PR description
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || "";
+            const title = context.payload.pull_request.title || "";
+            const labels = (context.payload.pull_request.labels || []).map(l => l.name);
+            if (labels.includes("ignore-pr-lint")) {
+              core.info("Label ignore-pr-lint present — skipping body checks.");
+              return;
+            }
+
+            const errors = [];
+            const normalized = body.replace(/\r\n/g, "\n").trim();
+
+            if (!normalized) {
+              errors.push("PR description is empty. Fill in the pull request template.");
+            } else {
+              const hasSummary =
+                /^##\s+Summary\b/im.test(normalized) ||
+                /^###\s+Summary\b/im.test(normalized);
+              const hasTestPlan =
+                /^##\s+Test plan\b/im.test(normalized) ||
+                /^###\s+Test plan\b/im.test(normalized) ||
+                /^##\s+Test Plan\b/im.test(normalized);
+
+              if (!hasSummary) {
+                errors.push('Missing "## Summary" section in the PR description.');
+              }
+              if (!hasTestPlan) {
+                errors.push('Missing "## Test plan" section in the PR description.');
+              }
+
+              // Require a little substance under Summary (not just the heading)
+              const summaryMatch = normalized.match(
+                /##\s+Summary\s*\n+([\s\S]*?)(?=\n##\s|\n###\s|$)/i
+              );
+              const summaryText = (summaryMatch?.[1] || "")
+                .replace(/<!--[\s\S]*?-->/g, "")
+                .replace(/^\s*[-*]\s*$/gm, "")
+                .replace(/^\s*-\s*\[.\]\s*$/gm, "")
+                .trim();
+
+              if (hasSummary && summaryText.length < 20) {
+                errors.push(
+                  '## Summary must include a short description (at least ~20 characters of real content).'
+                );
+              }
+
+              const testMatch = normalized.match(
+                /##\s+Test\s*plan\s*\n+([\s\S]*?)(?=\n##\s|\n###\s|$)/i
+              );
+              const testText = (testMatch?.[1] || "")
+                .replace(/<!--[\s\S]*?-->/g, "")
+                .replace(/^\s*-\s*\[\s*\]\s*$/gm, "")
+                .trim();
+
+              if (hasTestPlan && testText.length < 10) {
+                errors.push(
+                  "## Test plan must list at least one concrete check (not only empty checkboxes)."
+                );
+              }
+
+              // Reject placeholder-only bodies
+              if (
+                /TODO:\s*describe/i.test(normalized) ||
+                /fill\s+me\s+in/i.test(normalized)
+              ) {
+                errors.push("Replace placeholder text in the PR description before merging.");
+              }
+            }
+
+            if (errors.length) {
+              const help = [
+                "",
+                "Expected PR title format:",
+                "  <type>: <short description>",
+                "  <type>(<scope>): <short description>",
+                "",
+                "Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert",
+                "",
+                "Examples:",
+                `  feat: add HR deadline list endpoint`,
+                `  fix(auth): return 401 when refresh token is expired`,
+                `  chore: update README local setup guide`,
+                "",
+                "Expected PR description sections:",
+                "  ## Summary",
+                "  ## Test plan",
+                "",
+                `Current title: "${title}"`,
+              ].join("\n");
+
+              core.setFailed(errors.map(e => `• ${e}`).join("\n") + "\n" + help);
+            } else {
+              core.info(`PR title and description look good: "${title}"`);
+            }

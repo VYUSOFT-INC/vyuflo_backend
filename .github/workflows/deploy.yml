@@ -1,0 +1,93 @@
+name: Deploy
+
+on:
+  push:
+    branches: [dev, staging, pre-live, main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [dev, staging, pre-live, prod]
+      branch:
+        description: Git branch to deploy
+        required: true
+        type: string
+        default: main
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || (github.ref_name == 'main' && 'prod' || github.ref_name) }}-${{ github.event.inputs.branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-env:
+    name: Resolve environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.map.outputs.environment }}
+      branch: ${{ steps.map.outputs.branch }}
+    steps:
+      - name: Map branch / input → environment
+        id: map
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> "$GITHUB_OUTPUT"
+            echo "branch=${{ github.event.inputs.branch }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref_name }}" = "main" ]; then
+            echo "environment=prod" >> "$GITHUB_OUTPUT"
+            echo "branch=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "branch=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  ci:
+    name: CI before deploy
+    needs: resolve-env
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy → ${{ needs.resolve-env.outputs.environment }} (${{ needs.resolve-env.outputs.branch }})
+    needs: [resolve-env, ci]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve-env.outputs.environment }}
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+            COMPOSE_FILE="${{ secrets.COMPOSE_FILE }}"
+            DEPLOY_BRANCH="${{ needs.resolve-env.outputs.branch }}"
+
+            if [ -z "$DEPLOY_BRANCH" ]; then
+              DEPLOY_BRANCH="${{ secrets.DEPLOY_BRANCH }}"
+            fi
+
+            if [ -z "$DEPLOY_PATH" ] || [ -z "$COMPOSE_FILE" ] || [ -z "$DEPLOY_BRANCH" ]; then
+              echo "Missing DEPLOY_PATH, COMPOSE_FILE, or deploy branch for this environment."
+              exit 1
+            fi
+
+            echo "Deploying branch '$DEPLOY_BRANCH' to ${{ needs.resolve-env.outputs.environment }}"
+
+            cd "$DEPLOY_PATH/backend"
+
+            git remote set-url origin "https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git"
+            git fetch origin "$DEPLOY_BRANCH"
+            git checkout "$DEPLOY_BRANCH"
+            git reset --hard "origin/$DEPLOY_BRANCH"
+
+            cd "$DEPLOY_PATH"
+            docker compose -f "$COMPOSE_FILE" up -d --build backend
+            docker compose -f "$COMPOSE_FILE" ps
+            docker compose -f "$COMPOSE_FILE" logs backend --tail=10
+
+            echo "Deployed ${{ github.sha }} (${DEPLOY_BRANCH}) → ${{ needs.resolve-env.outputs.environment }}"
