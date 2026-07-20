@@ -72,6 +72,22 @@ from fastapi.staticfiles import StaticFiles
 # Lifespan (startup / shutdown)
 # ─────────────────────────────────────────────
 
+# create_all does not alter existing Postgres enums — add new values explicitly
+_VISA_CATEGORY_ENUM_VALUES = ("dependent", "family_based")
+
+
+async def _ensure_pg_enum_values(enum_name: str, values: tuple[str, ...]) -> None:
+    """Idempotently add values to an existing Postgres enum (autocommit; PG < 12 safe)."""
+    from sqlalchemy import text
+
+    async with engine.connect() as conn:
+        conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+        for value in values:
+            await conn.execute(
+                text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{value}'")
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Starting application...")
@@ -79,6 +95,9 @@ async def lifespan(app: FastAPI):
     # 1. Create tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # 1b. Sync enum values added to the model after the DB was first created
+    await _ensure_pg_enum_values("visa_category_enum", _VISA_CATEGORY_ENUM_VALUES)
 
     # 2. Run seed safely
     async with AsyncSessionLocal() as db:
