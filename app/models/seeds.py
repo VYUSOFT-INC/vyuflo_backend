@@ -3104,7 +3104,7 @@ VISA_TYPES_SEED = [
         "code": "H-4",
         "name": "H-4 Dependent of H-1B Holder",
         "short_label": "H-4",
-        "category": "dependent",
+        "category": "visitor",
         "requires_employer_sponsor": False,
         "description": "For spouses and unmarried children under 21 of H-1B visa holders.",
         "required_documents": json.dumps([
@@ -3120,7 +3120,7 @@ VISA_TYPES_SEED = [
         "code": "L-2",
         "name": "L-2 Dependent of L-1 Holder",
         "short_label": "L-2",
-        "category": "dependent",
+        "category": "visitor",
         "requires_employer_sponsor": False,
         "description": "For spouses and unmarried children under 21 of L-1 visa holders.",
         "required_documents": json.dumps([
@@ -3136,7 +3136,7 @@ VISA_TYPES_SEED = [
         "code": "F-2",
         "name": "F-2 Dependent of F-1 Student",
         "short_label": "F-2",
-        "category": "dependent",
+        "category": "visitor",
         "requires_employer_sponsor": False,
         "description": "For spouses and unmarried children under 21 of F-1 student visa holders.",
         "required_documents": json.dumps([
@@ -3151,7 +3151,7 @@ VISA_TYPES_SEED = [
         "code": "J-2",
         "name": "J-2 Dependent of J-1 Exchange Visitor",
         "short_label": "J-2",
-        "category": "dependent",
+        "category": "visitor",
         "requires_employer_sponsor": False,
         "description": "For spouses and unmarried children under 21 of J-1 exchange visitor visa holders.",
         "required_documents": json.dumps([
@@ -3166,7 +3166,7 @@ VISA_TYPES_SEED = [
         "code": "TD",
         "name": "TD Dependent of TN Holder",
         "short_label": "TD",
-        "category": "dependent",
+        "category": "visitor",
         "requires_employer_sponsor": False,
         "description": "For spouses and unmarried children under 21 of TN visa holders.",
         "required_documents": json.dumps([
@@ -3183,7 +3183,7 @@ VISA_TYPES_SEED = [
         "code": "IR-1",
         "name": "IR-1 Spouse of U.S. Citizen",
         "short_label": "IR-1",
-        "category": "family_based",
+        "category": "permanent_resident",
         "requires_employer_sponsor": False,
         "description": "Immediate relative immigrant visa for the spouse of a U.S. citizen.",
         "required_documents": json.dumps([
@@ -3199,7 +3199,7 @@ VISA_TYPES_SEED = [
         "code": "IR-2",
         "name": "IR-2 Child of U.S. Citizen",
         "short_label": "IR-2",
-        "category": "family_based",
+        "category": "permanent_resident",
         "requires_employer_sponsor": False,
         "description": "Immediate relative immigrant visa for the unmarried child under 21 of a U.S. citizen.",
         "required_documents": json.dumps([
@@ -3215,7 +3215,7 @@ VISA_TYPES_SEED = [
         "code": "IR-5",
         "name": "IR-5 Parent of U.S. Citizen",
         "short_label": "IR-5",
-        "category": "family_based",
+        "category": "permanent_resident",
         "requires_employer_sponsor": False,
         "description": "Immediate relative immigrant visa for the parent of a U.S. citizen (petitioner must be 21+).",
         "required_documents": json.dumps([
@@ -3231,7 +3231,7 @@ VISA_TYPES_SEED = [
         "code": "F1-PREF",
         "name": "F1 - Unmarried Sons/Daughters of U.S. Citizens",
         "short_label": "F1",
-        "category": "family_based",
+        "category": "permanent_resident",
         "requires_employer_sponsor": False,
         "description": "Family preference category for unmarried adult sons/daughters of U.S. citizens. Subject to annual visa quotas and priority-date waits.",
         "required_documents": json.dumps([
@@ -3247,7 +3247,7 @@ VISA_TYPES_SEED = [
         "code": "F2A-PREF",
         "name": "F2A - Spouses/Minor Children of Green Card Holders",
         "short_label": "F2A",
-        "category": "family_based",
+        "category": "permanent_resident",
         "requires_employer_sponsor": False,
         "description": "Family preference category for spouses and unmarried minor children of lawful permanent residents. Subject to annual visa quotas.",
         "required_documents": json.dumps([
@@ -3263,7 +3263,7 @@ VISA_TYPES_SEED = [
         "code": "F2B-PREF",
         "name": "F2B - Unmarried Adult Sons/Daughters of Green Card Holders",
         "short_label": "F2B",
-        "category": "family_based",
+        "category": "permanent_resident",
         "requires_employer_sponsor": False,
         "description": "Family preference category for unmarried adult sons/daughters of lawful permanent residents. Subject to annual visa quotas.",
         "required_documents": json.dumps([
@@ -3279,7 +3279,7 @@ VISA_TYPES_SEED = [
         "code": "F3-PREF",
         "name": "F3 - Married Sons/Daughters of U.S. Citizens",
         "short_label": "F3",
-        "category": "family_based",
+        "category": "permanent_resident",
         "requires_employer_sponsor": False,
         "description": "Family preference category for married sons/daughters of U.S. citizens. Subject to annual visa quotas.",
         "required_documents": json.dumps([
@@ -3295,7 +3295,7 @@ VISA_TYPES_SEED = [
         "code": "F4-PREF",
         "name": "F4 - Siblings of U.S. Citizens",
         "short_label": "F4",
-        "category": "family_based",
+        "category": "permanent_resident",
         "requires_employer_sponsor": False,
         "description": "Family preference category for siblings of U.S. citizens (petitioner must be 21+). Subject to annual visa quotas.",
         "required_documents": json.dumps([
