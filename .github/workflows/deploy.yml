@@ -8,15 +8,10 @@ on:
         required: true
         type: choice
         options: [dev, staging, pre-live, prod]
-      branch:
-        description: Git branch to deploy
-        required: true
-        type: string
-        default: main
 
 jobs:
   deploy:
-    name: Deploy → ${{ github.event.inputs.environment }} (${{ github.event.inputs.branch }})
+    name: Deploy → ${{ github.event.inputs.environment }} (${{ github.ref_name }})
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment }}
     steps:
@@ -30,7 +25,7 @@ jobs:
             cd /opt/vyuflo-${{ github.event.inputs.environment }}/backend
 
             git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/VYUSOFT-INC/vyuflo_backend.git
-            git pull origin ${{ github.event.inputs.branch }}
+            git pull origin ${{ github.ref_name }}
 
             cd /opt/vyuflo-${{ github.event.inputs.environment }}
             docker compose -f docker-compose.${{ github.event.inputs.environment }}.yml up -d --build backend
