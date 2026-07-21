@@ -18,18 +18,11 @@ visa_type_router = APIRouter()
     response_model=VisaTypeListResponse,
     status_code=status.HTTP_200_OK,
     summary="List visa types",
-    description=(
-        "Returns all active visa types for populating dropdowns and selection "
-        "screens. Filter by category (employment, student, visitor, etc.)."
-    ),
 )
 async def list_visa_types_endpoint(
-    category: Optional[str] = Query(
-        None,
-        description="Filter by category: employment | student | visitor | "
-                    "permanent_resident | exchange",
-    ),
-    active_only: bool = Query(True, description="Return only active visa types"),
+    category: Optional[str] = Query(None, description="employment | student | visitor | permanent_resident | exchange |  dependent | family_based"),
+    codes: Optional[list[str]] = Query(None, description="Filter to specific visa codes, e.g. H-1B, L-1A"),  # ← add
+    active_only: bool = Query(True),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -38,6 +31,7 @@ async def list_visa_types_endpoint(
     items, total = await list_visa_types(
         db,
         category=category,
+        codes=codes,                             # ← add
         active_only=active_only,
         limit=limit,
         offset=offset,

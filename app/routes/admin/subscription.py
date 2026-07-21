@@ -72,6 +72,8 @@ from app.schemas.admin.subscription import (
     CouponToggle,
     CouponUpdate,
     InvoiceListResponse,
+    PaymentGatewayToggle,       # NEW — add to app/schemas/admin/subscription.py
+    PaymentGatewayUpsert,       # NEW — add to app/schemas/admin/subscription.py
     PlanToggle,
     RevenueAnalyticsResponse,
     SubscriberDetail,
@@ -91,18 +93,24 @@ from app.services.admin.subscription_service import (
     service_create_coupon,
     service_create_plan,
     service_export_subscribers,
+    service_get_my_subscription,
     service_get_plan,
+    service_get_recent_activity,
     service_get_revenue_analytics,
     service_get_subscription,
     service_get_subscription_stats,
     service_list_coupons,
     service_list_invoices,
+    service_list_payment_gateways,
     service_list_plans,
     service_list_subscribers,
     service_toggle_coupon,
+    service_toggle_payment_gateway,
     service_toggle_plan,
     service_update_plan,
+    service_upsert_payment_gateway,
     service_validate_coupon,
+    _write_audit_log,
 )
 
 subscription_router = APIRouter()
@@ -723,6 +731,12 @@ async def update_coupon(
         from app.core.exceptions import NotFoundException
         raise NotFoundException(f"Coupon {coupon_id} not found.")
 
+    old_snapshot = {
+        "valid_until": str(coupon.valid_until) if coupon.valid_until else None,
+        "max_uses": coupon.max_uses,
+        "is_active": coupon.is_active,
+    }
+
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         if hasattr(coupon, field):
@@ -730,6 +744,17 @@ async def update_coupon(
 
     coupon.modified_by = current_user.user_id
     coupon.updated_at  = datetime.now(timezone.utc)
+
+    await _write_audit_log(
+        db,
+        actor_id      = current_user.user_id,
+        action        = "coupon.updated",
+        resource_type = "subscription_coupon",
+        resource_id   = coupon.id,
+        old_value     = old_snapshot,
+        new_value     = update_data,
+        description   = f"Coupon '{coupon.code}' updated.",
+    )
 
     await db.commit()
     return {"message": "Coupon updated.", "coupon_id": str(coupon_id)}
@@ -886,4 +911,197 @@ async def list_public_plans(
             }
             for p in plans
         ]
+    }
+
+
+# =============================================================================
+# ── SELF-SERVICE — "My Subscription" (any authenticated user) ────────────────
+# GET /subscriptions/me
+# GET /subscriptions/me/invoices
+# Used by HR / Lawyer / Employee / Student roles to view (never edit) their
+# own subscription. Scoped to current_user.user_id — no admin permission
+# required, and no other user's data can ever be reached through this path.
+# =============================================================================
+
+@subscription_router.get(
+    "/subscriptions/me",
+    status_code=status.HTTP_200_OK,
+    summary="Get my own subscription",
+    description=(
+        "Returns the caller's own current plan, status, features, and usage "
+        "against plan quotas. Read-only. Available to any authenticated role."
+    ),
+)
+async def get_my_subscription(
+    db:           DBSession,
+    current_user: Current_User,
+) -> dict:
+    data = await service_get_my_subscription(db, current_user.user_id)
+    return data
+
+
+@subscription_router.get(
+    "/subscriptions/me/invoices",
+    status_code=status.HTTP_200_OK,
+    summary="Get my own invoice/billing history",
+    description="Paginated invoice history for the caller's own subscriptions only.",
+)
+async def get_my_invoices(
+    db:           DBSession,
+    current_user: Current_User,
+    page:         int = Query(1, ge=1),
+    page_size:    int = Query(20, ge=1, le=100),
+) -> dict:
+    invoices, total = await service_list_invoices(
+        db, user_id=current_user.user_id, page=page, page_size=page_size
+    )
+    return {
+        "items": [
+            {
+                "id":                   str(inv.id),
+                "invoice_number":       inv.invoice_number,
+                "plan_name":            getattr(inv, "_plan_name", ""),
+                "total_cents":          inv.total_cents,
+                "total_display":        getattr(inv, "_total_display", ""),
+                "currency":             inv.currency,
+                "status":               inv.status,
+                "billing_period_start": inv.billing_period_start,
+                "billing_period_end":   inv.billing_period_end,
+                "paid_at":              inv.paid_at,
+                "invoice_pdf_url":      inv.invoice_pdf_url,
+                "created_at":           inv.created_at,
+            }
+            for inv in invoices
+        ],
+        "total":       total,
+        "page":        page,
+        "page_size":   page_size,
+        "total_pages": math.ceil(total / page_size) if total else 0,
+    }
+
+
+# =============================================================================
+# ── RECENT ACTIVITY FEED (admin) ──────────────────────────────────────────────
+# GET /admin/subscriptions/activity
+# =============================================================================
+
+@subscription_router.get(
+    "/admin/subscriptions/activity",
+    status_code=status.HTTP_200_OK,
+    summary="Recent subscription-related activity feed",
+    description=(
+        "Reads from the shared audit_logs table, filtered to subscription plan, "
+        "coupon, and user-subscription changes. Powers the 'Recent Activity' panel."
+    ),
+)
+async def get_recent_activity(
+    db:    DBSession,
+    _:     Current_User = _view_billing,
+    limit: int = Query(20, ge=1, le=100),
+) -> dict:
+    items = await service_get_recent_activity(db, limit=limit)
+    return {
+        "items": [
+            {
+                "id":            str(i["id"]),
+                "action":        i["action"],
+                "actor_name":    i["actor_name"],
+                "resource_type": i["resource_type"],
+                "resource_id":   str(i["resource_id"]) if i["resource_id"] else None,
+                "description":   i["description"],
+                "severity":      i["severity"],
+                "created_at":    i["created_at"],
+            }
+            for i in items
+        ]
+    }
+
+
+# =============================================================================
+# ── PAYMENT GATEWAY CONFIGURATION (admin only) ────────────────────────────────
+# GET   /admin/payment-gateways
+# PATCH /admin/payment-gateways/{gateway}
+# PATCH /admin/payment-gateways/{gateway}/toggle
+# =============================================================================
+
+@subscription_router.get(
+    "/admin/payment-gateways",
+    status_code=status.HTTP_200_OK,
+    summary="List payment gateway configurations",
+    description="Stripe / PayPal / Bank Transfer connection status and settings.",
+)
+async def list_payment_gateways(
+    db: DBSession,
+    _:  Current_User = _admin_only,
+) -> dict:
+    configs = await service_list_payment_gateways(db)
+    return {
+        "items": [
+            {
+                "gateway":             c.gateway,
+                "is_connected":        c.is_connected,
+                "is_enabled":          c.is_enabled,
+                "transaction_fee_display": (
+                    f"{c.transaction_fee_percent_bps / 100:.2f}% + "
+                    f"${c.transaction_fee_fixed_cents / 100:.2f}"
+                    if c.transaction_fee_percent_bps is not None else None
+                ),
+                "settlement_days_display": (
+                    f"{c.settlement_days_min}-{c.settlement_days_max} days"
+                    if c.settlement_days_min is not None else None
+                ),
+                "supported_methods":   c.supported_methods,
+                "connected_at":        c.connected_at,
+            }
+            for c in configs
+        ]
+    }
+
+
+@subscription_router.patch(
+    "/admin/payment-gateways/{gateway}",
+    status_code=status.HTTP_200_OK,
+    summary="Connect or update a payment gateway",
+    description=(
+        "Upserts gateway configuration. Credentials are encrypted before storage "
+        "via the project's existing secrets encryption utility — never stored in plaintext."
+    ),
+)
+async def upsert_payment_gateway(
+    gateway:      str,
+    payload:      PaymentGatewayUpsert,
+    db:           DBSession,
+    current_user: Current_User,
+    _:            Current_User = _admin_only,
+) -> dict:
+    from app.core.security import encrypt_secret  # use your project's existing helper
+    config = await service_upsert_payment_gateway(
+        db, gateway, payload, current_user.user_id, encrypt_fn=encrypt_secret
+    )
+    return {
+        "message": f"Payment gateway '{gateway}' saved.",
+        "gateway": config.gateway,
+        "is_connected": config.is_connected,
+    }
+
+
+@subscription_router.patch(
+    "/admin/payment-gateways/{gateway}/toggle",
+    status_code=status.HTTP_200_OK,
+    summary="Enable/disable a payment gateway",
+)
+async def toggle_payment_gateway(
+    gateway:      str,
+    payload:      PaymentGatewayToggle,
+    db:           DBSession,
+    current_user: Current_User,
+    _:            Current_User = _admin_only,
+) -> dict:
+    config = await service_toggle_payment_gateway(
+        db, gateway, payload.is_enabled, current_user.user_id
+    )
+    return {
+        "message": f"Payment gateway '{gateway}' {'enabled' if config.is_enabled else 'disabled'}.",
+        "gateway": config.gateway,
+        "is_enabled": config.is_enabled,
     }
