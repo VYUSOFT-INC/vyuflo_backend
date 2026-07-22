@@ -4057,271 +4057,374 @@ SUPPORT_ARTICLES_SEED = [
 # Event keys MUST exactly match the event_key strings passed to
 # dispatch_notification_from_template() in notification_service.py
 # =============================================================================
-
+# =============================================================================
 
 NOTIFICATION_TEMPLATES_SEED = [
 
-
-    # ── Case Updates ──────────────────────────────────────────────────────────
-
-
+    # ── case_status_updated ──────────────────────────────────────────────────
     {
-        "event_key":   "case_status_updated",
-        "name":        "Case Status Updated",
+        "event_key": "case_status_updated", "channel": "email",
+        "name": "Case Status Updated (Email)",
         "description": "Sent to all parties when application status changes",
-        "channel":     "email",
-        "subject":     "Case {{application_number}} updated to: {{new_status}}",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p>Your case <strong>{{application_number}}</strong> status has been updated
-to <strong>{{new_status}}</strong>.</p>
-<p><a href="{{action_url}}" style="background:#4f46e5;color:#fff;padding:10px 20px;
-border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">
-View Case</a></p>""",
-        "body_text":   "Hi {{user_name}},\n\nCase {{application_number}} status changed to: {{new_status}}.\n\nView it: {{action_url}}",
-        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{new_status}}", "{{action_url}}", "{{company_name}}"]',
-        "category": "case_update",
-        "is_active": True,
+        "subject": "Case {{application_number}} updated to: {{new_status}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>Your case <strong>{{application_number}}</strong> status has been updated "
+            "to <strong>{{new_status}}</strong>.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nCase {{application_number}} status changed to: {{new_status}}.\n\nView it: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{new_status}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+    {
+        "event_key": "case_status_updated", "channel": "sms",
+        "name": "Case Status Updated (SMS)",
+        "description": "Short SMS on case status change",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: Case {{application_number}} → {{new_status}}. View: {{action_url}}",
+        "available_placeholders": '["{{application_number}}", "{{new_status}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": False,  # off by default — enable in admin
+    },
+    {
+        "event_key": "case_status_updated", "channel": "push",
+        "name": "Case Status Updated (Push)",
+        "description": "Browser push on case status change",
+        "subject": "Case Update — {{new_status}}", "body_html": None,
+        "body_text": "Your case {{application_number}} status changed to {{new_status}}.",
+        "available_placeholders": '["{{application_number}}", "{{new_status}}"]',
+        "category": "case_update", "is_active": True,
     },
 
-
+    # ── participant_added ─────────────────────────────────────────────────────
     {
-        "event_key":   "participant_added",
-        "name":        "Case Participant Added",
+        "event_key": "participant_added", "channel": "email",
+        "name": "Case Participant Added (Email)",
         "description": "Sent when HR or attorney is assigned to a case",
-        "channel":     "email",
-        "subject":     "You have been assigned to case {{application_number}}",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p>You have been assigned to case <strong>{{application_number}}</strong>
-by <strong>{{actor_label}}</strong>.</p>
-<p><a href="{{action_url}}" style="background:#4f46e5;color:#fff;padding:10px 20px;
-border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">
-Open Case</a></p>""",
-        "body_text":   "Hi {{user_name}},\n\nYou have been assigned to case {{application_number}} by {{actor_label}}.\n\nOpen it: {{action_url}}",
-        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{actor_label}}", "{{action_url}}", "{{company_name}}"]',
-        "category": "case_update",
-        "is_active": True,
+        "subject": "You have been assigned to case {{application_number}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>You have been assigned to case <strong>{{application_number}}</strong> "
+            "by <strong>{{actor_label}}</strong>.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nYou have been assigned to case {{application_number}} by {{actor_label}}.\n\nOpen it: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{actor_label}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+    {
+        "event_key": "participant_added", "channel": "push",
+        "name": "Case Participant Added (Push)",
+        "description": "Push notification on assignment",
+        "subject": "New case assignment", "body_html": None,
+        "body_text": "You've been assigned to case {{application_number}}.",
+        "available_placeholders": '["{{application_number}}"]',
+        "category": "case_update", "is_active": True,
     },
 
-
+    # ── approval_pending ──────────────────────────────────────────────────────
     {
-        "event_key":   "approval_pending",
-        "name":        "HR Approval Required",
-        "description": "Sent to HR when a case needs their approval before attorney filing",
-        "channel":     "email",
-        "subject":     "Action required: {{application_number}} awaiting your approval",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p>Case <strong>{{application_number}}</strong> is ready for HR review
-before attorney filing.</p>
-<p><a href="{{action_url}}" style="background:#4f46e5;color:#fff;padding:10px 20px;
-border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">
-Review Now</a></p>""",
-        "body_text":   "Hi {{user_name}},\n\nCase {{application_number}} needs your approval.\n\nReview: {{action_url}}",
-        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{action_url}}", "{{company_name}}"]',
-        "category": "approval",
-        "is_active": True,
+        "event_key": "approval_pending", "channel": "email",
+        "name": "HR Approval Required (Email)",
+        "description": "Sent to HR when a case needs approval before attorney filing",
+        "subject": "Action required: {{application_number}} awaiting your approval",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>Case <strong>{{application_number}}</strong> is ready for HR review "
+            "before attorney filing.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nCase {{application_number}} needs your approval.\n\nReview: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{action_url}}"]',
+        "category": "approval", "is_active": True,
+    },
+    {
+        "event_key": "approval_pending", "channel": "sms",
+        "name": "HR Approval Required (SMS)",
+        "description": "Urgent SMS reminder for pending HR approval",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: Case {{application_number}} needs your approval. {{action_url}}",
+        "available_placeholders": '["{{application_number}}", "{{action_url}}"]',
+        "category": "approval", "is_active": False,
     },
 
-
+    # ── approval_resolved ─────────────────────────────────────────────────────
     {
-        "event_key":   "approval_resolved",
-        "name":        "HR Decision Notification",
-        "description": "Sent to employee when HR approves or rejects their petition",
-        "channel":     "email",
-        "subject":     "HR decision on your case {{application_number}}",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p>HR has made a decision on your case <strong>{{application_number}}</strong>.</p>
-<p><a href="{{action_url}}" style="background:#4f46e5;color:#fff;padding:10px 20px;
-border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">
-View Case</a></p>""",
-        "body_text":   "Hi {{user_name}},\n\nHR has made a decision on case {{application_number}}.\n\nView: {{action_url}}",
-        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{action_url}}", "{{company_name}}"]',
-        "category": "approval",
-        "is_active": True,
+        "event_key": "approval_resolved", "channel": "email",
+        "name": "HR Decision Notification (Email)",
+        "description": "Sent to employee when HR approves/rejects their petition",
+        "subject": "HR decision on your case {{application_number}}",
+        "body_html": "<p>Hi {{user_name}},</p><p>HR has made a decision on your case <strong>{{application_number}}</strong>.</p>",
+        "body_text": "Hi {{user_name}},\n\nHR has made a decision on case {{application_number}}.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{action_url}}"]',
+        "category": "approval", "is_active": True,
     },
 
-
-    # ── Documents ─────────────────────────────────────────────────────────────
-
-
+    # ── missing_document ──────────────────────────────────────────────────────
     {
-        "event_key":   "missing_document",
-        "name":        "Document Required",
+        "event_key": "missing_document", "channel": "email",
+        "name": "Document Required (Email)",
         "description": "Sent when a required document is missing or rejected",
-        "channel":     "email",
-        "subject":     "Action required: document needed for {{application_number}}",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p>A document is required for case <strong>{{application_number}}</strong>.
-Please upload it as soon as possible.</p>
-<p><a href="{{action_url}}" style="background:#ef4444;color:#fff;padding:10px 20px;
-border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">
-Upload Document</a></p>""",
-        "body_text":   "Hi {{user_name}},\n\nA document is required for case {{application_number}}.\n\nUpload: {{action_url}}",
-        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{document_name}}", "{{action_url}}", "{{company_name}}"]',
-        "category": "case_update",
-        "is_active": True,
+        "subject": "Action required: document needed for {{application_number}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>A document is required for case <strong>{{application_number}}</strong>.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nDocument needed for {{application_number}}.\n\nUpload: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{document_name}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+    {
+        "event_key": "missing_document", "channel": "push",
+        "name": "Document Required (Push)",
+        "description": "Push alert for missing document",
+        "subject": "Document needed", "body_html": None,
+        "body_text": "\"{{document_name}}\" is needed for your application.",
+        "available_placeholders": '["{{document_name}}"]',
+        "category": "case_update", "is_active": True,
     },
 
-
+    # ── document_approved ─────────────────────────────────────────────────────
     {
-        "event_key":   "document_approved",
-        "name":        "Document Verified",
+        "event_key": "document_approved", "channel": "email",
+        "name": "Document Verified (Email)",
         "description": "Sent to employee when their document is verified",
-        "channel":     "email",
-        "subject":     "Document verified for case {{application_number}}",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p>Your document for case <strong>{{application_number}}</strong>
-has been verified successfully.</p>
-<p><a href="{{action_url}}" style="background:#10b981;color:#fff;padding:10px 20px;
-border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">
-View Application</a></p>""",
-        "body_text":   "Hi {{user_name}},\n\nYour document for case {{application_number}} has been verified.\n\nView: {{action_url}}",
-        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{document_name}}", "{{action_url}}", "{{company_name}}"]',
-        "category": "case_update",
-        "is_active": True,
+        "subject": "Document verified for case {{application_number}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>Your document for case <strong>{{application_number}}</strong> "
+            "has been verified successfully.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nYour document has been verified.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{document_name}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
     },
 
-
-    # ── Deadlines ─────────────────────────────────────────────────────────────
-
-
+    # ── deadline_approaching ──────────────────────────────────────────────────
     {
-        "event_key":   "deadline_approaching",
-        "name":        "Deadline Approaching",
+        "event_key": "deadline_approaching", "channel": "email",
+        "name": "Deadline Approaching (Email)",
         "description": "Sent when a case deadline is within the alert window",
-        "channel":     "email",
-        "subject":     "Deadline in {{days_remaining}} days: {{deadline_title}}",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p>You have a deadline coming up:</p>
-<ul>
-  <li><strong>{{deadline_title}}</strong></li>
-  <li>Due: {{deadline_date}}</li>
-  <li>Days remaining: {{days_remaining}}</li>
-</ul>
-<p><a href="{{action_url}}" style="background:#f97316;color:#fff;padding:10px 20px;
-border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">
-View Deadline</a></p>""",
-        "body_text":   "Hi {{user_name}},\n\nDeadline: {{deadline_title}}\nDue: {{deadline_date}}\nDays remaining: {{days_remaining}}\n\nView: {{action_url}}",
-        "available_placeholders": '["{{user_name}}", "{{deadline_title}}", "{{deadline_date}}", "{{days_remaining}}", "{{action_url}}", "{{company_name}}"]',
-        "category": "deadline",
-        "is_active": True,
+        "subject": "Deadline in {{days_remaining}} days: {{deadline_title}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>You have a deadline coming up:</p>"
+            "<ul><li><strong>{{deadline_title}}</strong></li>"
+            "<li>Due: {{deadline_date}}</li>"
+            "<li>Days remaining: {{days_remaining}}</li></ul>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nDeadline: {{deadline_title}}\nDue: {{deadline_date}}\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{deadline_title}}", "{{deadline_date}}", "{{days_remaining}}", "{{action_url}}"]',
+        "category": "deadline", "is_active": True,
     },
-    
-
-    # ── Employees ─────────────────────────────────────────────────────────────
-
-
     {
-        "event_key":   "employee_onboarded",
-        "name":        "New Employee Onboarded",
+        "event_key": "deadline_approaching", "channel": "sms",
+        "name": "Deadline Approaching (SMS)",
+        "description": "Urgent SMS reminder for approaching deadlines",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: {{deadline_title}} due in {{days_remaining}} days ({{deadline_date}}).",
+        "available_placeholders": '["{{deadline_title}}", "{{days_remaining}}", "{{deadline_date}}"]',
+        "category": "deadline", "is_active": True,
+    },
+    {
+        "event_key": "deadline_approaching", "channel": "push",
+        "name": "Deadline Approaching (Push)",
+        "description": "Push alert for approaching deadlines",
+        "subject": "Deadline approaching", "body_html": None,
+        "body_text": "{{deadline_title}} due in {{days_remaining}} days.",
+        "available_placeholders": '["{{deadline_title}}", "{{days_remaining}}"]',
+        "category": "deadline", "is_active": True,
+    },
+
+    # ── employee_onboarded ────────────────────────────────────────────────────
+    {
+        "event_key": "employee_onboarded", "channel": "email",
+        "name": "New Employee Onboarded (Email)",
         "description": "Sent to HR when an invited employee completes profile setup",
-        "channel":     "email",
-        "subject":     "{{actor_label}} has joined {{company_name}} on VisaFlow",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p><strong>{{actor_label}}</strong> accepted your company invite and
-completed their profile setup.</p>
-<p><a href="{{action_url}}" style="background:#4f46e5;color:#fff;padding:10px 20px;
-border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">
-View Employees</a></p>""",
-        "body_text":   "Hi {{user_name}},\n\n{{actor_label}} joined {{company_name}} on VisaFlow.\n\nView: {{action_url}}",
-        "available_placeholders": '["{{user_name}}", "{{actor_label}}", "{{company_name}}", "{{action_url}}"]',
-        "category": "employee",
-        "is_active": True,
+        "subject": "{{actor_label}} has joined your company on VisaFlow",
+        "body_html": "<p>Hi {{user_name}},</p><p><strong>{{actor_label}}</strong> accepted your company invite and completed profile setup.</p>",
+        "body_text": "Hi {{user_name}},\n\n{{actor_label}} joined on VisaFlow.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{actor_label}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
     },
 
-
-    # ── Compliance ────────────────────────────────────────────────────────────
-
-
+    # ── compliance_alert ──────────────────────────────────────────────────────
     {
-        "event_key":   "compliance_alert",
-        "name":        "Compliance Alert",
+        "event_key": "compliance_alert", "channel": "email",
+        "name": "Compliance Alert (Email)",
         "description": "Sent to HR for urgent compliance issues",
-        "channel":     "email",
-        "subject":     "Compliance Alert: action required — {{company_name}}",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p>A compliance issue requires your immediate attention at <strong>{{company_name}}</strong>.</p>
-<p><a href="{{action_url}}" style="background:#dc2626;color:#fff;padding:10px 20px;
-border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">
-View Details</a></p>""",
-        "body_text":   "Hi {{user_name}},\n\nCompliance alert for {{company_name}}. Action required.\n\nView: {{action_url}}",
-        "available_placeholders": '["{{user_name}}", "{{company_name}}", "{{action_url}}"]',
-        "category": "compliance",
-        "is_active": True,
+        "subject": "Compliance Alert: action required",
+        "body_html": "<p>Hi {{user_name}},</p><p>A compliance issue requires your immediate attention.</p>",
+        "body_text": "Hi {{user_name}},\n\nCompliance alert. Action required.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{action_url}}"]',
+        "category": "compliance", "is_active": True,
     },
 
-
-    # ── Security ──────────────────────────────────────────────────────────────
-
-
+    # ── security_alert ────────────────────────────────────────────────────────
     {
-        "event_key":   "security_alert",
-        "name":        "Security Alert — New Login",
+        "event_key": "security_alert", "channel": "email",
+        "name": "Security Alert — New Login (Email)",
         "description": "Sent on new device login",
-        "channel":     "email",
-        "subject":     "Security Alert: new login to your VisaFlow account",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p>A new login was detected on your account:</p>
-<ul>
-  <li>Device: {{device}}</li>
-  <li>Time: {{login_time}}</li>
-  <li>IP: {{ip_address}}</li>
-</ul>
-<p>If this wasn't you, change your password immediately.</p>""",
-        "body_text":   "Hi {{user_name}},\n\nNew login from {{device}} at {{login_time}} ({{ip_address}}).\n\nIf this wasn't you, change your password immediately.",
+        "subject": "Security Alert: new login to your VisaFlow account",
+        "body_html": "<p>Hi {{user_name}},</p><p>New login from <strong>{{device}}</strong> at {{login_time}}.</p>",
+        "body_text": "Hi {{user_name}},\n\nNew login from {{device}} at {{login_time}}.",
         "available_placeholders": '["{{user_name}}", "{{device}}", "{{login_time}}", "{{ip_address}}"]',
-        "category": "security",
-        "is_active": True,
-            },
+        "category": "security", "is_active": True,
+    },
 
-
-    # ── Billing ───────────────────────────────────────────────────────────────
-
-
+    # ── payment_receipt ───────────────────────────────────────────────────────
     {
-        "event_key":   "payment_receipt",
-        "name":        "Payment Receipt",
+        "event_key": "payment_receipt", "channel": "email",
+        "name": "Payment Receipt (Email)",
         "description": "Sent after a successful payment",
-        "channel":     "email",
-        "subject":     "Payment confirmed — {{amount}} for {{visa_type}}",
-        "body_html":   """<p>Hi {{user_name}},</p>
-<p>Payment of <strong>{{amount}}</strong> confirmed on {{payment_date}}
-for <strong>{{visa_type}}</strong>.</p>""",
-        "body_text":   "Hi {{user_name}},\n\nPayment of {{amount}} confirmed on {{payment_date}} for {{visa_type}}.",
+        "subject": "Payment confirmed — {{amount}} for {{visa_type}}",
+        "body_html": "<p>Hi {{user_name}},</p><p>Payment of <strong>{{amount}}</strong> confirmed.</p>",
+        "body_text": "Hi {{user_name}},\n\nPayment of {{amount}} confirmed.",
         "available_placeholders": '["{{user_name}}", "{{amount}}", "{{payment_date}}", "{{visa_type}}"]',
-        "category": "billing",
-        "is_active": True,
+        "category": "billing", "is_active": True,
     },
 
-
-    # ── Scheduled / digest ────────────────────────────────────────────────────
-
-
+    # ── weekly_summary ────────────────────────────────────────────────────────
     {
-        "event_key":   "weekly_summary",
-        "name":        "Weekly Case Summary",
+        "event_key": "weekly_summary", "channel": "email",
+        "name": "Weekly Case Summary (Email)",
         "description": "Weekly digest of case activity",
-        "channel":     "email",
-        "subject":     "Your weekly VisaFlow summary — {{week_range}}",
-        "body_html":   "<p>Hi {{user_name}},</p><p>{{summary_content}}</p>",
-        "body_text":   "Hi {{user_name}},\n\nYour weekly summary for {{week_range}}:\n{{summary_content}}",
+        "subject": "Your weekly VisaFlow summary — {{week_range}}",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{summary_content}}</p>",
+        "body_text": "Hi {{user_name}},\n\nYour weekly summary:\n{{summary_content}}",
         "available_placeholders": '["{{user_name}}", "{{summary_content}}", "{{week_range}}"]',
-        "category": "case_update",
-        "is_active": True,
+        "category": "case_update", "is_active": True,
     },
 
-
+    # ── interview_scheduled — disabled until interview scheduling ships ──────
     {
-        "event_key":   "interview_scheduled",
-        "name":        "Interview Scheduled",
+        "event_key": "interview_scheduled", "channel": "sms",
+        "name": "Interview Scheduled (SMS)",
         "description": "SMS reminder 24h before interview",
-        "channel":     "sms",
-        "subject":     None,
-        "body_html":   None,
-        "body_text":   "Reminder: Your {{visa_type}} interview is on {{interview_date}} at {{interview_time}}. Good luck!",
-        "available_placeholders": '["{{user_name}}", "{{visa_type}}", "{{interview_date}}", "{{interview_time}}"]',
-        "category": "deadline",
-        "is_active": False,  # not triggered yet — enable when interview scheduling is built
+        "subject": None, "body_html": None,
+        "body_text": "Reminder: Your {{visa_type}} interview is on {{interview_date}} at {{interview_time}}. Good luck!",
+        "available_placeholders": '["{{visa_type}}", "{{interview_date}}", "{{interview_time}}"]',
+        "category": "deadline", "is_active": False,
     },
+
+    # =========================================================================
+    # NEW LAWYER-FACING IN-APP TEMPLATES  (added this session)
+    #
+    # These 6 drive the attorney's bell + toast + notifications page.  Every
+    # one is `channel: "in_app"` so the dispatcher writes them to the
+    # `notifications` table for the target attorney's user_id.
+    #
+    # Fired by the backend event listeners described in
+    # BACKEND_NOTIFICATIONS_WIRING.md steps 4a-4f.
+    # =========================================================================
+
+    # ── document_uploaded ────────────────────────────────────────────────────
+    {
+        "event_key": "document_uploaded", "channel": "in_app",
+        "name": "Document Uploaded (In-App)",
+        "description": "Sent to attorney when their assigned client uploads a new document",
+        "subject": "New document from {{client_name}}", "body_html": None,
+        "body_text": "{{client_name}} uploaded {{document_type}} for {{visa_type}} case ({{case_reference}}).",
+        "available_placeholders": '["{{client_name}}", "{{document_type}}", "{{visa_type}}", "{{case_reference}}", "{{document_id}}", "{{application_id}}", "{{uploaded_at}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── document_reuploaded ──────────────────────────────────────────────────
+    {
+        "event_key": "document_reuploaded", "channel": "in_app",
+        "name": "Document Re-uploaded (In-App)",
+        "description": "Sent to attorney when a client re-uploads a previously rejected document",
+        "subject": "{{client_name}} re-uploaded {{document_type}}", "body_html": None,
+        "body_text": "{{client_name}} submitted a fix for {{document_type}} ({{case_reference}}). Please review the new version.",
+        "available_placeholders": '["{{client_name}}", "{{document_type}}", "{{visa_type}}", "{{case_reference}}", "{{document_id}}", "{{application_id}}", "{{version}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── requested_document_submitted ─────────────────────────────────────────
+    {
+        "event_key": "requested_document_submitted", "channel": "in_app",
+        "name": "Requested Document Submitted (In-App)",
+        "description": "Sent to attorney when a client responds to a 'Request Additional Document' with an upload",
+        "subject": "{{client_name}} answered your request", "body_html": None,
+        "body_text": "{{client_name}} uploaded {{document_type}} for the additional document you requested ({{case_reference}}).",
+        "available_placeholders": '["{{client_name}}", "{{document_type}}", "{{visa_type}}", "{{case_reference}}", "{{document_id}}", "{{application_id}}", "{{request_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── chat_message_received ────────────────────────────────────────────────
+    {
+        "event_key": "chat_message_received", "channel": "in_app",
+        "name": "New Chat Message (In-App)",
+        "description": "Sent to a chat participant when the other party sends them a new message",
+        "subject": "New message from {{sender_name}}", "body_html": None,
+        "body_text": "{{sender_name}}: {{message_preview}}",
+        "available_placeholders": '["{{sender_name}}", "{{sender_role}}", "{{message_preview}}", "{{thread_id}}", "{{conversation_id}}", "{{sent_at}}"]',
+        "category": "news", "is_active": True,
+    },
+
+    # ── deadline_missed ──────────────────────────────────────────────────────
+    {
+        "event_key": "deadline_missed", "channel": "in_app",
+        "name": "Deadline Missed (In-App)",
+        "description": "Sent to attorney when a case deadline passes without completion",
+        "subject": "Missed deadline: {{deadline_type}}", "body_html": None,
+        "body_text": "{{client_name}} — {{deadline_type}} was due on {{due_date}} and has not been completed. Case: {{case_reference}}.",
+        "available_placeholders": '["{{client_name}}", "{{visa_type}}", "{{case_reference}}", "{{deadline_type}}", "{{due_date}}", "{{days_overdue}}", "{{application_id}}"]',
+        "category": "deadline", "is_active": True,
+    },
+
+    # ── calendar_event_reminder ──────────────────────────────────────────────
+    {
+        "event_key": "calendar_event_reminder", "channel": "in_app",
+        "name": "Calendar Event Reminder (In-App)",
+        "description": "Fires at the scheduled reminder time before a calendar event",
+        "subject": "Upcoming: {{event_title}}", "body_html": None,
+        "body_text": "{{event_title}} — {{time_until_event}}. {{event_description}}",
+        "available_placeholders": '["{{event_title}}", "{{event_description}}", "{{event_date}}", "{{event_time}}", "{{time_until_event}}", "{{reminder_minutes}}", "{{event_id}}"]',
+        "category": "deadline", "is_active": True,
+    },
+]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ]
 
 
