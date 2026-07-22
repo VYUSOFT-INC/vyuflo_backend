@@ -500,16 +500,22 @@ class VisaType(Base):
     name        = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
 
+    # category = Column(
+        # Enum("employment", "student", "visitor", "permanent_resident", "exchange",
+            #  name="visa_category_enum"),
+        # nullable=False
+    # )
     category = Column(
-        Enum("employment", "student", "visitor", "permanent_resident", "exchange",
-             name="visa_category_enum"),
-        nullable=False
+    Enum("employment", "student", "visitor", "permanent_resident", "exchange",
+         "dependent", "family_based",
+         name="visa_category_enum"),
+    nullable=False
     )
-
     requires_employer_sponsor = Column(Boolean, default=False, nullable=False)
     required_documents        = Column(Text,    nullable=True)
     typical_processing_days   = Column(Integer, nullable=True)
     government_fee_usd        = Column(Integer, nullable=True)
+    lca_required              = Column(Boolean, nullable=False, default=False)
     uscis_url                 = Column(String(1000), nullable=True)
     short_label               = Column(String(30),   nullable=True)
     display_order             = Column(Integer, default=0,    nullable=False)
@@ -1192,7 +1198,11 @@ class Notification(Base):
              "task_assigned",
              "document_requested",              
              "document_request_fulfilled",       
-             "document_uploaded_by_staff",      
+             "document_uploaded_by_staff",
+             "document_uploaded",
+             "chat_message_received",
+             "deadline_missed",
+             "calendar_event_reminder",      
              name="notification_type_enum"),
         nullable=False
     )
@@ -1232,6 +1242,8 @@ class Notification(Base):
     sent_via_push  = Column(Boolean, default=False, nullable=False)
     sent_via_sms   = Column(Boolean, default=False, nullable=False)
     expires_at     = Column(DateTime(timezone=True), nullable=True)
+    dedup_key = Column(String(255), nullable=True, unique=True, index=True)
+
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -1298,10 +1310,9 @@ class NotificationTemplate(Base):
     __tablename__ = "notification_templates"
 
     id        = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    event_key = Column(String(100), nullable=False, unique=True, index=True)
+    event_key = Column(String(100), nullable=False,index=True)
     name        = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-
     channel = Column(
         Enum("email", "sms", "in_app", "push",
              name="notification_channel_enum"),
@@ -1315,6 +1326,7 @@ class NotificationTemplate(Base):
 
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
+              "approval", "compliance", "employee",
              name="notification_category_enum",
              create_type=False),
         nullable=False
@@ -1329,8 +1341,12 @@ class NotificationTemplate(Base):
                          default=lambda: datetime.now(timezone.utc),
                          onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
+    # __table_args__ = (
+        # Index("ix_notif_templates_event_channel", "event_key", "channel"),
+    # )
     __table_args__ = (
-        Index("ix_notif_templates_event_channel", "event_key", "channel"),
+    UniqueConstraint("event_key", "channel", name="uq_notif_template_event_channel"),
+    Index("ix_notif_templates_event_channel", "event_key", "channel"),
     )
 
 
@@ -2753,6 +2769,55 @@ class AuditLog(Base):
 
     actor = relationship("User", foreign_keys=[actor_id])
 
+# TABLE 57b — payment_gateway_configs
+# =============================================================================
+ 
+class PaymentGatewayConfig(Base):
+    """
+    Admin Subscription screen → "Payment Gateway Configuration" panel.
+    One row per gateway (stripe / paypal / bank_transfer).
+    Credentials are stored encrypted at the application layer — this column
+    holds ciphertext only, never plaintext keys.
+    """
+    __tablename__ = "payment_gateway_configs"
+ 
+    id       = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # gateway  = Column(
+        # Enum("stripe", "paypal", "bank_transfer", name="payment_gateway_enum"),
+        # nullable=False, unique=True
+    # )
+    gateway = Column(
+    Enum("stripe", "braintree", "paypal", "apple_pay", "manual",
+         name="payment_gateway_enum"),
+    nullable=False, default="stripe"
+            )
+    is_connected = Column(Boolean, default=False, nullable=False)
+    is_enabled   = Column(Boolean, default=False, nullable=False)  # on/off toggle in UI
+ 
+    # Ciphertext only — encrypt/decrypt in the service layer, never log this column.
+    credentials_encrypted = Column(Text, nullable=True)
+ 
+    transaction_fee_percent_bps = Column(Integer, nullable=True)  # 290 = 2.90%
+    transaction_fee_fixed_cents = Column(Integer, nullable=True)  # 30 = $0.30
+    settlement_days_min         = Column(Integer, nullable=True)
+    settlement_days_max         = Column(Integer, nullable=True)
+    supported_methods           = Column(String(255), nullable=True)  # "Card, ACH"
+ 
+    connected_at = Column(DateTime(timezone=True), nullable=True)
+ 
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+ 
+    __table_args__ = (
+        Index("ix_payment_gateway_configs_gateway", "gateway"),
+    )
+ 
+ 
 
 # =============================================================================
 # TABLE 58 — appointment_types

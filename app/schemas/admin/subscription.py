@@ -327,6 +327,8 @@ class CouponResponse(BaseModel):
     is_active:             bool
     is_expired:            bool = False   # computed: valid_until < now
     is_exhausted:          bool = False   # computed: uses_count >= max_uses
+    total_savings_cents:   int = 0        # NEW — sum of discounts actually redeemed
+    total_savings_display: str = ""       # NEW — "$1,834.00"
     created_at:            datetime
     updated_at:            datetime
 
@@ -458,3 +460,117 @@ class RevenueAnalyticsResponse(BaseModel):
     mrr_trend:          List[MRRDataPoint]         # last 12 months
     plan_distribution:  List[PlanDistributionItem]
     period_months:      int = 12
+
+
+# =============================================================================
+# ── SELF-SERVICE "MY SUBSCRIPTION" (any authenticated role) ─────────────────
+# NEW — supports HR / Lawyer / Employee / Student viewing their own plan
+# =============================================================================
+
+class MyQuotaItem(BaseModel):
+    used:         int
+    limit:        Optional[int]   # null = unlimited
+    remaining:    Optional[int]
+    is_unlimited: bool
+
+
+class MyFeatureItem(BaseModel):
+    feature_text: str
+    is_included:  bool
+
+
+class MySubscriptionResponse(BaseModel):
+    """GET /subscriptions/me"""
+    has_subscription:     bool
+    subscription_id:      Optional[uuid.UUID] = None
+    plan_id:               Optional[uuid.UUID] = None
+    plan_name:             Optional[str] = None
+    plan_slug:              Optional[str] = None
+    status:                 Optional[str] = None
+    billing_cycle:          Optional[str] = None
+    current_period_start:   Optional[datetime] = None
+    current_period_end:     Optional[datetime] = None
+    trial_end:              Optional[datetime] = None
+    cancel_at_period_end:   Optional[bool] = None
+    features:               List[MyFeatureItem] = []
+    usage:                  Optional[Dict[str, MyQuotaItem]] = None
+
+
+class MyInvoiceItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id:                   uuid.UUID
+    invoice_number:       str
+    plan_name:            str
+    total_cents:          int
+    total_display:        str
+    currency:             str
+    status:               str
+    billing_period_start: Optional[datetime]
+    billing_period_end:   Optional[datetime]
+    paid_at:              Optional[datetime]
+    invoice_pdf_url:      Optional[str]
+    created_at:           datetime
+
+
+class MyInvoiceListResponse(BaseModel):
+    items:       List[MyInvoiceItem]
+    total:       int
+    page:        int
+    page_size:   int
+    total_pages: int
+
+
+# =============================================================================
+# ── RECENT ACTIVITY FEED (admin) — NEW ────────────────────────────────────────
+# =============================================================================
+
+class RecentActivityItem(BaseModel):
+    id:            uuid.UUID
+    action:        str
+    actor_name:    str
+    resource_type: str
+    resource_id:   Optional[uuid.UUID]
+    description:   Optional[str]
+    severity:      str
+    created_at:    datetime
+
+
+class RecentActivityResponse(BaseModel):
+    items: List[RecentActivityItem]
+
+
+# =============================================================================
+# ── PAYMENT GATEWAY CONFIGURATION (admin only) — NEW ──────────────────────────
+# =============================================================================
+
+class PaymentGatewayUpsert(BaseModel):
+    """
+    PATCH /admin/payment-gateways/{gateway}
+    `credentials` is encrypted server-side before storage — never returned.
+    """
+    credentials:                  Optional[Dict[str, Any]] = None
+    is_enabled:                   Optional[bool] = None
+    transaction_fee_percent_bps:  Optional[int]  = Field(None, description="290 = 2.90%")
+    transaction_fee_fixed_cents:  Optional[int]  = None
+    settlement_days_min:          Optional[int]  = None
+    settlement_days_max:          Optional[int]  = None
+    supported_methods:            Optional[str]  = None
+
+
+class PaymentGatewayToggle(BaseModel):
+    is_enabled: bool
+
+
+class PaymentGatewayResponse(BaseModel):
+    gateway:                   str
+    is_connected:              bool
+    is_enabled:                bool
+    transaction_fee_display:   Optional[str] = None
+    settlement_days_display:   Optional[str] = None
+    supported_methods:         Optional[str] = None
+    connected_at:              Optional[datetime] = None
+
+
+class PaymentGatewayListResponse(BaseModel):
+    items: List[PaymentGatewayResponse]

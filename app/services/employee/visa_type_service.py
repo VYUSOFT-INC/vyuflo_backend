@@ -11,19 +11,19 @@ async def list_visa_types(
     db: AsyncSession,
     *,
     category: Optional[str] = None,
+    codes: Optional[list[str]] = None,       
     active_only: bool = True,
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[VisaType], int]:
     filters = []
-
     if active_only:
         filters.append(VisaType.is_active == True)
-
     if category:
         filters.append(VisaType.category == category)
+    if codes:                                 
+        filters.append(VisaType.code.in_(codes))
 
-    # Use your existing db_list helper
     rows = await db_list(
         db,
         VisaType,
@@ -32,7 +32,6 @@ async def list_visa_types(
         offset=offset,
     )
 
-    # Total count with same filters (add db_count helper or inline)
     from sqlalchemy import select, func
     count_stmt = select(func.count()).select_from(VisaType)
     if filters:
@@ -41,7 +40,6 @@ async def list_visa_types(
     total = result.scalar_one()
 
     return list(rows), total
-
 
 async def get_visa_type(
     db: AsyncSession,
