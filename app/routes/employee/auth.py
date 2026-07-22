@@ -67,6 +67,10 @@ def _set_ui_cookie(
     profile:  str | None,
     theme_color:str | None,
     roles:    list[str],
+    tour_employee_seen: bool = False,
+    tour_hr_seen:       bool = False,
+    tour_attorney_seen: bool = False,
+    tour_admin_seen:    bool = False,
 ) -> None:
     # Build the dict first, then dumps without any extra wrapping
     data = {
@@ -77,6 +81,10 @@ def _set_ui_cookie(
         "profile":    profile,
         "roles":      roles,
         "theme_color":theme_color,
+        "tour_employee_seen": tour_employee_seen,
+        "tour_hr_seen":       tour_hr_seen,
+        "tour_attorney_seen": tour_attorney_seen,
+        "tour_admin_seen":    tour_admin_seen,
     }
     # Use standard base64 encoding — avoids ALL quote/escape issues with cookies
     import base64
@@ -189,7 +197,11 @@ async def login(
 
     # ── Set both cookies ───────────────────────────────────────────────────
     _set_refresh_cookie(response, result["refresh_token"])
-    _set_ui_cookie(response, result["user"], result["profile_picture"],result["theme_color"], result["roles"],)
+    _set_ui_cookie(response, result["user"], result["profile_picture"],result["theme_color"], result["roles"],
+        tour_employee_seen = result["tour_employee_seen"],
+        tour_hr_seen       = result["tour_hr_seen"],
+        tour_attorney_seen = result["tour_attorney_seen"],
+        tour_admin_seen    = result["tour_admin_seen"],)
 
 
     return TokenResponse(
@@ -198,6 +210,10 @@ async def login(
         profile       = result["profile_picture"],
         theme_color = result["theme_color"],
         user          = result["user"],
+        tour_employee_seen = result["tour_employee_seen"],
+        tour_hr_seen       = result["tour_hr_seen"],
+        tour_attorney_seen = result["tour_attorney_seen"],
+        tour_admin_seen    = result["tour_admin_seen"],
     )
 
 
@@ -221,7 +237,11 @@ async def sso_login(
 
     # ── Set both cookies ───────────────────────────────────────────────────
     _set_refresh_cookie(response, result["refresh_token"])
-    _set_ui_cookie(response, result["user"], result["profile_picture"], result["roles"])
+    _set_ui_cookie(response, result["user"], result["profile_picture"], result["roles"],
+        tour_employee_seen = result.get("tour_employee_seen", False),
+        tour_hr_seen       = result.get("tour_hr_seen",       False),
+        tour_attorney_seen = result.get("tour_attorney_seen", False),
+        tour_admin_seen    = result.get("tour_admin_seen",    False),)
 
     return TokenResponse(
         access_token    = result["access_token"],
@@ -332,6 +352,6 @@ async def _send_reset_email(to_email: str, otp: str, token_id: str) -> None:
     log.info("password_reset_email", to=to_email, token_id=token_id, otp=otp)
     await send_email(
         to      = to_email,
-        subject = "Your VisaFlow password reset code",
-        body    = f"Your VisaFlow password reset code is:\n\n{otp}\n\nExpires in 60 seconds.",
+        subject = "Your Vyuflo password reset code",
+        body    = f"Your Vyuflo password reset code is:\n\n{otp}\n\nExpires in 60 seconds.",
     )

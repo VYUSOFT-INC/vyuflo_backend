@@ -1,5 +1,5 @@
 # =============================================================================
-# new_models.py — VisaFlow Complete SQLAlchemy Models
+# new_models.py — Vyuflo Complete SQLAlchemy Models
 # Production-ready — 70 tables covering all 4 roles
 # Roles: employee · attorney · hr · app_admin
 # =============================================================================
@@ -105,6 +105,11 @@ class User(Base):
     triggered_notifications = relationship("Notification",
                                            foreign_keys="Notification.actor_id",
                                            back_populates="actor")
+
+    push_subscriptions   = relationship("PushSubscription",
+                                            foreign_keys="PushSubscription.user_id",
+                                            back_populates="user")
+    
     notification_prefs   = relationship("NotificationPreferences",
                                         foreign_keys="NotificationPreferences.user_id",
                                         back_populates="user", uselist=False)
@@ -352,7 +357,10 @@ class UserProfile(Base):
     onboarding_step      = Column(Integer, default=1,     nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
     theme_color = Column(String(7), nullable=True, default="#4f46e5")
-
+    tour_employee_seen   = Column(Boolean, default=False, nullable=False)
+    tour_hr_seen         = Column(Boolean, default=False, nullable=False)
+    tour_attorney_seen   = Column(Boolean, default=False, nullable=False)
+    tour_admin_seen      = Column(Boolean, default=False, nullable=False)
     # ── Employer Link (set when employee accepts HR invitation) ───────────────
     employer_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
                          nullable=True, index=True)
@@ -1248,6 +1256,8 @@ class Notification(Base):
                          back_populates="triggered_notifications")
 
 
+
+    
 # =============================================================================
 # TABLE 26 — notification_preferences
 # Merged: keeps notify_compliance_alerts from the 66-table version.
@@ -1284,7 +1294,30 @@ class NotificationPreferences(Base):
     user = relationship("User", foreign_keys=[user_id],
                         back_populates="notification_prefs")
 
+# =============================================================================
+# TABLE 26.5 — push_subscriptions
+# =============================================================================
 
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+ 
+    id       = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id  = Column(UUID(as_uuid=True), ForeignKey("users.id"),
+                      nullable=False, index=True)
+    endpoint = Column(Text, nullable=False)
+    p256dh   = Column(Text, nullable=False)
+    auth     = Column(Text, nullable=False)
+ 
+    created_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc), nullable=False)
+ 
+    __table_args__ = (
+        UniqueConstraint("user_id", "endpoint", name="uq_push_sub_user_endpoint"),
+    )
+ 
+    user = relationship("User", foreign_keys=[user_id],
+                        back_populates="push_subscriptions")
+    
 # =============================================================================
 # TABLE 27 — notification_templates
 # =============================================================================
@@ -1293,7 +1326,7 @@ class NotificationTemplate(Base):
     __tablename__ = "notification_templates"
 
     id        = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    event_key = Column(String(100), nullable=False, unique=True, index=True)
+    event_key = Column(String(100), nullable=False, index=True)
     name        = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
 
@@ -1308,10 +1341,17 @@ class NotificationTemplate(Base):
     body_text = Column(Text, nullable=False)
     available_placeholders = Column(Text, nullable=True)
 
+    # category = Column(
+    #     Enum("case_update", "deadline", "news", "security", "billing",
+    #          name="notification_category_enum",
+    #          create_type=False),
+    #     nullable=False
+    # )
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
-             name="notification_category_enum",
-             create_type=False),
+            "approval", "compliance", "employee",
+            name="notification_category_enum",
+            create_type=False),
         nullable=False
     )
     is_active = Column(Boolean, default=True, nullable=False)
@@ -1324,10 +1364,14 @@ class NotificationTemplate(Base):
                          default=lambda: datetime.now(timezone.utc),
                          onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
+    # __table_args__ = (
+    #     Index("ix_notif_templates_event_channel", "event_key", "channel"),
+    # )
+# In NotificationTemplate model in visamodels.py
     __table_args__ = (
+        UniqueConstraint("event_key", "channel", name="uq_notif_template_event_channel"),
         Index("ix_notif_templates_event_channel", "event_key", "channel"),
     )
-
 
 # =============================================================================
 # TABLE 28 — news_articles

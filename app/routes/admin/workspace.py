@@ -371,4 +371,4 @@ async def get_team_workload(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
-    return await workspace_service.service_get_team_workload(db, current_user.id)
+    return await workspace_service.service_get_team_workload(db, current_user.user_id)

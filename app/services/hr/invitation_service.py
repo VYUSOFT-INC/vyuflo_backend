@@ -134,7 +134,7 @@ async def create_code_invite(
     """
     HR generates a reusable company code.
     HR shares this code offline (offer letter, WhatsApp, Slack).
-    Employee enters code on VisaFlow to connect.
+    Employee enters code on Vyuflo to connect.
     """
     employer = await _get_employer_profile(db, hr_user_id)
     if not employer:
@@ -440,7 +440,7 @@ async def accept_invite(
         thread_type     = "direct",
         initial_message = (
             f"Hi! I'm {hr_name} from {employer.company_name}. "
-            "Welcome to VisaFlow — I'll be your HR contact for your immigration case. "
+            "Welcome to Vyuflo — I'll be your HR contact for your immigration case. "
             "Feel free to reach out here with any questions."
         ),
     )

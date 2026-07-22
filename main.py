@@ -1,5 +1,5 @@
 """
-VisaFlow FastAPI Application Entry Point
+Vyuflo FastAPI Application Entry Point
 """
 from contextlib import asynccontextmanager
 
@@ -18,7 +18,7 @@ from app.routes.employee import auth, onboarding
 from app.routes.employee.document import document_router
 from app.routes.employee.message import message_router
 from app.routes.employee.application import application_router,application_task_router,application_history_router
-from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types
+from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_notification_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types
 from app.routes.employee.visa_types import visa_type_router
 from app.routes.employee.dashboard import dashboard_router
 from app.routes.employee.user_profile import user_profile_router
@@ -89,6 +89,7 @@ async def lifespan(app: FastAPI):
         await seed_fee_templates(db)         # fee_templates
         await seed_system_settings(db)       # system_settings
         await seed_support_articles(db)      # support_articles
+        await seed_notification_templates(db)
         
     yield
     print("🛑 Shutting down...")
@@ -100,7 +101,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="VisaFlow Immigration Management Platform API",
+    description="Vyuflo Immigration Management Platform API",
     docs_url="/docs",                # Swagger
     redoc_url="/redoc",              # ReDoc
     lifespan=lifespan,

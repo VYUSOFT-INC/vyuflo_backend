@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.models.visamodels import User, UserProfile
 from app.schemas.employee.user_profile import UserProfileResponse, UserProfileUpdate
+from app.services.employee import storage
 from app.services.employee.services import db_create, db_get_by_id, db_update, db_get_by_field
 
 
@@ -81,7 +82,6 @@ async def update_my_profile(
 
     return UserProfileResponse.model_validate(updated)
 
-
 async def upload_profile_picture(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -109,19 +109,23 @@ async def upload_profile_picture(
     if not profile:
         raise HTTPException(status_code=404, detail="User profile not found.")
 
-    # 4. ── Delete OLD file from disk before saving new one ────────────────────
+    # 4. ── Delete OLD file (local disk or Space, whichever backend is active) ──
     if profile.profile_picture_url:
-        old_path = f"./{profile.profile_picture_url}"
-        if os.path.isfile(old_path):
-            os.remove(old_path)
+        try:
+            await storage.delete_file(profile.profile_picture_url)
+        except Exception:
+            pass  # don't block upload if old file cleanup fails
 
-    # 5. Save NEW file
-    storage_path = f"uploads/profile_pictures/{user_id}/{file.filename}"
-    os.makedirs(os.path.dirname(f"./{storage_path}"), exist_ok=True)
-    with open(f"./{storage_path}", "wb") as f_out:
-        f_out.write(content)
+    # 5. Save NEW file via storage service (S3/Spaces in staging, local in dev)
+    safe_name    = os.path.basename(file.filename or f"avatar.{ext}")
+    storage_path = f"users/{user_id}/profile_pictures/{safe_name}"
+    await storage.upload_file(
+        content,
+        storage_path,
+        file.content_type or "application/octet-stream",
+    )
 
-    # 6. Update DB
+    # 6. Update DB — store the key, not a full URL
     await db_update(
         db,
         UserProfile,

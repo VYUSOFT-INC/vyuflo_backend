@@ -268,9 +268,9 @@ async def service_delete_setting(db: AsyncSession, key: str) -> dict:
 # =============================================================================
 SETTINGS_SEED = [
     # ── General Tab — Platform Identity ──────────────────────────────────────
-    {"key": "platform.name",            "value": "VisaFlow Enterprise",    "value_type": "string",  "setting_group": "general",       "label": "Platform Name",                  "is_public": True,  "is_readonly": True,  "display_order": 1},
-    {"key": "platform.support_email",   "value": "support@visaflow.com",   "value_type": "string",  "setting_group": "general",       "label": "Support Email",                  "is_public": True,  "is_readonly": False, "display_order": 2},
-    {"key": "platform.website",         "value": "www.visaflow.com",       "value_type": "url",     "setting_group": "general",       "label": "Company Website",                "is_public": True,  "is_readonly": False, "display_order": 3},
+    {"key": "platform.name",            "value": "Vyuflo Enterprise",    "value_type": "string",  "setting_group": "general",       "label": "Platform Name",                  "is_public": True,  "is_readonly": True,  "display_order": 1},
+    {"key": "platform.support_email",   "value": "support@vyuflo.com",   "value_type": "string",  "setting_group": "general",       "label": "Support Email",                  "is_public": True,  "is_readonly": False, "display_order": 2},
+    {"key": "platform.website",         "value": "www.vyuflo.com",       "value_type": "url",     "setting_group": "general",       "label": "Company Website",                "is_public": True,  "is_readonly": False, "display_order": 3},
     {"key": "platform.contact_phone",   "value": "+1 (800) 555-0199",      "value_type": "string",  "setting_group": "general",       "label": "Contact Phone",                  "is_public": True,  "is_readonly": False, "display_order": 4},
     # ── General Tab — Regional & Formatting ──────────────────────────────────
     {"key": "platform.timezone",        "value": "America/New_York",       "value_type": "string",  "setting_group": "general",       "label": "Default Timezone",               "is_public": False, "is_readonly": False, "display_order": 5},

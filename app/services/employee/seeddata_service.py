@@ -153,6 +153,7 @@
 # All functions are idempotent — safe to run on an already-seeded DB.
 # =============================================================================
 
+from asyncio.log import logger
 import uuid
 import json
 
@@ -160,6 +161,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.visamodels import (
+    NotificationTemplate,
     Role,
     Permission,
     RolePermission,
@@ -173,6 +175,7 @@ from app.models.visamodels import (
 )
 
 from app.models.seeds import (
+    NOTIFICATION_TEMPLATES_SEED,
     ROLES_SEED,
     PERMISSIONS_SEED,
     ROLE_PERMISSIONS_SEED,
@@ -484,3 +487,53 @@ async def seed_support_articles(db: AsyncSession):
 
     await db.commit()
     print("✅ Support articles seeded")
+
+
+# async def seed_notification_templates(db: AsyncSession) -> None:
+#     """
+#     Idempotent — skips already-seeded event_keys.
+#     Safe to run on every startup or migration.
+#     """
+#     for item in NOTIFICATION_TEMPLATES_SEED:
+#         exists = (await db.execute(
+#             select(NotificationTemplate).where(
+#                 NotificationTemplate.event_key == item["event_key"]
+#             )
+#         )).scalar_one_or_none()
+#         if not exists:
+#             db.add(NotificationTemplate(**item))
+#     await db.commit()
+#     print("✅ NotificationTemplate seeded")
+
+
+from sqlalchemy.dialects.postgresql import insert
+
+
+async def seed_notification_templates(db: AsyncSession) -> None:
+    try:
+        if not NOTIFICATION_TEMPLATES_SEED:
+            return
+
+        stmt = insert(NotificationTemplate).values(
+            NOTIFICATION_TEMPLATES_SEED
+        )
+
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=[
+                NotificationTemplate.event_key,
+                NotificationTemplate.channel,
+            ]
+        )
+
+        result = await db.execute(stmt)
+        await db.commit()
+
+        logger.info(
+            "Notification templates seeded; inserted %s row(s)",
+            result.rowcount,
+        )
+
+    except Exception:
+        await db.rollback()
+        logger.exception("Failed to seed notification templates")
+        raise

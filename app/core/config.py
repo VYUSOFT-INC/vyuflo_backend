@@ -54,7 +54,8 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION:            str = ""
     S3_BUCKET:             str = ""
-    STORAGE_BACKEND:       str = "local"  # "local" | "s3"
+    STORAGE_BACKEND:       str = ""
+    S3_ENDPOINT_URL: str
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: List[str] = []
@@ -97,6 +98,7 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID:  str = ""
     TWILIO_AUTH_TOKEN:   str = ""
     TWILIO_FROM_NUMBER:  str = ""
+    TWILIO_MESSAGING_SERVICE_SID: str = ""
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
     RATE_LIMIT_PER_MINUTE: int = 60
@@ -114,6 +116,10 @@ class Settings(BaseSettings):
 
     # ── Frontend ──────────────────────────────────────────────────────────────
     FRONTEND_URL: str = "http://localhost:5173"
-
+    
+    # ── Push Notifications (VAPID) ────────────────────────────────────────────────
+    VAPID_PUBLIC_KEY:   str = ""
+    VAPID_PRIVATE_KEY:  str = ""
+    VAPID_CLAIMS_EMAIL: str = "admin@visaflow.com"
 
 settings = Settings()

@@ -1,5 +1,5 @@
 # =============================================================================
-# new_seeds.py — VisaFlow Complete Seed Data
+# new_seeds.py — Vyuflo Complete Seed Data
 # Run once at DB init via seeddata_service.py
 #
 # SECTIONS
@@ -936,7 +936,7 @@ SYSTEM_SETTINGS_SEED = [
     # ── General ───────────────────────────────────────────────────────────────
     {
         "key": "platform.name",
-        "value": "VisaFlow",
+        "value": "Vyuflo",
         "value_type": "string",
         "setting_group": "general",
         "label": "Platform Name",
@@ -947,7 +947,7 @@ SYSTEM_SETTINGS_SEED = [
     },
     {
         "key": "platform.support_email",
-        "value": "support@visaflow.io",
+        "value": "support@F.io",
         "value_type": "string",
         "setting_group": "general",
         "label": "Support Email",
@@ -1050,7 +1050,7 @@ SYSTEM_SETTINGS_SEED = [
     },
     {
         "key": "email.from_address",
-        "value": "noreply@visaflow.io",
+        "value": "noreply@vyuflo.io",
         "value_type": "string",
         "setting_group": "email",
         "label": "From Address",
@@ -1061,7 +1061,7 @@ SYSTEM_SETTINGS_SEED = [
     },
     {
         "key": "email.from_name",
-        "value": "VisaFlow",
+        "value": "Vyuflo",
         "value_type": "string",
         "setting_group": "email",
         "label": "From Name",
@@ -1155,7 +1155,7 @@ SYSTEM_SETTINGS_SEED = [
     },
     {
         "key": "maintenance.message",
-        "value": "VisaFlow is temporarily down for scheduled maintenance. We'll be back shortly.",
+        "value": "Vyuflo is temporarily down for scheduled maintenance. We'll be back shortly.",
         "value_type": "string",
         "setting_group": "maintenance",
         "label": "Maintenance Message",
@@ -1175,7 +1175,7 @@ SUPPORT_ARTICLES_SEED = [
     # ── Getting Started ───────────────────────────────────────────────────────
     {
         "title":        "How do I create my account?",
-        "summary":      "Step-by-step guide to signing up for VisaFlow.",
+        "summary":      "Step-by-step guide to signing up for Vyuflo.",
         "body":         "To create your account, click 'Sign Up' on the login page. Enter your name, email, and password. You'll receive a verification email — click the link to activate your account. You can also sign up with Google or Microsoft.",
         "article_type": "faq",
         "category":     "getting_started",
@@ -1248,7 +1248,7 @@ SUPPORT_ARTICLES_SEED = [
     {
         "title":        "What file formats are accepted for document uploads?",
         "summary":      "Supported formats and file size limits for uploads.",
-        "body":         "VisaFlow accepts PDF, JPG, and PNG files. The maximum file size is 10MB per document (5MB for passport photos). Make sure documents are clear, legible, and not password-protected.",
+        "body":         "Vyuflo accepts PDF, JPG, and PNG files. The maximum file size is 10MB per document (5MB for passport photos). Make sure documents are clear, legible, and not password-protected.",
         "article_type": "faq",
         "category":     "documents",
         "tag":          "Documents",
@@ -1290,5 +1290,257 @@ SUPPORT_ARTICLES_SEED = [
         "sort_order":   1,
         "is_published": True,
         "is_featured":  False,
+    },
+]
+
+# =============================================================================
+# NOTIFICATION TEMPLATES SEED
+# Event keys MUST exactly match the event_key strings passed to
+# dispatch_notification_from_template() in notification_service.py
+# =============================================================================
+
+NOTIFICATION_TEMPLATES_SEED = [
+ 
+    # ── case_status_updated ──────────────────────────────────────────────────
+    {
+        "event_key": "case_status_updated", "channel": "email",
+        "name": "Case Status Updated (Email)",
+        "description": "Sent to all parties when application status changes",
+        "subject": "Case {{application_number}} updated to: {{new_status}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>Your case <strong>{{application_number}}</strong> status has been updated "
+            "to <strong>{{new_status}}</strong>.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nCase {{application_number}} status changed to: {{new_status}}.\n\nView it: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{new_status}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+    {
+        "event_key": "case_status_updated", "channel": "sms",
+        "name": "Case Status Updated (SMS)",
+        "description": "Short SMS on case status change",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: Case {{application_number}} → {{new_status}}. View: {{action_url}}",
+        "available_placeholders": '["{{application_number}}", "{{new_status}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": False,  # off by default — enable in admin
+    },
+    {
+        "event_key": "case_status_updated", "channel": "push",
+        "name": "Case Status Updated (Push)",
+        "description": "Browser push on case status change",
+        "subject": "Case Update — {{new_status}}", "body_html": None,
+        "body_text": "Your case {{application_number}} status changed to {{new_status}}.",
+        "available_placeholders": '["{{application_number}}", "{{new_status}}"]',
+        "category": "case_update", "is_active": True,
+    },
+ 
+    # ── participant_added ─────────────────────────────────────────────────────
+    {
+        "event_key": "participant_added", "channel": "email",
+        "name": "Case Participant Added (Email)",
+        "description": "Sent when HR or attorney is assigned to a case",
+        "subject": "You have been assigned to case {{application_number}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>You have been assigned to case <strong>{{application_number}}</strong> "
+            "by <strong>{{actor_label}}</strong>.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nYou have been assigned to case {{application_number}} by {{actor_label}}.\n\nOpen it: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{actor_label}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+    {
+        "event_key": "participant_added", "channel": "push",
+        "name": "Case Participant Added (Push)",
+        "description": "Push notification on assignment",
+        "subject": "New case assignment", "body_html": None,
+        "body_text": "You've been assigned to case {{application_number}}.",
+        "available_placeholders": '["{{application_number}}"]',
+        "category": "case_update", "is_active": True,
+    },
+ 
+    # ── approval_pending ──────────────────────────────────────────────────────
+    {
+        "event_key": "approval_pending", "channel": "email",
+        "name": "HR Approval Required (Email)",
+        "description": "Sent to HR when a case needs approval before attorney filing",
+        "subject": "Action required: {{application_number}} awaiting your approval",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>Case <strong>{{application_number}}</strong> is ready for HR review "
+            "before attorney filing.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nCase {{application_number}} needs your approval.\n\nReview: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{action_url}}"]',
+        "category": "approval", "is_active": True,
+    },
+    {
+        "event_key": "approval_pending", "channel": "sms",
+        "name": "HR Approval Required (SMS)",
+        "description": "Urgent SMS reminder for pending HR approval",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: Case {{application_number}} needs your approval. {{action_url}}",
+        "available_placeholders": '["{{application_number}}", "{{action_url}}"]',
+        "category": "approval", "is_active": False,
+    },
+ 
+    # ── approval_resolved ─────────────────────────────────────────────────────
+    {
+        "event_key": "approval_resolved", "channel": "email",
+        "name": "HR Decision Notification (Email)",
+        "description": "Sent to employee when HR approves/rejects their petition",
+        "subject": "HR decision on your case {{application_number}}",
+        "body_html": "<p>Hi {{user_name}},</p><p>HR has made a decision on your case <strong>{{application_number}}</strong>.</p>",
+        "body_text": "Hi {{user_name}},\n\nHR has made a decision on case {{application_number}}.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{action_url}}"]',
+        "category": "approval", "is_active": True,
+    },
+ 
+    # ── missing_document ──────────────────────────────────────────────────────
+    {
+        "event_key": "missing_document", "channel": "email",
+        "name": "Document Required (Email)",
+        "description": "Sent when a required document is missing or rejected",
+        "subject": "Action required: document needed for {{application_number}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>A document is required for case <strong>{{application_number}}</strong>.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nDocument needed for {{application_number}}.\n\nUpload: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{document_name}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+    {
+        "event_key": "missing_document", "channel": "push",
+        "name": "Document Required (Push)",
+        "description": "Push alert for missing document",
+        "subject": "Document needed", "body_html": None,
+        "body_text": "\"{{document_name}}\" is needed for your application.",
+        "available_placeholders": '["{{document_name}}"]',
+        "category": "case_update", "is_active": True,
+    },
+ 
+    # ── document_approved ─────────────────────────────────────────────────────
+    {
+        "event_key": "document_approved", "channel": "email",
+        "name": "Document Verified (Email)",
+        "description": "Sent to employee when their document is verified",
+        "subject": "Document verified for case {{application_number}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>Your document for case <strong>{{application_number}}</strong> "
+            "has been verified successfully.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nYour document has been verified.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{document_name}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+ 
+    # ── deadline_approaching ──────────────────────────────────────────────────
+    {
+        "event_key": "deadline_approaching", "channel": "email",
+        "name": "Deadline Approaching (Email)",
+        "description": "Sent when a case deadline is within the alert window",
+        "subject": "Deadline in {{days_remaining}} days: {{deadline_title}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>You have a deadline coming up:</p>"
+            "<ul><li><strong>{{deadline_title}}</strong></li>"
+            "<li>Due: {{deadline_date}}</li>"
+            "<li>Days remaining: {{days_remaining}}</li></ul>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nDeadline: {{deadline_title}}\nDue: {{deadline_date}}\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{deadline_title}}", "{{deadline_date}}", "{{days_remaining}}", "{{action_url}}"]',
+        "category": "deadline", "is_active": True,
+    },
+    {
+        "event_key": "deadline_approaching", "channel": "sms",
+        "name": "Deadline Approaching (SMS)",
+        "description": "Urgent SMS reminder for approaching deadlines",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: {{deadline_title}} due in {{days_remaining}} days ({{deadline_date}}).",
+        "available_placeholders": '["{{deadline_title}}", "{{days_remaining}}", "{{deadline_date}}"]',
+        "category": "deadline", "is_active": True,
+    },
+    {
+        "event_key": "deadline_approaching", "channel": "push",
+        "name": "Deadline Approaching (Push)",
+        "description": "Push alert for approaching deadlines",
+        "subject": "Deadline approaching", "body_html": None,
+        "body_text": "{{deadline_title}} due in {{days_remaining}} days.",
+        "available_placeholders": '["{{deadline_title}}", "{{days_remaining}}"]',
+        "category": "deadline", "is_active": True,
+    },
+ 
+    # ── employee_onboarded ────────────────────────────────────────────────────
+    {
+        "event_key": "employee_onboarded", "channel": "email",
+        "name": "New Employee Onboarded (Email)",
+        "description": "Sent to HR when an invited employee completes profile setup",
+        "subject": "{{actor_label}} has joined your company on VisaFlow",
+        "body_html": "<p>Hi {{user_name}},</p><p><strong>{{actor_label}}</strong> accepted your company invite and completed profile setup.</p>",
+        "body_text": "Hi {{user_name}},\n\n{{actor_label}} joined on VisaFlow.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{actor_label}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+ 
+    # ── compliance_alert ──────────────────────────────────────────────────────
+    {
+        "event_key": "compliance_alert", "channel": "email",
+        "name": "Compliance Alert (Email)",
+        "description": "Sent to HR for urgent compliance issues",
+        "subject": "Compliance Alert: action required",
+        "body_html": "<p>Hi {{user_name}},</p><p>A compliance issue requires your immediate attention.</p>",
+        "body_text": "Hi {{user_name}},\n\nCompliance alert. Action required.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{action_url}}"]',
+        "category": "compliance", "is_active": True,
+    },
+ 
+    # ── security_alert ────────────────────────────────────────────────────────
+    {
+        "event_key": "security_alert", "channel": "email",
+        "name": "Security Alert — New Login (Email)",
+        "description": "Sent on new device login",
+        "subject": "Security Alert: new login to your VisaFlow account",
+        "body_html": "<p>Hi {{user_name}},</p><p>New login from <strong>{{device}}</strong> at {{login_time}}.</p>",
+        "body_text": "Hi {{user_name}},\n\nNew login from {{device}} at {{login_time}}.",
+        "available_placeholders": '["{{user_name}}", "{{device}}", "{{login_time}}", "{{ip_address}}"]',
+        "category": "security", "is_active": True,
+    },
+ 
+    # ── payment_receipt ───────────────────────────────────────────────────────
+    {
+        "event_key": "payment_receipt", "channel": "email",
+        "name": "Payment Receipt (Email)",
+        "description": "Sent after a successful payment",
+        "subject": "Payment confirmed — {{amount}} for {{visa_type}}",
+        "body_html": "<p>Hi {{user_name}},</p><p>Payment of <strong>{{amount}}</strong> confirmed.</p>",
+        "body_text": "Hi {{user_name}},\n\nPayment of {{amount}} confirmed.",
+        "available_placeholders": '["{{user_name}}", "{{amount}}", "{{payment_date}}", "{{visa_type}}"]',
+        "category": "billing", "is_active": True,
+    },
+ 
+    # ── weekly_summary ────────────────────────────────────────────────────────
+    {
+        "event_key": "weekly_summary", "channel": "email",
+        "name": "Weekly Case Summary (Email)",
+        "description": "Weekly digest of case activity",
+        "subject": "Your weekly VisaFlow summary — {{week_range}}",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{summary_content}}</p>",
+        "body_text": "Hi {{user_name}},\n\nYour weekly summary:\n{{summary_content}}",
+        "available_placeholders": '["{{user_name}}", "{{summary_content}}", "{{week_range}}"]',
+        "category": "case_update", "is_active": True,
+    },
+ 
+    # ── interview_scheduled — disabled until interview scheduling ships ──────
+    {
+        "event_key": "interview_scheduled", "channel": "sms",
+        "name": "Interview Scheduled (SMS)",
+        "description": "SMS reminder 24h before interview",
+        "subject": None, "body_html": None,
+        "body_text": "Reminder: Your {{visa_type}} interview is on {{interview_date}} at {{interview_time}}. Good luck!",
+        "available_placeholders": '["{{visa_type}}", "{{interview_date}}", "{{interview_time}}"]',
+        "category": "deadline", "is_active": False,
     },
 ]

@@ -25,6 +25,10 @@ class TokenResponse(BaseModel):
     profile:Optional[str] = None
     theme_color:Optional[str] = None
     user:UserBasic| None = None
+    tour_employee_seen: bool = False
+    tour_hr_seen:       bool = False
+    tour_attorney_seen: bool = False
+    tour_admin_seen:    bool = False
     
 
 

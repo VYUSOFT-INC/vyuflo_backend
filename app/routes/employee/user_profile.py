@@ -1,10 +1,14 @@
 # src/app/routers/user_profile_router.py
 from fastapi import APIRouter, Depends, File, UploadFile, status
+from pydantic import BaseModel
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.models.visamodels import UserProfile
 from app.schemas.employee.user_profile import ProfilePictureResponse, UserProfileResponse, UserProfileUpdate
+from app.services.employee.services import db_update
 from app.services.employee.user_profile_service import get_my_profile, update_my_profile, upload_profile_picture
 import uuid
 
@@ -59,3 +63,39 @@ async def api_upload_profile_picture(
     return ProfilePictureResponse(
         profile_picture_url=profile.profile_picture_url
     )
+
+from typing import Literal
+
+
+TourRole = Literal["employee", "hr", "attorney", "admin"]
+ 
+TOUR_FIELD_MAP: dict[str, str] = {
+    "employee": "tour_employee_seen",
+    "hr":       "tour_hr_seen",
+    "attorney": "tour_attorney_seen",
+    "admin":    "tour_admin_seen",
+}
+ 
+ 
+class TourSeenRequest(BaseModel):
+    role: TourRole
+ 
+ 
+@user_profile_router.patch(
+    "/users/me/tour-seen",
+    status_code=status.HTTP_200_OK,
+    summary="Mark dashboard tour as seen",
+)
+async def api_mark_tour_seen(
+    body:         TourSeenRequest,
+    db:           AsyncSession = Depends(get_db),
+    current_user               = Depends(get_current_user),
+) -> dict:
+    field = TOUR_FIELD_MAP[body.role]
+    await db.execute(
+        update(UserProfile)
+        .where(UserProfile.user_id == current_user.user_id)
+        .values(**{field: True})
+    )
+    await db.commit()
+    return {"ok": True}
