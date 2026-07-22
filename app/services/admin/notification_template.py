@@ -274,106 +274,106 @@ async def dispatch_notification_from_template(
 # SEED DATA — covers all trigger events visible in the Notification Templates
 # screen: Status_Changed_Approved, Doc_Status_Missing, Interview_Date_Set, etc.
 # =============================================================================
-NOTIFICATION_TEMPLATES_SEED = [
-    {
-        "event_key": "case_status_updated.approved",
-        "name": "Visa Application Approved",
-        "description": "Sent to applicant upon final approval",
-        "channel": "email",
-        "subject": "Congratulations! Your {{visa_type}} application has been approved",
-        "body_html": "<p>Dear {{user_name}},</p><p>Your application <strong>{{application_number}}</strong> has been <strong>approved</strong>.</p>",
-        "body_text": "Dear {{user_name}},\n\nYour {{visa_type}} application {{application_number}} has been approved.",
-        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{visa_type}}"]',
-        "category": "case_update", "is_active": True,
-    },
-    {
-        "event_key": "missing_document",
-        "name": "Missing Documents Alert",
-        "description": "Dashboard notification for required docs",
-        "channel": "in_app",
-        "subject": None,
-        "body_html": None,
-        "body_text": "Your application {{application_number}} is missing: {{document_name}}. Please upload it.",
-        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{document_name}}"]',
-        "category": "case_update", "is_active": True,
-    },
-    {
-        "event_key": "interview_scheduled",
-        "name": "Interview Scheduled",
-        "description": "SMS reminder 24h before interview",
-        "channel": "sms",
-        "subject": None,
-        "body_html": None,
-        "body_text": "Reminder: Your {{visa_type}} interview is on {{interview_date}} at {{interview_time}}. Good luck!",
-        "available_placeholders": '["{{user_name}}", "{{visa_type}}", "{{interview_date}}", "{{interview_time}}"]',
-        "category": "deadline", "is_active": False,
-    },
-    {
-        "event_key": "deadline_approaching",
-        "name": "Deadline Approaching",
-        "description": "Sent when a deadline is within the alert window",
-        "channel": "in_app",
-        "subject": None,
-        "body_html": None,
-        "body_text": "{{deadline_title}} is due on {{deadline_date}} ({{days_remaining}} days remaining).",
-        "available_placeholders": '["{{user_name}}", "{{deadline_title}}", "{{deadline_date}}", "{{days_remaining}}"]',
-        "category": "deadline", "is_active": True,
-    },
-    {
-        "event_key": "case_status_updated",
-        "name": "Case Status Updated",
-        "description": "Sent when any application status changes",
-        "channel": "in_app",
-        "subject": None,
-        "body_html": None,
-        "body_text": "Your {{visa_type}} application {{application_number}} status changed to: {{new_status}}.",
-        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{visa_type}}", "{{new_status}}"]',
-        "category": "case_update", "is_active": True,
-    },
-    {
-        "event_key": "security_alert",
-        "name": "Security Alert — New Login",
-        "description": "Sent on new device login",
-        "channel": "email",
-        "subject": "Security Alert: New login to your VisaFlow account",
-        "body_html": "<p>Dear {{user_name}},</p><p>New login from <strong>{{device}}</strong> at {{login_time}}.</p>",
-        "body_text": "Dear {{user_name}},\n\nNew login from {{device}} at {{login_time}} ({{ip_address}}).",
-        "available_placeholders": '["{{user_name}}", "{{device}}", "{{login_time}}", "{{ip_address}}"]',
-        "category": "security", "is_active": True,
-    },
-    {
-        "event_key": "weekly_summary",
-        "name": "Weekly Case Summary",
-        "description": "Weekly digest of case activity",
-        "channel": "email",
-        "subject": "Your Weekly VisaFlow Summary — {{week_range}}",
-        "body_html": "<p>Dear {{user_name}},</p><p>{{summary_content}}</p>",
-        "body_text": "Dear {{user_name}},\n\nYour weekly summary for {{week_range}}:\n{{summary_content}}",
-        "available_placeholders": '["{{user_name}}", "{{summary_content}}", "{{week_range}}"]',
-        "category": "case_update", "is_active": True,
-    },
-    {
-        "event_key": "payment_receipt",
-        "name": "Payment Receipt",
-        "description": "Sent after a successful payment",
-        "channel": "email",
-        "subject": "Payment Confirmed — {{amount}} for {{visa_type}}",
-        "body_html": "<p>Dear {{user_name}},</p><p>Payment of <strong>{{amount}}</strong> confirmed.</p>",
-        "body_text": "Dear {{user_name}},\n\nPayment of {{amount}} confirmed on {{payment_date}}.",
-        "available_placeholders": '["{{user_name}}", "{{amount}}", "{{payment_date}}", "{{visa_type}}"]',
-        "category": "billing", "is_active": True,
-    },
-]
-
-
-async def seed_notification_templates(db: AsyncSession) -> None:
-    """Idempotent — skips already-seeded event_keys."""
-    for item in NOTIFICATION_TEMPLATES_SEED:
-        exists = (await db.execute(
-            select(NotificationTemplate).where(
-                NotificationTemplate.event_key == item["event_key"]
-            )
-        )).scalar_one_or_none()
-        if not exists:
-            db.add(NotificationTemplate(**item))
-    await db.commit()
+# NOTIFICATION_TEMPLATES_SEED = [
+    # {
+        # "event_key": "case_status_updated.approved",
+        # "name": "Visa Application Approved",
+        # "description": "Sent to applicant upon final approval",
+        # "channel": "email",
+        # "subject": "Congratulations! Your {{visa_type}} application has been approved",
+        # "body_html": "<p>Dear {{user_name}},</p><p>Your application <strong>{{application_number}}</strong> has been <strong>approved</strong>.</p>",
+        # "body_text": "Dear {{user_name}},\n\nYour {{visa_type}} application {{application_number}} has been approved.",
+        # "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{visa_type}}"]',
+        # "category": "case_update", "is_active": True,
+    # },
+    # {
+        # "event_key": "missing_document",
+        # "name": "Missing Documents Alert",
+        # "description": "Dashboard notification for required docs",
+        # "channel": "in_app",
+        # "subject": None,
+        # "body_html": None,
+        # "body_text": "Your application {{application_number}} is missing: {{document_name}}. Please upload it.",
+        # "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{document_name}}"]',
+        # "category": "case_update", "is_active": True,
+    # },
+    # {
+        # "event_key": "interview_scheduled",
+        # "name": "Interview Scheduled",
+        # "description": "SMS reminder 24h before interview",
+        # "channel": "sms",
+        # "subject": None,
+        # "body_html": None,
+        # "body_text": "Reminder: Your {{visa_type}} interview is on {{interview_date}} at {{interview_time}}. Good luck!",
+        # "available_placeholders": '["{{user_name}}", "{{visa_type}}", "{{interview_date}}", "{{interview_time}}"]',
+        # "category": "deadline", "is_active": False,
+    # },
+    # {
+        # "event_key": "deadline_approaching",
+        # "name": "Deadline Approaching",
+        # "description": "Sent when a deadline is within the alert window",
+        # "channel": "in_app",
+        # "subject": None,
+        # "body_html": None,
+        # "body_text": "{{deadline_title}} is due on {{deadline_date}} ({{days_remaining}} days remaining).",
+        # "available_placeholders": '["{{user_name}}", "{{deadline_title}}", "{{deadline_date}}", "{{days_remaining}}"]',
+        # "category": "deadline", "is_active": True,
+    # },
+    # {
+        # "event_key": "case_status_updated",
+        # "name": "Case Status Updated",
+        # "description": "Sent when any application status changes",
+        # "channel": "in_app",
+        # "subject": None,
+        # "body_html": None,
+        # "body_text": "Your {{visa_type}} application {{application_number}} status changed to: {{new_status}}.",
+        # "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{visa_type}}", "{{new_status}}"]',
+        # "category": "case_update", "is_active": True,
+    # },
+    # {
+        # "event_key": "security_alert",
+        # "name": "Security Alert — New Login",
+        # "description": "Sent on new device login",
+        # "channel": "email",
+        # "subject": "Security Alert: New login to your VisaFlow account",
+        # "body_html": "<p>Dear {{user_name}},</p><p>New login from <strong>{{device}}</strong> at {{login_time}}.</p>",
+        # "body_text": "Dear {{user_name}},\n\nNew login from {{device}} at {{login_time}} ({{ip_address}}).",
+        # "available_placeholders": '["{{user_name}}", "{{device}}", "{{login_time}}", "{{ip_address}}"]',
+        # "category": "security", "is_active": True,
+    # },
+    # {
+        # "event_key": "weekly_summary",
+        # "name": "Weekly Case Summary",
+        # "description": "Weekly digest of case activity",
+        # "channel": "email",
+        # "subject": "Your Weekly VisaFlow Summary — {{week_range}}",
+        # "body_html": "<p>Dear {{user_name}},</p><p>{{summary_content}}</p>",
+        # "body_text": "Dear {{user_name}},\n\nYour weekly summary for {{week_range}}:\n{{summary_content}}",
+        # "available_placeholders": '["{{user_name}}", "{{summary_content}}", "{{week_range}}"]',
+        # "category": "case_update", "is_active": True,
+    # },
+    # {
+        # "event_key": "payment_receipt",
+        # "name": "Payment Receipt",
+        # "description": "Sent after a successful payment",
+        # "channel": "email",
+        # "subject": "Payment Confirmed — {{amount}} for {{visa_type}}",
+        # "body_html": "<p>Dear {{user_name}},</p><p>Payment of <strong>{{amount}}</strong> confirmed.</p>",
+        # "body_text": "Dear {{user_name}},\n\nPayment of {{amount}} confirmed on {{payment_date}}.",
+        # "available_placeholders": '["{{user_name}}", "{{amount}}", "{{payment_date}}", "{{visa_type}}"]',
+        # "category": "billing", "is_active": True,
+    # },
+# ]
+# 
+# 
+# async def seed_notification_templates(db: AsyncSession) -> None:
+    # """Idempotent — skips already-seeded event_keys."""
+    # for item in NOTIFICATION_TEMPLATES_SEED:
+        # exists = (await db.execute(
+            # select(NotificationTemplate).where(
+                # NotificationTemplate.event_key == item["event_key"]
+            # )
+        # )).scalar_one_or_none()
+        # if not exists:
+            # db.add(NotificationTemplate(**item))
+    # await db.commit()
