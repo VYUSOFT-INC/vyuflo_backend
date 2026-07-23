@@ -48,7 +48,7 @@ class User(Base):
     marketing_opt_in  = Column(Boolean,  default=False, nullable=False)
     newsletter_opt_in = Column(Boolean,  default=False, nullable=False)
     referral_source   = Column(String(100), nullable=True)
-
+    token_version = Column(Integer, default=0, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at    = Column(DateTime(timezone=True),
                            default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -1190,13 +1190,14 @@ class Notification(Base):
 
     notification_type = Column(
         Enum("missing_document", "deadline_approaching", "policy_update",
-             "document_approved", "case_status_updated", "participant_added",
-             "document_comment", "weekly_summary", "security_alert",
-             "payment_receipt", "immigration_news",
-             "approval_pending", "approval_resolved", "compliance_alert",
-             "employee_onboarded", "employee_profile_updated",
-             "task_assigned",
-             name="notification_type_enum"),
+            "document_approved", "case_status_updated", "participant_added",
+            "document_comment", "weekly_summary", "security_alert",
+            "payment_receipt", "immigration_news",
+            "approval_pending", "approval_resolved", "compliance_alert",
+            "employee_onboarded", "employee_profile_updated",
+            "task_assigned", "new_device_login", "failed_login_alert",
+            "password_changed", "unusual_activity",
+            name="notification_type_enum"),
         nullable=False
     )
     category = Column(
@@ -1282,6 +1283,16 @@ class NotificationPreferences(Base):
     notify_billing          = Column(Boolean, default=True, nullable=False)
     notify_weekly_summary   = Column(Boolean, default=True, nullable=False)
     notify_compliance_alerts = Column(Boolean, default=True, nullable=False)
+
+    # ── NEW: granular per-alert-per-channel (only checked if notify_security_alerts is True) ──
+    notify_new_device_login_email = Column(Boolean, default=True,  nullable=False)
+    notify_new_device_login_sms   = Column(Boolean, default=True,  nullable=False)
+    notify_failed_login_email     = Column(Boolean, default=True,  nullable=False)
+    notify_failed_login_sms       = Column(Boolean, default=False, nullable=False)
+    notify_password_changed_email = Column(Boolean, default=True,  nullable=False)
+    notify_password_changed_sms   = Column(Boolean, default=False, nullable=False)
+    notify_unusual_activity_email = Column(Boolean, default=True,  nullable=False)
+    notify_unusual_activity_sms   = Column(Boolean, default=True,  nullable=False)
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

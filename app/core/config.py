@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     # ── JWT ───────────────────────────────────────────────────────────────────
     ALGORITHM:                   str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS:   int = 7
 
     # ── AWS S3 (optional — only used when STORAGE_BACKEND=s3) ────────────────
@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     S3_BUCKET:             str = ""
     STORAGE_BACKEND:       str = ""
     S3_ENDPOINT_URL: str
-
+    S3_CDN_URL: str = ""
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: List[str] = []
     COOKIE_SECURE: bool = True

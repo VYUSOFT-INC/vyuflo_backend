@@ -53,3 +53,15 @@ async def redis_increment(key: str, expire_seconds: int = 60) -> int:
     await pipe.expire(key, expire_seconds)
     results = await pipe.execute()
     return results[0]
+
+async def redis_scan_keys(pattern: str) -> list[str]:
+    """Returns all keys matching a pattern, e.g. 'refresh:{user_id}:*'."""
+    r = await get_redis()
+    return [key async for key in r.scan_iter(match=pattern)]
+
+
+async def redis_delete_many(keys: list[str]) -> None:
+    if not keys:
+        return
+    r = await get_redis()
+    await r.delete(*keys)

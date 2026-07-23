@@ -106,6 +106,24 @@ async def upload_file(content: bytes, key: str, content_type: str) -> None:
         with open(path, "wb") as f:
             f.write(content)
 
+# async def upload_file(content: bytes, key: str, content_type: str, public: bool = False) -> None:
+#     if settings.STORAGE_BACKEND != "s3":
+#         raise RuntimeError("Local storage is disabled — set STORAGE_BACKEND=s3")
+#     async with _client() as s3:
+#         kwargs = dict(
+#             Bucket=settings.S3_BUCKET,
+#             Key=key,
+#             Body=content,
+#             ContentType=content_type,
+#         )
+#         if public:
+#             kwargs["ACL"] = "public-read"
+#         await s3.put_object(**kwargs)
+
+
+# def public_url(key: str) -> str:
+#     """Permanent, non-expiring URL for public-read objects (e.g. avatars)."""
+#     return f"{settings.S3_CDN_URL}/{key}"
 
 async def get_presigned_url(key: str, expires: int = 900) -> str:
     """Temporary signed URL (15 min). Bucket stays private."""
@@ -116,8 +134,8 @@ async def get_presigned_url(key: str, expires: int = 900) -> str:
                 Params={"Bucket": settings.S3_BUCKET, "Key": key},
                 ExpiresIn=expires,
             )
-    else:
-        return f"/{key}"  # local: hits your static files
+    # else:
+    #     return f"/{key}"  # local: hits your static files
 
 
 async def delete_file(key: str) -> None:
@@ -125,10 +143,22 @@ async def delete_file(key: str) -> None:
     if settings.STORAGE_BACKEND == "s3":
         async with _client() as s3:
             await s3.delete_object(Bucket=settings.S3_BUCKET, Key=key)
-    else:
-        path = f"./{key}"
-        if os.path.exists(path):
-            os.remove(path)
+    # else:
+    #     path = f"./{key}"
+    #     if os.path.exists(path):
+    #         os.remove(path)
+
+
+# storage.py — add this function
+async def resolve_url(key: str | None) -> str | None:
+    """Turn a stored key into something the frontend can actually load."""
+    if not key:
+        return None
+    if settings.STORAGE_BACKEND == "s3":
+        return await get_presigned_url(key)
+    # return f"/api/v1/static/{key}"
+    return None
+
 
 # # test_spaces.py — run directly: python test_spaces.py
 # import boto3

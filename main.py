@@ -61,6 +61,7 @@ from app.routes.hr.hr_task_routes import hr_task_router
 from app.routes.hr.hr_document_routes import hr_document_router
 from app.routes.hr.hr_deadline_routes  import hr_deadline_router
 from app.routes.hr.hr_approval_routes  import hr_approval_router
+from app.ocr.ocr_service_router import ocr_router
 
 
 
@@ -134,7 +135,8 @@ register_exception_handlers(app)
 # ─────────────────────────────────────────────
 # Routers
 # ─────────────────────────────────────────────
-app.mount("/api/v1/static", StaticFiles(directory="uploads"), name="static")
+# app.mount("/api/v1/static", StaticFiles(directory="uploads"), name="static")
+app.include_router(ocr_router)          # add prefix="/api/v1" if that's your convention
 app.include_router(auth.router,                prefix="/api/v1/auth",       tags=["Authentication"])
 app.include_router(onboarding.router,          prefix="/api/v1/onboarding", tags=["Onboarding"])
 app.include_router(document_router,            prefix="/api/v1", tags=["Documents"])
@@ -148,7 +150,7 @@ app.include_router(user_profile_router,        prefix="/api/v1", tags=["User Pro
 app.include_router(login_history_router,       prefix="/api/v1", tags=["Login History"])
 app.include_router(admin_dashboard_router,     prefix="/api/v1", tags=["Admin cards"])
 app.include_router(roles_router,               prefix="/api/v1", tags=["Roles"])
-app.include_router(ocr_router,                 prefix="/api/v1", tags=["Ocr"])
+# app.include_router(ocr_router,                 prefix="/api/v1", tags=["Ocr"])
 app.include_router(payment_router,             prefix="/api/v1", tags=["Payments "])
 app.include_router(consultation_router, prefix="/api/v1", tags=["consultations"])
 app.include_router(notification_router, prefix="/api/v1", tags=["notifications"])
@@ -184,6 +186,8 @@ app.include_router(hr_task_router, prefix="/api/v1/hr", tags=["HR Tasks"])
 app.include_router(hr_document_router, prefix="/api/v1/hr", tags=["HR Documents"])
 app.include_router(hr_deadline_router, prefix="/api/v1/hr", tags=["HR Deadlines"])
 app.include_router(hr_approval_router, prefix="/api/v1/hr", tags=["HR Approvals"])
+
+
 
 
 

@@ -15,6 +15,12 @@ from app.services.employee import storage
 from app.services.employee.services import db_create, db_get_by_id, db_update, db_get_by_field
 
 
+
+async def _to_profile_response(profile: UserProfile) -> UserProfileResponse:
+    resp = UserProfileResponse.model_validate(profile)
+    resp.profile_picture_url = await storage.resolve_url(profile.profile_picture_url)
+    return resp
+
 async def get_my_profile(
     db: AsyncSession,
     current_user_id: uuid.UUID,
@@ -33,8 +39,8 @@ async def get_my_profile(
             created_by = current_user_id,
         )
         profile = await db_create(db, profile)
-
-    return UserProfileResponse.model_validate(profile)
+    return await _to_profile_response(profile)
+    # return UserProfileResponse.model_validate(profile)
 
 async def update_my_profile(
     db:              AsyncSession,
@@ -80,7 +86,8 @@ async def update_my_profile(
         if user:
             await db_update(db, User, user.id, user_update)
 
-    return UserProfileResponse.model_validate(updated)
+    return await _to_profile_response(updated)
+    # return UserProfileResponse.model_validate(updated)
 
 async def upload_profile_picture(
     db: AsyncSession,
@@ -141,3 +148,27 @@ async def upload_profile_picture(
         select(UserProfile).where(UserProfile.id == profile.id)
     )
     return result.scalars().first()
+
+
+
+
+async def remove_profile_picture(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> UserProfileResponse:
+    result  = await db.execute(select(UserProfile).where(UserProfile.user_id == user_id))
+    profile = result.scalars().first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="User profile not found.")
+
+    if profile.profile_picture_url:
+        try:
+            await storage.delete_file(profile.profile_picture_url)
+        except Exception:
+            pass
+
+    updated = await db_update(db, UserProfile, profile.id, {
+        "profile_picture_url": None,
+        "modified_by": user_id,
+    })
+    return await _to_profile_response(updated)
