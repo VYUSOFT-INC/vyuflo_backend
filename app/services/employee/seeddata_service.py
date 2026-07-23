@@ -487,19 +487,18 @@ async def seed_support_articles(db: AsyncSession):
     await db.commit()
     print("✅ Support articles seeded")
 
-
 async def seed_notification_templates(db: AsyncSession) -> None:
     """
-    Idempotent — skips already-seeded event_keys.
-    Safe to run on every startup or migration.
+    Idempotent — uses Postgres ON CONFLICT DO NOTHING so it's safe even if
+    called concurrently (e.g. by an overlapping uvicorn --reload restart).
     """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
     for item in NOTIFICATION_TEMPLATES_SEED:
-        exists = (await db.execute(
-            select(NotificationTemplate).where(
-                NotificationTemplate.event_key == item["event_key"]
-            )
-        )).scalar_one_or_none()
-        if not exists:
-            db.add(NotificationTemplate(**item))
+        stmt = pg_insert(NotificationTemplate).values(**item)
+        stmt = stmt.on_conflict_do_nothing(
+            constraint="uq_notif_template_event_channel"
+        )
+        await db.execute(stmt)
     await db.commit()
     print("✅ NotificationTemplate seeded")
