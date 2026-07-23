@@ -4380,52 +4380,271 @@ NOTIFICATION_TEMPLATES_SEED = [
         "available_placeholders": '["{{event_title}}", "{{event_description}}", "{{event_date}}", "{{event_time}}", "{{time_until_event}}", "{{reminder_minutes}}", "{{event_id}}"]',
         "category": "deadline", "is_active": True,
     },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── document_comment ─────────────────────────────────────────────────────
+    {
+        "event_key": "document_comment", "channel": "in_app",
+        "name": "Document Comment (In-App)",
+        "description": "Sent when someone leaves a comment on a shared document",
+        "subject": "New comment on {{document_type}}", "body_html": None,
+        "body_text": "{{commenter_name}}: {{comment_preview}}",
+        "available_placeholders": '["{{commenter_name}}", "{{document_type}}", "{{comment_preview}}", "{{document_id}}", "{{application_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── immigration_news ─────────────────────────────────────────────────────
+    {
+        "event_key": "immigration_news", "channel": "email",
+        "name": "Immigration News (Email)",
+        "description": "Sent when a relevant immigration news article is published",
+        "subject": "Immigration update: {{article_title}}",
+        "body_html": "<p>{{article_summary}}</p>",
+        "body_text": "{{article_title}}\n\n{{article_summary}}",
+        "available_placeholders": '["{{article_title}}", "{{article_summary}}", "{{article_url}}"]',
+        "category": "news", "is_active": True,
+    },
+
+    # ── employee_profile_updated ─────────────────────────────────────────────
+    {
+        "event_key": "employee_profile_updated", "channel": "in_app",
+        "name": "Employee Profile Updated (In-App)",
+        "description": "Sent to HR when an employee's profile details change",
+        "subject": "{{employee_name}} updated their profile", "body_html": None,
+        "body_text": "{{employee_name}} updated: {{fields_changed}}.",
+        "available_placeholders": '["{{employee_name}}", "{{fields_changed}}", "{{updated_at}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── task_assigned ────────────────────────────────────────────────────────
+    {
+        "event_key": "task_assigned", "channel": "in_app",
+        "name": "Task Assigned (In-App)",
+        "description": "Sent when a case task is assigned to a user",
+        "subject": "New task: {{task_title}}", "body_html": None,
+        "body_text": "You were assigned: {{task_title}} (due {{due_date}}) for {{case_reference}}.",
+        "available_placeholders": '["{{task_title}}", "{{due_date}}", "{{case_reference}}", "{{assigned_by}}", "{{task_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── new_device_login ─────────────────────────────────────────────────────
+    {
+        "event_key": "new_device_login", "channel": "email",
+        "name": "New Device Login (Email)",
+        "description": "Sent when the account is accessed from a device never seen before",
+        "subject": "New device signed in to your account",
+        "body_html": "<p>Hi {{user_name}},</p><p>A new sign-in was detected from {{device}} in {{location}} at {{login_time}}.</p>",
+        "body_text": "Hi {{user_name}},\n\nNew sign-in from {{device}} in {{location}} at {{login_time}}.",
+        "available_placeholders": '["{{user_name}}", "{{device}}", "{{location}}", "{{login_time}}", "{{ip_address}}"]',
+        "category": "security", "is_active": True,
+    },
+    {
+        "event_key": "new_device_login", "channel": "sms",
+        "name": "New Device Login (SMS)",
+        "description": "SMS variant, sent only if the user has SMS enabled for this alert",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: New sign-in from {{device}} in {{location}} at {{login_time}}. Not you? Reset your password.",
+        "available_placeholders": '["{{device}}", "{{location}}", "{{login_time}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── failed_login_alert ───────────────────────────────────────────────────
+    {
+        "event_key": "failed_login_alert", "channel": "email",
+        "name": "Failed Login Attempts (Email)",
+        "description": "Sent after repeated failed login attempts on the account",
+        "subject": "Multiple failed sign-in attempts on your account",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{attempt_count}} failed sign-in attempts were detected from {{ip_address}}.</p>",
+        "body_text": "Hi {{user_name}},\n\n{{attempt_count}} failed sign-in attempts from {{ip_address}}.",
+        "available_placeholders": '["{{user_name}}", "{{attempt_count}}", "{{ip_address}}", "{{last_attempt_time}}"]',
+        "category": "security", "is_active": True,
+    },
+    {
+        "event_key": "failed_login_alert", "channel": "sms",
+        "name": "Failed Login Attempts (SMS)",
+        "description": "SMS variant, sent only if the user has SMS enabled for this alert",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: {{attempt_count}} failed sign-in attempts detected on your account.",
+        "available_placeholders": '["{{attempt_count}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── password_changed ─────────────────────────────────────────────────────
+    {
+        "event_key": "password_changed", "channel": "email",
+        "name": "Password Changed (Email)",
+        "description": "Always sent immediately when the account password changes (cannot be muted)",
+        "subject": "Your password was changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>Your password was changed on {{changed_at}} from {{device}}.</p>",
+        "body_text": "Hi {{user_name}},\n\nYour password was changed on {{changed_at}} from {{device}}.",
+        "available_placeholders": '["{{user_name}}", "{{changed_at}}", "{{device}}", "{{ip_address}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── unusual_activity ─────────────────────────────────────────────────────
+    {
+        "event_key": "unusual_activity", "channel": "email",
+        "name": "Unusual Activity Detected (Email)",
+        "description": "Sent when the Risk Engine flags a login as high/critical risk",
+        "subject": "Unusual activity detected on your account",
+        "body_html": "<p>Hi {{user_name}},</p><p>We noticed {{risk_reason}} from {{location}} at {{login_time}}.</p>",
+        "body_text": "Hi {{user_name}},\n\nUnusual activity: {{risk_reason}} from {{location}} at {{login_time}}.",
+        "available_placeholders": '["{{user_name}}", "{{risk_reason}}", "{{location}}", "{{login_time}}", "{{ip_address}}"]',
+        "category": "security", "is_active": True,
+    },
+    {
+        "event_key": "unusual_activity", "channel": "sms",
+        "name": "Unusual Activity Detected (SMS)",
+        "description": "SMS variant, sent only if the user has SMS enabled for this alert",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: Unusual activity detected on your account from {{location}}. Review now.",
+        "available_placeholders": '["{{location}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── document_requested ───────────────────────────────────────────────────
+    {
+        "event_key": "document_requested", "channel": "in_app",
+        "name": "Document Requested (In-App)",
+        "description": "Sent to the client when an attorney/HR requests an additional document",
+        "subject": "{{requester_name}} requested a document", "body_html": None,
+        "body_text": "{{requester_name}} requested: {{document_name}} ({{case_reference}}). Due {{due_date}}.",
+        "available_placeholders": '["{{requester_name}}", "{{document_name}}", "{{case_reference}}", "{{due_date}}", "{{request_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── document_request_fulfilled ───────────────────────────────────────────
+    {
+        "event_key": "document_request_fulfilled", "channel": "in_app",
+        "name": "Document Request Fulfilled (In-App)",
+        "description": "Sent to the requester once the requested document has been uploaded",
+        "subject": "{{client_name}} fulfilled your document request", "body_html": None,
+        "body_text": "{{client_name}} uploaded {{document_name}} you requested ({{case_reference}}).",
+        "available_placeholders": '["{{client_name}}", "{{document_name}}", "{{case_reference}}", "{{request_id}}", "{{document_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── document_uploaded_by_staff ───────────────────────────────────────────
+    {
+        "event_key": "document_uploaded_by_staff", "channel": "in_app",
+        "name": "Document Uploaded By Staff (In-App)",
+        "description": "Sent to the client when HR/attorney uploads a document on their behalf",
+        "subject": "{{staff_name}} uploaded a document for you", "body_html": None,
+        "body_text": "{{staff_name}} uploaded {{document_type}} on your behalf ({{case_reference}}).",
+        "available_placeholders": '["{{staff_name}}", "{{document_type}}", "{{case_reference}}", "{{document_id}}", "{{application_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
 ]
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-]
 
 
 
