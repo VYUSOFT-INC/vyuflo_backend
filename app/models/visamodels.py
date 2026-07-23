@@ -180,6 +180,9 @@ class User(Base):
                                         foreign_keys="EmployerEmployee.employee_id",
                                         back_populates="employee",
                                         uselist=False)
+    push_subscriptions   = relationship("PushSubscription",
+                                        foreign_keys="PushSubscription.user_id",
+                                        back_populates="user")
 
     __table_args__ = (
         Index("ix_users_email_active",  "email",         "is_active"),
@@ -1195,7 +1198,8 @@ class Notification(Base):
              "payment_receipt", "immigration_news",
              "approval_pending", "approval_resolved", "compliance_alert",
              "employee_onboarded", "employee_profile_updated",
-             "task_assigned",
+             "task_assigned","new_device_login", "failed_login_alert",
+             "password_changed", "unusual_activity",
              "document_requested",              
              "document_request_fulfilled",       
              "document_uploaded_by_staff",
@@ -1290,6 +1294,16 @@ class NotificationPreferences(Base):
     notify_weekly_summary   = Column(Boolean, default=True, nullable=False)
     notify_compliance_alerts = Column(Boolean, default=True, nullable=False)
 
+    notify_new_device_login_email = Column(Boolean, default=True,  nullable=False)
+    notify_new_device_login_sms   = Column(Boolean, default=True,  nullable=False)
+    notify_failed_login_email     = Column(Boolean, default=True,  nullable=False)
+    notify_failed_login_sms       = Column(Boolean, default=False, nullable=False)
+    notify_password_changed_email = Column(Boolean, default=True,  nullable=False)
+    notify_password_changed_sms   = Column(Boolean, default=False, nullable=False)
+    notify_unusual_activity_email = Column(Boolean, default=True,  nullable=False)
+    notify_unusual_activity_sms   = Column(Boolean, default=True,  nullable=False)
+
+
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -1300,7 +1314,29 @@ class NotificationPreferences(Base):
 
     user = relationship("User", foreign_keys=[user_id],
                         back_populates="notification_prefs")
+# =============================================================================
+# TABLE 26.5 — push_subscriptions
+# =============================================================================
 
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+ 
+    id       = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id  = Column(UUID(as_uuid=True), ForeignKey("users.id"),
+                      nullable=False, index=True)
+    endpoint = Column(Text, nullable=False)
+    p256dh   = Column(Text, nullable=False)
+    auth     = Column(Text, nullable=False)
+ 
+    created_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc), nullable=False)
+ 
+    __table_args__ = (
+        UniqueConstraint("user_id", "endpoint", name="uq_push_sub_user_endpoint"),
+    )
+ 
+    user = relationship("User", foreign_keys=[user_id],
+                        back_populates="push_subscriptions")
 
 # =============================================================================
 # TABLE 27 — notification_templates
