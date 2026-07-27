@@ -25,6 +25,10 @@ from app.core.exceptions import (
 )
 from app.models.visamodels import User, UserRole, Role
 from app.models.visamodels import (
+    Application,
+    AuditLog,
+    Document,
+    PaymentGatewayConfig,
     PlanFeature,
     SubscriptionCoupon,
     SubscriptionInvoice,
@@ -63,6 +67,52 @@ def _processing_days_label(days: Optional[int]) -> Optional[str]:
 
 ACTIVE_STATUSES = ("trialing", "active", "past_due", "paused")
 # statuses that count as "has a subscription"
+
+
+# =============================================================================
+# AUDIT LOG HELPER
+# Reuses the existing shared `audit_logs` table — no new table needed.
+# Call this BEFORE db.commit() in the same function so the audit row and the
+# actual change land in the same transaction (both succeed or both roll back).
+# =============================================================================
+
+async def _write_audit_log(
+    db:            AsyncSession,
+    actor_id:      Optional[uuid.UUID],
+    action:        str,
+    resource_type: str,
+    resource_id:   uuid.UUID,
+    old_value:     Optional[Dict[str, Any]] = None,
+    new_value:     Optional[Dict[str, Any]] = None,
+    description:   Optional[str] = None,
+    severity:      str = "info",
+) -> None:
+    entry = AuditLog(
+        id            = uuid.uuid4(),
+        actor_id      = actor_id,
+        actor_type    = "user",
+        action        = action,
+        resource_type = resource_type,
+        resource_id   = resource_id,
+        old_value     = json.dumps(old_value, default=str) if old_value is not None else None,
+        new_value     = json.dumps(new_value, default=str) if new_value is not None else None,
+        description   = description,
+        severity      = severity,
+        created_at    = datetime.now(timezone.utc),
+    )
+    db.add(entry)
+
+
+def _plan_snapshot(plan: SubscriptionPlan) -> Dict[str, Any]:
+    """Small, log-friendly snapshot of the fields that actually matter for pricing changes."""
+    return {
+        "name":                plan.name,
+        "price_monthly_cents": plan.price_monthly_cents,
+        "price_annual_cents":  plan.price_annual_cents,
+        "trial_days":          plan.trial_days,
+        "is_active":           plan.is_active,
+        "is_public":           plan.is_public,
+    }
 
 
 # =============================================================================
@@ -351,6 +401,8 @@ async def service_update_plan(
     if not plan:
         raise NotFoundException(f"Plan {plan_id} not found.")
 
+    old_snapshot = _plan_snapshot(plan)
+
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         if hasattr(plan, field):
@@ -358,6 +410,20 @@ async def service_update_plan(
 
     plan.modified_by = modified_by
     plan.updated_at  = datetime.now(timezone.utc)
+
+    await _write_audit_log(
+        db,
+        actor_id      = modified_by,
+        action        = "subscription_plan.updated",
+        resource_type = "subscription_plan",
+        resource_id   = plan.id,
+        old_value     = old_snapshot,
+        new_value     = _plan_snapshot(plan),
+        description   = f"Plan '{plan.name}' updated.",
+        severity      = "warning" if update_data.get("price_monthly_cents") is not None
+                                    or update_data.get("price_annual_cents") is not None
+                                 else "info",
+    )
 
     await db.commit()
     await db.refresh(plan)
@@ -401,6 +467,17 @@ async def service_toggle_plan(
     plan.is_active   = is_active
     plan.modified_by = modified_by
     plan.updated_at  = datetime.now(timezone.utc)
+
+    await _write_audit_log(
+        db,
+        actor_id      = modified_by,
+        action        = "subscription_plan.toggled",
+        resource_type = "subscription_plan",
+        resource_id   = plan.id,
+        old_value     = {"is_active": not is_active},
+        new_value     = {"is_active": is_active},
+        description   = f"Plan '{plan.name}' {'activated' if is_active else 'deactivated'}.",
+    )
 
     await db.commit()
     await db.refresh(plan)
@@ -656,6 +733,22 @@ async def service_admin_assign_plan(
         .values(subscription_tier=plan.slug)
     )
 
+    await _write_audit_log(
+        db,
+        actor_id      = assigned_by,
+        action        = "subscription.admin_assigned",
+        resource_type = "user_subscription",
+        resource_id   = new_sub.id,
+        new_value     = {
+            "user_id":  str(payload.user_id),
+            "plan_id":  str(payload.plan_id),
+            "plan_name": plan.name,
+            "status":   new_sub.status,
+        },
+        description   = f"Admin manually assigned plan '{plan.name}' to user {payload.user_id}.",
+        severity      = "warning",
+    )
+
     await db.commit()
     await db.refresh(new_sub)
     return new_sub
@@ -687,6 +780,8 @@ async def service_change_plan(
     if not plan:
         raise NotFoundException("New plan not found.")
 
+    old_plan_id = sub.plan_id
+
     sub.plan_id     = payload.new_plan_id
     if payload.billing_cycle:
         sub.billing_cycle = payload.billing_cycle
@@ -700,6 +795,18 @@ async def service_change_plan(
         update(User)
         .where(User.id == sub.user_id)
         .values(subscription_tier=plan.slug)
+    )
+
+    await _write_audit_log(
+        db,
+        actor_id      = modified_by,
+        action        = "subscription.plan_changed",
+        resource_type = "user_subscription",
+        resource_id   = sub.id,
+        old_value     = {"plan_id": str(old_plan_id)},
+        new_value     = {"plan_id": str(payload.new_plan_id), "plan_name": plan.name},
+        description   = f"Subscription {sub.id} moved to plan '{plan.name}'.",
+        severity      = "warning",
     )
 
     await db.commit()
@@ -748,6 +855,21 @@ async def service_cancel_subscription(
             .values(subscription_tier="free")
         )
 
+    await _write_audit_log(
+        db,
+        actor_id      = cancelled_by,
+        action        = "subscription.cancelled",
+        resource_type = "user_subscription",
+        resource_id   = sub.id,
+        new_value     = {
+            "cancel_immediately": payload.cancel_immediately,
+            "reason":             payload.cancellation_reason,
+        },
+        description   = f"Subscription {sub.id} cancelled "
+                        f"({'immediately' if payload.cancel_immediately else 'at period end'}).",
+        severity      = "warning",
+    )
+
     await db.commit()
     await db.refresh(sub)
     return sub
@@ -790,6 +912,25 @@ async def service_list_coupons(
     coupons = result.scalars().all()
 
     now = datetime.now(timezone.utc)
+
+    # Total savings per coupon — sum of discount_cents on every invoice generated
+    # under a subscription that used this coupon. Reuses existing subscription_invoices
+    # table; no new table needed.
+    coupon_ids = [c.id for c in coupons]
+    savings_by_coupon: Dict[uuid.UUID, int] = {}
+    if coupon_ids:
+        savings_q = await db.execute(
+            select(
+                UserSubscription.coupon_id,
+                func.coalesce(func.sum(SubscriptionInvoice.discount_cents), 0),
+            )
+            .join(SubscriptionInvoice,
+                  SubscriptionInvoice.subscription_id == UserSubscription.id)
+            .where(UserSubscription.coupon_id.in_(coupon_ids))
+            .group_by(UserSubscription.coupon_id)
+        )
+        savings_by_coupon = {row[0]: int(row[1]) for row in savings_q.all()}
+
     for c in coupons:
         c._discount_display = _compute_discount_display(  # type: ignore
             c.discount_type, c.discount_value
@@ -799,6 +940,9 @@ async def service_list_coupons(
         c._remaining    = (                                               # type: ignore
             (c.max_uses - c.uses_count) if c.max_uses else None
         )
+        savings_cents = savings_by_coupon.get(c.id, 0)               # type: ignore
+        c._total_savings_cents  = savings_cents                       # type: ignore
+        c._total_savings_display = _cents_to_display(savings_cents)  # type: ignore
 
     return coupons, total
 
@@ -843,6 +987,20 @@ async def service_create_coupon(
         updated_at            = datetime.now(timezone.utc),
     )
     db.add(coupon)
+
+    await _write_audit_log(
+        db,
+        actor_id      = created_by,
+        action        = "coupon.created",
+        resource_type = "subscription_coupon",
+        resource_id   = coupon.id,
+        new_value     = {
+            "code": coupon.code, "discount_type": coupon.discount_type,
+            "discount_value": coupon.discount_value,
+        },
+        description   = f"Coupon '{coupon.code}' created.",
+    )
+
     await db.commit()
     await db.refresh(coupon)
 
@@ -852,6 +1010,8 @@ async def service_create_coupon(
     coupon._is_expired   = False  # type: ignore
     coupon._is_exhausted = False  # type: ignore
     coupon._remaining    = coupon.max_uses  # type: ignore
+    coupon._total_savings_cents  = 0        # type: ignore  # brand new, no redemptions yet
+    coupon._total_savings_display = _cents_to_display(0)  # type: ignore
     return coupon
 
 
@@ -876,6 +1036,17 @@ async def service_toggle_coupon(
     coupon.is_active   = is_active
     coupon.modified_by = modified_by
     coupon.updated_at  = datetime.now(timezone.utc)
+
+    await _write_audit_log(
+        db,
+        actor_id      = modified_by,
+        action        = "coupon.toggled",
+        resource_type = "subscription_coupon",
+        resource_id   = coupon.id,
+        old_value     = {"is_active": not is_active},
+        new_value     = {"is_active": is_active},
+        description   = f"Coupon '{coupon.code}' {'activated' if is_active else 'deactivated'}.",
+    )
 
     await db.commit()
     await db.refresh(coupon)
@@ -963,6 +1134,7 @@ async def service_list_invoices(
     plan_id:     Optional[uuid.UUID] = None,
     date_from:   Optional[datetime] = None,
     date_to:     Optional[datetime] = None,
+    user_id:     Optional[uuid.UUID] = None,
     page:        int            = 1,
     page_size:   int            = 20,
 ) -> Tuple[List[Any], int]:
@@ -999,6 +1171,8 @@ async def service_list_invoices(
         q = q.where(SubscriptionInvoice.created_at >= date_from)
     if date_to:
         q = q.where(SubscriptionInvoice.created_at <= date_to)
+    if user_id:
+        q = q.where(UserSubscription.user_id == user_id)
 
     count_q = select(func.count()).select_from(q.subquery())
     total_result = await db.execute(count_q)
@@ -1157,3 +1331,235 @@ async def service_export_subscribers(
         ])
 
     return output.getvalue()
+
+
+# =============================================================================
+# 19. MY SUBSCRIPTION (self-service — any authenticated user)
+# GET /subscriptions/me
+# =============================================================================
+
+async def service_get_my_subscription(
+    db:      AsyncSession,
+    user_id: uuid.UUID,
+) -> Dict[str, Any]:
+    """
+    Returns the caller's own current subscription plus live usage against
+    plan quotas. No admin fields are exposed (no other users' data, no
+    Stripe internals beyond what the subscriber themself should see).
+    """
+    result = await db.execute(
+        select(UserSubscription)
+        .options(selectinload(UserSubscription.plan).selectinload(SubscriptionPlan.features))
+        .where(
+            UserSubscription.user_id == user_id,
+            UserSubscription.status.in_(list(ACTIVE_STATUSES)),
+        )
+        .order_by(UserSubscription.created_at.desc())
+    )
+    sub = result.scalars().first()
+
+    if not sub:
+        return {
+            "has_subscription": False,
+            "plan_name": None,
+            "status": None,
+        }
+
+    plan = sub.plan
+
+    # Usage counts — reuses existing tables, no new columns needed.
+    apps_count = (await db.execute(
+        select(func.count(Application.id)).where(Application.user_id == user_id)
+    )).scalar() or 0
+    docs_count = (await db.execute(
+        select(func.count(Document.id)).where(Document.user_id == user_id)
+    )).scalar() or 0
+
+    def _quota(used: int, limit: Optional[int]) -> Dict[str, Any]:
+        return {
+            "used": used,
+            "limit": limit,               # null = unlimited
+            "remaining": (limit - used) if limit is not None else None,
+            "is_unlimited": limit is None,
+        }
+
+    return {
+        "has_subscription":     True,
+        "subscription_id":      sub.id,
+        "plan_id":              plan.id,
+        "plan_name":            plan.name,
+        "plan_slug":            plan.slug,
+        "status":               sub.status,
+        "billing_cycle":        sub.billing_cycle,
+        "current_period_start": sub.current_period_start,
+        "current_period_end":   sub.current_period_end,
+        "trial_end":            sub.trial_end,
+        "cancel_at_period_end": sub.cancel_at_period_end,
+        "features": [
+            {
+                "feature_text": f.feature_text,
+                "is_included":  f.is_included,
+            }
+            for f in sorted(plan.features, key=lambda x: x.sort_order)
+        ],
+        "usage": {
+            "applications": _quota(apps_count, plan.max_applications),
+            "documents":    _quota(docs_count, plan.max_documents),
+        },
+    }
+
+
+# =============================================================================
+# 20. RECENT ACTIVITY FEED
+# GET /admin/subscriptions/activity
+# =============================================================================
+
+async def service_get_recent_activity(
+    db:    AsyncSession,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    """
+    Reads from the existing shared `audit_logs` table — filtered to
+    subscription-related resource types. No new table needed.
+    """
+    result = await db.execute(
+        select(AuditLog, User.first_name, User.last_name)
+        .outerjoin(User, AuditLog.actor_id == User.id)
+        .where(
+            AuditLog.resource_type.in_([
+                "subscription_plan", "user_subscription", "subscription_coupon",
+            ])
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+    )
+    rows = result.all()
+
+    items = []
+    for row in rows:
+        log: AuditLog = row.AuditLog
+        actor_name = (
+            f"{row.first_name} {row.last_name}".strip()
+            if row.first_name else "System"
+        )
+        items.append({
+            "id":            log.id,
+            "action":        log.action,
+            "actor_name":    actor_name,
+            "resource_type": log.resource_type,
+            "resource_id":   log.resource_id,
+            "description":   log.description,
+            "severity":      log.severity,
+            "created_at":    log.created_at,
+        })
+    return items
+
+
+# =============================================================================
+# 21. PAYMENT GATEWAY CONFIGURATION
+# GET/PATCH /admin/payment-gateways
+# =============================================================================
+
+async def service_list_payment_gateways(
+    db: AsyncSession,
+) -> List[PaymentGatewayConfig]:
+    result = await db.execute(
+        select(PaymentGatewayConfig).order_by(PaymentGatewayConfig.gateway)
+    )
+    return list(result.scalars().all())
+
+
+async def service_upsert_payment_gateway(
+    db:          AsyncSession,
+    gateway:     str,
+    payload:     Any,
+    modified_by: uuid.UUID,
+    encrypt_fn,  # inject your existing secrets/encryption helper here
+) -> PaymentGatewayConfig:
+    """
+    Create or update a gateway's configuration.
+    `encrypt_fn` must be your project's existing encryption utility —
+    this function never stores plaintext credentials.
+    """
+    result = await db.execute(
+        select(PaymentGatewayConfig).where(PaymentGatewayConfig.gateway == gateway)
+    )
+    config = result.scalar_one_or_none()
+
+    update_data = payload.model_dump(exclude_unset=True)
+    raw_credentials = update_data.pop("credentials", None)
+
+    is_new = config is None
+    if is_new:
+        config = PaymentGatewayConfig(
+            id         = uuid.uuid4(),
+            gateway    = gateway,
+            created_by = modified_by,
+            created_at = datetime.now(timezone.utc),
+        )
+        db.add(config)
+
+    for field, value in update_data.items():
+        if hasattr(config, field):
+            setattr(config, field, value)
+
+    if raw_credentials is not None:
+        config.credentials_encrypted = encrypt_fn(json.dumps(raw_credentials))
+        config.is_connected = True
+        config.connected_at = datetime.now(timezone.utc)
+
+    config.modified_by = modified_by
+    config.updated_at  = datetime.now(timezone.utc)
+
+    await _write_audit_log(
+        db,
+        actor_id      = modified_by,
+        action        = "payment_gateway.connected" if is_new else "payment_gateway.updated",
+        resource_type = "payment_gateway_config",
+        resource_id   = config.id,
+        new_value     = {
+            "gateway": gateway,
+            "is_enabled": config.is_enabled,
+            # never log credentials, even encrypted ones
+        },
+        description   = f"Payment gateway '{gateway}' {'connected' if is_new else 'updated'}.",
+        severity      = "critical",
+    )
+
+    await db.commit()
+    await db.refresh(config)
+    return config
+
+
+async def service_toggle_payment_gateway(
+    db:          AsyncSession,
+    gateway:     str,
+    is_enabled:  bool,
+    modified_by: uuid.UUID,
+) -> PaymentGatewayConfig:
+    result = await db.execute(
+        select(PaymentGatewayConfig).where(PaymentGatewayConfig.gateway == gateway)
+    )
+    config = result.scalar_one_or_none()
+    if not config:
+        raise NotFoundException(f"Gateway '{gateway}' is not configured yet.")
+
+    config.is_enabled  = is_enabled
+    config.modified_by = modified_by
+    config.updated_at  = datetime.now(timezone.utc)
+
+    await _write_audit_log(
+        db,
+        actor_id      = modified_by,
+        action        = "payment_gateway.toggled",
+        resource_type = "payment_gateway_config",
+        resource_id   = config.id,
+        old_value     = {"is_enabled": not is_enabled},
+        new_value     = {"is_enabled": is_enabled},
+        description   = f"Payment gateway '{gateway}' {'enabled' if is_enabled else 'disabled'}.",
+        severity      = "critical",
+    )
+
+    await db.commit()
+    await db.refresh(config)
+    return config
