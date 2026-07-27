@@ -180,6 +180,9 @@ class User(Base):
                                         foreign_keys="EmployerEmployee.employee_id",
                                         back_populates="employee",
                                         uselist=False)
+    push_subscriptions   = relationship("PushSubscription",
+                                        foreign_keys="PushSubscription.user_id",
+                                        back_populates="user")
 
     __table_args__ = (
         Index("ix_users_email_active",  "email",         "is_active"),
@@ -515,7 +518,7 @@ class VisaType(Base):
     required_documents        = Column(Text,    nullable=True)
     typical_processing_days   = Column(Integer, nullable=True)
     government_fee_usd        = Column(Integer, nullable=True)
-    lca_required = Column(Boolean, nullable=False, default=False)
+    lca_required              = Column(Boolean, nullable=False, default=False)
     uscis_url                 = Column(String(1000), nullable=True)
     short_label               = Column(String(30),   nullable=True)
     display_order             = Column(Integer, default=0,    nullable=False)
@@ -1195,10 +1198,15 @@ class Notification(Base):
              "payment_receipt", "immigration_news",
              "approval_pending", "approval_resolved", "compliance_alert",
              "employee_onboarded", "employee_profile_updated",
-             "task_assigned",
+             "task_assigned","new_device_login", "failed_login_alert",
+             "password_changed", "unusual_activity",
              "document_requested",              
              "document_request_fulfilled",       
-             "document_uploaded_by_staff",      
+             "document_uploaded_by_staff",
+             "document_uploaded",
+             "chat_message_received",
+             "deadline_missed",
+             "calendar_event_reminder",      
              name="notification_type_enum"),
         nullable=False
     )
@@ -1238,6 +1246,8 @@ class Notification(Base):
     sent_via_push  = Column(Boolean, default=False, nullable=False)
     sent_via_sms   = Column(Boolean, default=False, nullable=False)
     expires_at     = Column(DateTime(timezone=True), nullable=True)
+    dedup_key = Column(String(255), nullable=True, unique=True, index=True)
+
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -1284,6 +1294,16 @@ class NotificationPreferences(Base):
     notify_weekly_summary   = Column(Boolean, default=True, nullable=False)
     notify_compliance_alerts = Column(Boolean, default=True, nullable=False)
 
+    notify_new_device_login_email = Column(Boolean, default=True,  nullable=False)
+    notify_new_device_login_sms   = Column(Boolean, default=True,  nullable=False)
+    notify_failed_login_email     = Column(Boolean, default=True,  nullable=False)
+    notify_failed_login_sms       = Column(Boolean, default=False, nullable=False)
+    notify_password_changed_email = Column(Boolean, default=True,  nullable=False)
+    notify_password_changed_sms   = Column(Boolean, default=False, nullable=False)
+    notify_unusual_activity_email = Column(Boolean, default=True,  nullable=False)
+    notify_unusual_activity_sms   = Column(Boolean, default=True,  nullable=False)
+
+
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -1294,7 +1314,29 @@ class NotificationPreferences(Base):
 
     user = relationship("User", foreign_keys=[user_id],
                         back_populates="notification_prefs")
+# =============================================================================
+# TABLE 26.5 — push_subscriptions
+# =============================================================================
 
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+ 
+    id       = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id  = Column(UUID(as_uuid=True), ForeignKey("users.id"),
+                      nullable=False, index=True)
+    endpoint = Column(Text, nullable=False)
+    p256dh   = Column(Text, nullable=False)
+    auth     = Column(Text, nullable=False)
+ 
+    created_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc), nullable=False)
+ 
+    __table_args__ = (
+        UniqueConstraint("user_id", "endpoint", name="uq_push_sub_user_endpoint"),
+    )
+ 
+    user = relationship("User", foreign_keys=[user_id],
+                        back_populates="push_subscriptions")
 
 # =============================================================================
 # TABLE 27 — notification_templates
@@ -1304,10 +1346,9 @@ class NotificationTemplate(Base):
     __tablename__ = "notification_templates"
 
     id        = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    event_key = Column(String(100), nullable=False, unique=True, index=True)
+    event_key = Column(String(100), nullable=False,index=True)
     name        = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-
     channel = Column(
         Enum("email", "sms", "in_app", "push",
              name="notification_channel_enum"),
@@ -1321,6 +1362,7 @@ class NotificationTemplate(Base):
 
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
+              "approval", "compliance", "employee",
              name="notification_category_enum",
              create_type=False),
         nullable=False
@@ -1335,8 +1377,12 @@ class NotificationTemplate(Base):
                          default=lambda: datetime.now(timezone.utc),
                          onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
+    # __table_args__ = (
+        # Index("ix_notif_templates_event_channel", "event_key", "channel"),
+    # )
     __table_args__ = (
-        Index("ix_notif_templates_event_channel", "event_key", "channel"),
+    UniqueConstraint("event_key", "channel", name="uq_notif_template_event_channel"),
+    Index("ix_notif_templates_event_channel", "event_key", "channel"),
     )
 
 
