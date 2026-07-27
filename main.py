@@ -18,7 +18,7 @@ from app.routes.employee import auth, onboarding
 from app.routes.employee.document import document_router
 from app.routes.employee.message import message_router
 from app.routes.employee.application import application_router,application_task_router,application_history_router
-from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types
+from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_notification_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types
 from app.routes.employee.visa_types import visa_type_router
 from app.routes.employee.dashboard import dashboard_router
 from app.routes.employee.user_profile import user_profile_router
@@ -89,6 +89,7 @@ async def lifespan(app: FastAPI):
         await seed_fee_templates(db)         # fee_templates
         await seed_system_settings(db)       # system_settings
         await seed_support_articles(db)      # support_articles
+        await seed_notification_templates(db)
         
     yield
     print("🛑 Shutting down...")
@@ -113,11 +114,12 @@ app = FastAPI(
 # ─────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=['http://localhost:5174','https://designate-donated-subsoil.ngrok-free.dev'],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 # app.add_middleware(RateLimitMiddleware)
@@ -133,10 +135,10 @@ register_exception_handlers(app)
 # ─────────────────────────────────────────────
 # Routers
 # ─────────────────────────────────────────────
-app.mount("/api/v1/static", StaticFiles(directory="uploads"), name="static")
+app.mount("/static", StaticFiles(directory="uploads"), name="static")
 app.include_router(auth.router,                prefix="/api/v1/auth",       tags=["Authentication"])
 app.include_router(onboarding.router,          prefix="/api/v1/onboarding", tags=["Onboarding"])
-app.include_router(document_router,            prefix="/api/v1", tags=["Documents"])
+app.include_router(document_extra_router, prefix="/api/v1", tags=["Attroney-Documents"])
 app.include_router(message_router,            prefix="/api/v1", tags=["Message"])
 app.include_router(application_router,         prefix="/api/v1", tags=["Applications"])
 app.include_router(application_history_router, prefix="/api/v1", tags=["Application History"])
@@ -166,7 +168,7 @@ app.include_router(admin_support_router, prefix="/api/v1")
 app.include_router(intake_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(calendar_router, prefix="/api/v1")
-app.include_router(document_extra_router, prefix="/api/v1", tags=["Attroney-Documents"])
+app.include_router(document_router,            prefix="/api/v1", tags=["Documents"])
 app.include_router(application_extra_router, prefix="/api/v1", tags=["Attroney-Applications"])
 app.include_router(help_router, prefix="/api/v1", tags=["Attroney-Help"])
 app.include_router(billing_router,prefix="/api/v1")

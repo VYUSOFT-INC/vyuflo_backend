@@ -2349,6 +2349,8 @@
 # ]
  
 import json
+# from app.models.seeds import NOTIFICATION_TEMPLATES_SEED
+
 
 
 # =============================================================================
@@ -2541,6 +2543,7 @@ VISA_TYPES_SEED = [
         "short_label": "H-1B",
         "category": "employment",
         "requires_employer_sponsor": True,
+        "lca_required": True,
         "description": (
             "For temporary workers in specialty occupations that require "
             "theoretical or practical application of a body of highly "
@@ -2549,6 +2552,7 @@ VISA_TYPES_SEED = [
         "required_documents": json.dumps([
             "Passport Copy", "Educational Transcripts",
             "Resume / CV", "Offer Letter", "Previous I-797",
+            "Labor Condition Application (LCA)",
         ]),
         "typical_processing_days": 150,
         "government_fee_usd": 46000,   # $460 in cents
@@ -2561,10 +2565,13 @@ VISA_TYPES_SEED = [
         "short_label": "H-1B Ext",
         "category": "employment",
         "requires_employer_sponsor": True,
+        "lca_required": True,
         "description": "Extension of an existing H-1B status with the same or a new employer.",
         "required_documents": json.dumps([
             "Passport Copy", "Current I-797 Approval Notice",
             "Offer Letter", "Resume / CV", "Pay Stubs (Last 3 Months)",
+            "Labor Condition Application (LCA)",
+
         ]),
         "typical_processing_days": 120,
         "government_fee_usd": 46000,
@@ -2577,6 +2584,7 @@ VISA_TYPES_SEED = [
         "short_label": "L-1A",
         "category": "employment",
         "requires_employer_sponsor": True,
+        "lca_required": False,
         "description": (
             "For executives or managers transferring to a U.S. office "
             "of the same multinational company."
@@ -2596,6 +2604,7 @@ VISA_TYPES_SEED = [
         "short_label": "L-1B",
         "category": "employment",
         "requires_employer_sponsor": True,
+        "lca_required": False,
         "description": (
             "For employees with specialized knowledge transferring "
             "to a U.S. office of the same multinational company."
@@ -2615,6 +2624,7 @@ VISA_TYPES_SEED = [
         "short_label": "O-1A",
         "category": "employment",
         "requires_employer_sponsor": False,
+        "lca_required": False,
         "description": (
             "For individuals with extraordinary ability in sciences, "
             "education, business, or athletics."
@@ -2635,6 +2645,7 @@ VISA_TYPES_SEED = [
         "short_label": "O-1B",
         "category": "employment",
         "requires_employer_sponsor": False,
+        "lca_required": False,
         "description": (
             "For individuals with extraordinary achievement in motion "
             "picture or television productions, or extraordinary ability in the arts."
@@ -2655,6 +2666,7 @@ VISA_TYPES_SEED = [
         "short_label": "TN",
         "category": "employment",
         "requires_employer_sponsor": True,
+        "lca_required": False,
         "description": (
             "For Canadian and Mexican citizens in specific professional categories "
             "under the USMCA trade agreement."
@@ -2674,6 +2686,7 @@ VISA_TYPES_SEED = [
         "short_label": "E-2",
         "category": "employment",
         "requires_employer_sponsor": False,
+        "lca_required": False,
         "description": (
             "For nationals of treaty countries investing a substantial amount "
             "of capital in a U.S. business."
@@ -2695,6 +2708,7 @@ VISA_TYPES_SEED = [
         "short_label": "F-1",
         "category": "student",
         "requires_employer_sponsor": False,
+        "lca_required": False,
         "description": (
             "For international students enrolled full-time at a "
             "SEVP-approved U.S. academic institution."
@@ -2714,6 +2728,7 @@ VISA_TYPES_SEED = [
         "short_label": "F-1 OPT",
         "category": "student",
         "requires_employer_sponsor": False,
+        "lca_required": False,
         "description": (
             "Optional Practical Training — allows F-1 students to work "
             "in a job related to their major for up to 12 months."
@@ -2734,6 +2749,7 @@ VISA_TYPES_SEED = [
         "short_label": "F-1 OPT Ext",
         "category": "student",
         "requires_employer_sponsor": False,
+        "lca_required": False,
         "description": "Extension of F-1 OPT for non-STEM degree holders under special circumstances.",
         "required_documents": json.dumps([
             "Passport Copy", "Current EAD Card",
@@ -2750,6 +2766,7 @@ VISA_TYPES_SEED = [
         "short_label": "STEM OPT",
         "category": "student",
         "requires_employer_sponsor": True,
+        "lca_required": False,
         "description": (
             "24-month STEM OPT extension for F-1 students who graduated "
             "with a STEM degree and are employed by an E-Verify employer."
@@ -2770,6 +2787,7 @@ VISA_TYPES_SEED = [
         "short_label": "CPT",
         "category": "student",
         "requires_employer_sponsor": True,
+        "lca_required": False,
         "description": (
             "Curricular Practical Training — allows F-1 students to work "
             "off-campus as part of their academic program."
@@ -2791,6 +2809,7 @@ VISA_TYPES_SEED = [
         "short_label": "J-1",
         "category": "exchange",
         "requires_employer_sponsor": False,
+        "lca_required": False,
         "description": (
             "For participants in approved exchange visitor programs — "
             "researchers, students, professors, and trainees."
@@ -2806,23 +2825,24 @@ VISA_TYPES_SEED = [
     },
 
     # ── Visitor ───────────────────────────────────────────────────────────────
-    {
-        "code": "B-1-B-2",
-        "name": "B-1/B-2 Visitor",
-        "short_label": "B1/B2",
-        "category": "visitor",
-        "requires_employer_sponsor": False,
-        "description": "For temporary visitors for business (B-1) or tourism/pleasure (B-2).",
-        "required_documents": json.dumps([
-            "Passport Copy", "Bank Statements (Last 3 Months)",
-            "Travel Itinerary", "Ties to Home Country Evidence",
-            "Invitation Letter (if applicable)",
-        ]),
-        "typical_processing_days": 60,
-        "government_fee_usd": 18500,
-        "display_order": 15,
-        "is_active": True,
-    },
+    # {
+        # "code": "B-1-B-2",
+        # "name": "B-1/B-2 Visitor",
+        # "short_label": "B1/B2",
+        # "category": "visitor",
+        # "requires_employer_sponsor": False,
+        # "lca_required": False,
+        # "description": "For temporary visitors for business (B-1) or tourism/pleasure (B-2).",
+        # "required_documents": json.dumps([
+            # "Passport Copy", "Bank Statements (Last 3 Months)",
+            # "Travel Itinerary", "Ties to Home Country Evidence",
+            # "Invitation Letter (if applicable)",
+        # ]),
+        # "typical_processing_days": 60,
+        # "government_fee_usd": 18500,
+        # "display_order": 15,
+        # "is_active": True,
+    # },
 
     # ── Permanent Resident ────────────────────────────────────────────────────
     {
@@ -2831,6 +2851,7 @@ VISA_TYPES_SEED = [
         "short_label": "EB-1",
         "category": "permanent_resident",
         "requires_employer_sponsor": False,
+        "lca_required": False,
         "description": (
             "For individuals with extraordinary ability, outstanding professors "
             "or researchers, or multinational managers/executives."
@@ -2851,6 +2872,7 @@ VISA_TYPES_SEED = [
         "short_label": "EB-2",
         "category": "permanent_resident",
         "requires_employer_sponsor": False,
+        "lca_required": False,
         "description": (
             "For professionals with advanced degrees or exceptional ability. "
             "NIW allows self-petition if the work benefits the U.S. national interest."
@@ -2872,6 +2894,7 @@ VISA_TYPES_SEED = [
         "short_label": "EB-3",
         "category": "permanent_resident",
         "requires_employer_sponsor": True,
+        "lca_required": False,
         "description": (
             "For skilled workers, professionals, and unskilled workers "
             "with a permanent job offer from a U.S. employer."
@@ -2892,6 +2915,7 @@ VISA_TYPES_SEED = [
         "short_label": "Green Card",
         "category": "permanent_resident",
         "requires_employer_sponsor": False,
+        "lca_required": False,
         "description": (
             "Adjustment of Status (Form I-485) for individuals already in the U.S. "
             "who are eligible for lawful permanent residence."
@@ -2905,6 +2929,427 @@ VISA_TYPES_SEED = [
         "typical_processing_days": 365,
         "government_fee_usd": 134500,  # $1,345 in cents
         "display_order": 19,
+        "is_active": True,
+    },
+
+    # =========================================================================
+    # "TODO: verify" are best-effort placeholders — confirm against the
+    # current USCIS/DOS fee schedule before relying on them.
+    # =========================================================================
+
+    # ── Employment (additional) ─────────────────────────────────────────────
+    {
+        "code": "H-1B1",
+        "name": "H-1B1 Free Trade Visa (Chile/Singapore)",
+        "short_label": "H-1B1",
+        "category": "employment",
+        "requires_employer_sponsor": True,
+        "lca_required": True,
+        "description": (
+            "For nationals of Chile and Singapore in specialty occupations, "
+            "processed via consular application rather than USCIS petition."
+        ),
+        "required_documents": json.dumps([
+            "Passport Copy", "Offer Letter", "Educational Transcripts",
+            "Labor Condition Application (LCA)", "DS-160 Confirmation",
+        ]),
+        "typical_processing_days": 30,
+        "government_fee_usd": 0,  # TODO: verify — consular processing, no I-129 filing fee
+        "display_order": 20,
+        "is_active": True,
+    },
+    {
+        "code": "E-1",
+        "name": "E-1 Treaty Trader",
+        "short_label": "E-1",
+        "category": "employment",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "For nationals of treaty countries carrying on substantial trade with the U.S.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Trade Records Evidence", "Company Registration Documents",
+            "Company Financial Statements", "DS-160 Confirmation",
+        ]),
+        "typical_processing_days": 60,
+        "government_fee_usd": 20500,  # TODO: verify — using E-2 rate as placeholder
+        "display_order": 21,
+        "is_active": True,
+    },
+    {
+        "code": "E-3",
+        "name": "E-3 Specialty Occupation (Australia)",
+        "short_label": "E-3",
+        "category": "employment",
+        "requires_employer_sponsor": True,
+        "lca_required": True,
+        "description": "For Australian nationals in a specialty occupation requiring a bachelor's degree.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Offer Letter", "Educational Transcripts",
+            "Labor Condition Application (LCA)", "DS-160 Confirmation",
+        ]),
+        "typical_processing_days": 30,
+        "government_fee_usd": 0,  # TODO: verify — consular processing, no I-129 filing fee
+        "display_order": 22,
+        "is_active": True,
+    },
+    {
+        "code": "H-2A",
+        "name": "H-2A Agricultural Worker",
+        "short_label": "H-2A",
+        "category": "employment",
+        "requires_employer_sponsor": True,
+        "lca_required": False,
+        "description": "For temporary or seasonal agricultural workers.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Offer Letter", "Temporary Labor Certification",
+        ]),
+        "typical_processing_days": 90,
+        "government_fee_usd": 46000,  # TODO: verify — I-129 base fee assumed
+        "display_order": 23,
+        "is_active": True,
+    },
+    {
+        "code": "H-2B",
+        "name": "H-2B Temporary Non-Agricultural Worker",
+        "short_label": "H-2B",
+        "category": "employment",
+        "requires_employer_sponsor": True,
+        "lca_required": False,
+        "description": "For temporary non-agricultural workers filling seasonal or peak-load positions.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Offer Letter", "Temporary Labor Certification",
+        ]),
+        "typical_processing_days": 90,
+        "government_fee_usd": 46000,  # TODO: verify — I-129 base fee assumed
+        "display_order": 24,
+        "is_active": True,
+    },
+    {
+        "code": "H-3",
+        "name": "H-3 Trainee/Special Education Visitor",
+        "short_label": "H-3",
+        "category": "employment",
+        "requires_employer_sponsor": True,
+        "lca_required": False,
+        "description": "For individuals invited to receive training not available in their home country.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Training Program Plan", "Employer Support Letter",
+        ]),
+        "typical_processing_days": 90,
+        "government_fee_usd": 46000,  # TODO: verify — I-129 base fee assumed
+        "display_order": 25,
+        "is_active": True,
+    },
+
+    # ── Student (additional) ─────────────────────────────────────────────────
+    {
+        "code": "M-1",
+        "name": "M-1 Vocational Student",
+        "short_label": "M-1",
+        "category": "student",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "For students enrolled in vocational or non-academic training programs.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Form I-20", "Financial Support Evidence", "Acceptance Letter",
+        ]),
+        "typical_processing_days": 60,
+        "government_fee_usd": 18500,
+        "display_order": 26,
+        "is_active": True,
+    },
+
+    # ── Visitor  ──
+    {
+        "code": "B-1",
+        "name": "B-1 Business Visitor",
+        "short_label": "B-1",
+        "category": "visitor",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "For temporary visitors coming to the U.S. for business purposes.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Invitation Letter (if applicable)",
+            "Bank Statements (Last 3 Months)", "DS-160 Confirmation",
+        ]),
+        "typical_processing_days": 60,
+        "government_fee_usd": 18500,
+        "display_order": 27,
+        "is_active": True,
+    },
+    {
+        "code": "B-2",
+        "name": "B-2 Tourist Visa",
+        "short_label": "B-2",
+        "category": "visitor",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "For temporary visitors coming to the U.S. for tourism or pleasure.",
+        "required_documents": json.dumps([
+            "Passport Copy", "DS-160 Confirmation", "Travel Itinerary",
+            "Bank Statements (Last 3 Months)", "Ties to Home Country Evidence",
+        ]),
+        "typical_processing_days": 60,
+        "government_fee_usd": 18500,
+        "display_order": 28,
+        "is_active": True,
+    },
+
+    # ── Permanent Resident (additional) ──────────────────────────────────────
+    {
+        "code": "EB-4",
+        "name": "EB-4 Special Immigrant",
+        "short_label": "EB-4",
+        "category": "permanent_resident",
+        "requires_employer_sponsor": True,
+        "lca_required": False,
+        "description": "For special immigrants, e.g. religious workers and certain government employees.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Religious/Special Immigrant Category Evidence",
+            "Form I-140 Supporting Documents",
+        ]),
+        "typical_processing_days": 365,
+        "government_fee_usd": 70000,  # TODO: verify — using standard I-140 rate
+        "display_order": 29,
+        "is_active": True,
+    },
+    {
+        "code": "EB-5",
+        "name": "EB-5 Immigrant Investor",
+        "short_label": "EB-5",
+        "category": "permanent_resident",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "For individuals investing the required capital amount in a new U.S. commercial enterprise.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Investment Evidence", "Business Plan",
+            "Source of Funds Documentation", "Company Registration Documents", "Tax Returns",
+        ]),
+        "typical_processing_days": 730,
+        "government_fee_usd": 0,  # TODO: verify — current I-526/I-526E fee
+        "display_order": 30,
+        "is_active": True,
+    },
+
+    # ── Dependent Visas (new category: "dependent") ─────────────────────────
+    {
+        "code": "H-4",
+        "name": "H-4 Dependent of H-1B Holder",
+        "short_label": "H-4",
+        "category": "dependent",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "For spouses and unmarried children under 21 of H-1B visa holders.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Marriage Certificate", "Birth Certificate",
+            "Current I-797 Approval Notice", "Copy of Current Visa",
+        ]),
+        "typical_processing_days": 90,
+        "government_fee_usd": 0,  # TODO: verify — filed with/without principal's I-129
+        "display_order": 31,
+        "is_active": True,
+    },
+    {
+        "code": "L-2",
+        "name": "L-2 Dependent of L-1 Holder",
+        "short_label": "L-2",
+        "category": "dependent",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "For spouses and unmarried children under 21 of L-1 visa holders.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Marriage Certificate", "Birth Certificate",
+            "Current I-797 Approval Notice", "Copy of Current Visa",
+        ]),
+        "typical_processing_days": 90,
+        "government_fee_usd": 0,  # TODO: verify
+        "display_order": 32,
+        "is_active": True,
+    },
+    {
+        "code": "F-2",
+        "name": "F-2 Dependent of F-1 Student",
+        "short_label": "F-2",
+        "category": "dependent",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "For spouses and unmarried children under 21 of F-1 student visa holders.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Marriage Certificate", "Birth Certificate", "Form I-20",
+        ]),
+        "typical_processing_days": 60,
+        "government_fee_usd": 18500,  # TODO: verify
+        "display_order": 33,
+        "is_active": True,
+    },
+    {
+        "code": "J-2",
+        "name": "J-2 Dependent of J-1 Exchange Visitor",
+        "short_label": "J-2",
+        "category": "dependent",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "For spouses and unmarried children under 21 of J-1 exchange visitor visa holders.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Marriage Certificate", "Birth Certificate", "Form DS-2019",
+        ]),
+        "typical_processing_days": 60,
+        "government_fee_usd": 0,  # TODO: verify
+        "display_order": 34,
+        "is_active": True,
+    },
+    {
+        "code": "TD",
+        "name": "TD Dependent of TN Holder",
+        "short_label": "TD",
+        "category": "dependent",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "For spouses and unmarried children under 21 of TN visa holders.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Marriage Certificate", "Birth Certificate", "Copy of Current Visa",
+        ]),
+        "typical_processing_days": 30,
+        "government_fee_usd": 0,
+        "display_order": 35,
+        "is_active": True,
+    },
+
+    # ── Family-Based Immigrant Visas (new category: "family_based") ─────────
+    {
+        "code": "IR-1",
+        "name": "IR-1 Spouse of U.S. Citizen",
+        "short_label": "IR-1",
+        "category": "family_based",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "Immediate relative immigrant visa for the spouse of a U.S. citizen.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Marriage Certificate", "Form I-130 Petition for Alien Relative",
+            "Affidavit of Support (Form I-864)", "Tax Returns",
+        ]),
+        "typical_processing_days": 365,
+        "government_fee_usd": 67500,  # TODO: verify — I-130 filing fee placeholder
+        "display_order": 36,
+        "is_active": True,
+    },
+    {
+        "code": "IR-2",
+        "name": "IR-2 Child of U.S. Citizen",
+        "short_label": "IR-2",
+        "category": "family_based",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "Immediate relative immigrant visa for the unmarried child under 21 of a U.S. citizen.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
+            "Affidavit of Support (Form I-864)",
+        ]),
+        "typical_processing_days": 365,
+        "government_fee_usd": 67500,  # TODO: verify
+        "display_order": 37,
+        "is_active": True,
+    },
+    {
+        "code": "IR-5",
+        "name": "IR-5 Parent of U.S. Citizen",
+        "short_label": "IR-5",
+        "category": "family_based",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "Immediate relative immigrant visa for the parent of a U.S. citizen (petitioner must be 21+).",
+        "required_documents": json.dumps([
+            "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
+            "Affidavit of Support (Form I-864)", "Tax Returns",
+        ]),
+        "typical_processing_days": 365,
+        "government_fee_usd": 67500,  # TODO: verify
+        "display_order": 38,
+        "is_active": True,
+    },
+    {
+        "code": "F1-PREF",
+        "name": "F1 - Unmarried Sons/Daughters of U.S. Citizens",
+        "short_label": "F1",
+        "category": "family_based",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "Family preference category for unmarried adult sons/daughters of U.S. citizens. Subject to annual visa quotas and priority-date waits.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
+            "Affidavit of Support (Form I-864)",
+        ]),
+        "typical_processing_days": 2555,  # ~7 years — TODO: verify current visa bulletin wait time
+        "government_fee_usd": 67500,  # TODO: verify
+        "display_order": 39,
+        "is_active": True,
+    },
+    {
+        "code": "F2A-PREF",
+        "name": "F2A - Spouses/Minor Children of Green Card Holders",
+        "short_label": "F2A",
+        "category": "family_based",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "Family preference category for spouses and unmarried minor children of lawful permanent residents. Subject to annual visa quotas.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Marriage Certificate", "Birth Certificate",
+            "Form I-130 Petition for Alien Relative", "Affidavit of Support (Form I-864)",
+        ]),
+        "typical_processing_days": 730,  # TODO: verify current visa bulletin wait time
+        "government_fee_usd": 67500,  # TODO: verify
+        "display_order": 40,
+        "is_active": True,
+    },
+    {
+        "code": "F2B-PREF",
+        "name": "F2B - Unmarried Adult Sons/Daughters of Green Card Holders",
+        "short_label": "F2B",
+        "category": "family_based",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "Family preference category for unmarried adult sons/daughters of lawful permanent residents. Subject to annual visa quotas.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
+            "Affidavit of Support (Form I-864)",
+        ]),
+        "typical_processing_days": 2555,  # TODO: verify current visa bulletin wait time
+        "government_fee_usd": 67500,  # TODO: verify
+        "display_order": 41,
+        "is_active": True,
+    },
+    {
+        "code": "F3-PREF",
+        "name": "F3 - Married Sons/Daughters of U.S. Citizens",
+        "short_label": "F3",
+        "category": "family_based",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "Family preference category for married sons/daughters of U.S. citizens. Subject to annual visa quotas.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Marriage Certificate", "Birth Certificate",
+            "Form I-130 Petition for Alien Relative", "Affidavit of Support (Form I-864)",
+        ]),
+        "typical_processing_days": 3650,  # TODO: verify current visa bulletin wait time
+        "government_fee_usd": 67500,  # TODO: verify
+        "display_order": 42,
+        "is_active": True,
+    },
+    {
+        "code": "F4-PREF",
+        "name": "F4 - Siblings of U.S. Citizens",
+        "short_label": "F4",
+        "category": "family_based",
+        "requires_employer_sponsor": False,
+        "lca_required": False,
+        "description": "Family preference category for siblings of U.S. citizens (petitioner must be 21+). Subject to annual visa quotas.",
+        "required_documents": json.dumps([
+            "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
+            "Affidavit of Support (Form I-864)",
+        ]),
+        "typical_processing_days": 4745,  # TODO: verify current visa bulletin wait time
+        "government_fee_usd": 67500,  # TODO: verify
+        "display_order": 43,
         "is_active": True,
     },
 ]
@@ -2981,6 +3426,23 @@ DOCUMENT_TYPES_SEED = [
     {"name": "Critical Role Evidence",           "category": "other",  "description": "Evidence of critical or essential role in productions or performances.",             "is_optional": False, "accepted_formats": "PDF,JPG,PNG",  "max_file_size_mb": 20},
     {"name": "Program Sponsor Letter",           "category": "other",  "description": "Letter from J-1 program sponsor confirming program details.",                        "is_optional": False, "accepted_formats": "PDF,DOCX",     "max_file_size_mb": 10},
     {"name": "Passport Photos",                  "category": "other",  "description": "Passport-style photos meeting USCIS/DOS photo requirements.",                        "is_optional": False, "accepted_formats": "JPG,PNG",      "max_file_size_mb": 5},
+
+    # ── NEW: added to cover gaps found vs. US_Visa_Categories.docx / VISA_Type_Checklist.docx ──
+    {"name": "Labor Condition Application (LCA)", "category": "legal",      "description": "DOL-certified Labor Condition Application (Form ETA-9035) required for H-1B, H-1B1, and E-3 filings.", "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
+    {"name": "DS-160 Confirmation",               "category": "legal",      "description": "Confirmation page from the DS-160 Online Nonimmigrant Visa Application.",                        "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
+    {"name": "Credential Evaluation",             "category": "education", "description": "Course-by-course credential evaluation for degrees earned outside the U.S.",                        "is_optional": True,  "accepted_formats": "PDF",         "max_file_size_mb": 10},
+    {"name": "Prevailing Wage Determination",     "category": "legal",      "description": "DOL Prevailing Wage Determination (PWD) obtained at the start of the PERM process.",             "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
+    {"name": "Recruitment Report",                "category": "legal",      "description": "Employer's documented recruitment report required before PERM filing.",                           "is_optional": False, "accepted_formats": "PDF,DOCX",    "max_file_size_mb": 10},
+    {"name": "Job Description",                   "category": "employment","description": "Detailed job description matching the LCA/PERM occupational classification.",                        "is_optional": False, "accepted_formats": "PDF,DOCX",    "max_file_size_mb": 10},
+    {"name": "Temporary Labor Certification",     "category": "legal",      "description": "DOL temporary labor certification for seasonal agricultural (H-2A) or non-agricultural (H-2B) work.", "is_optional": False, "accepted_formats": "PDF",  "max_file_size_mb": 10},
+    {"name": "Training Program Plan",             "category": "employment","description": "Detailed structure and objectives of the training program for H-3 trainees.",                        "is_optional": False, "accepted_formats": "PDF,DOCX",    "max_file_size_mb": 10},
+    {"name": "Employer Support Letter",           "category": "employment","description": "Letter from the petitioning employer confirming program/role details.",                                "is_optional": False, "accepted_formats": "PDF,DOCX",    "max_file_size_mb": 10},
+    {"name": "Trade Records Evidence",            "category": "other",      "description": "Evidence of substantial trade between the U.S. and treaty country (E-1).",                          "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 20},
+    {"name": "Marriage Certificate",              "category": "personal",  "description": "Official marriage certificate for spouse/dependent petitions.",                                     "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
+    {"name": "Proof of Relationship (if applicable)", "category": "personal", "description": "Supplementary evidence of a bona fide family relationship (photos, joint documents, etc.).",       "is_optional": True,  "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 20},
+    {"name": "Form I-130 Petition for Alien Relative", "category": "legal", "description": "USCIS petition establishing a qualifying family relationship for family-based immigration.",           "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
+    {"name": "Tax Returns",                       "category": "personal",  "description": "Personal or business federal tax returns for the required period.",                                 "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 20},
+    {"name": "Religious/Special Immigrant Category Evidence", "category": "other", "description": "Evidence supporting eligibility under a special immigrant category (e.g., religious worker).", "is_optional": False, "accepted_formats": "PDF,DOCX",    "max_file_size_mb": 10},
 ]
 
 
@@ -3230,7 +3692,7 @@ SYSTEM_SETTINGS_SEED = [
     # ── General ───────────────────────────────────────────────────────────────
     {
         "key": "platform.name",
-        "value": "VisaFlow",
+        "value": "Vyuflo",
         "value_type": "string",
         "setting_group": "general",
         "label": "Platform Name",
@@ -3344,7 +3806,7 @@ SYSTEM_SETTINGS_SEED = [
     },
     {
         "key": "email.from_address",
-        "value": "noreply@visaflow.io",
+        "value": "noreply@vyuflo.io",
         "value_type": "string",
         "setting_group": "email",
         "label": "From Address",
@@ -3355,7 +3817,7 @@ SYSTEM_SETTINGS_SEED = [
     },
     {
         "key": "email.from_name",
-        "value": "VisaFlow",
+        "value": "Vyuflo",
         "value_type": "string",
         "setting_group": "email",
         "label": "From Name",
@@ -3449,7 +3911,7 @@ SYSTEM_SETTINGS_SEED = [
     },
     {
         "key": "maintenance.message",
-        "value": "VisaFlow is temporarily down for scheduled maintenance. We'll be back shortly.",
+        "value": "Vyuflo is temporarily down for scheduled maintenance. We'll be back shortly.",
         "value_type": "string",
         "setting_group": "maintenance",
         "label": "Maintenance Message",
@@ -3469,7 +3931,7 @@ SUPPORT_ARTICLES_SEED = [
     # ── Getting Started ───────────────────────────────────────────────────────
     {
         "title":        "How do I create my account?",
-        "summary":      "Step-by-step guide to signing up for VisaFlow.",
+        "summary":      "Step-by-step guide to signing up for Vyuflo.",
         "body":         "To create your account, click 'Sign Up' on the login page. Enter your name, email, and password. You'll receive a verification email — click the link to activate your account. You can also sign up with Google or Microsoft.",
         "article_type": "faq",
         "category":     "getting_started",
@@ -3542,7 +4004,7 @@ SUPPORT_ARTICLES_SEED = [
     {
         "title":        "What file formats are accepted for document uploads?",
         "summary":      "Supported formats and file size limits for uploads.",
-        "body":         "VisaFlow accepts PDF, JPG, and PNG files. The maximum file size is 10MB per document (5MB for passport photos). Make sure documents are clear, legible, and not password-protected.",
+        "body":         "Vyuflo accepts PDF, JPG, and PNG files. The maximum file size is 10MB per document (5MB for passport photos). Make sure documents are clear, legible, and not password-protected.",
         "article_type": "faq",
         "category":     "documents",
         "tag":          "Documents",
@@ -3586,5 +4048,607 @@ SUPPORT_ARTICLES_SEED = [
         "is_featured":  False,
     },
 ]
+
+
+
+
+# =============================================================================
+# NOTIFICATION TEMPLATES SEED
+# Event keys MUST exactly match the event_key strings passed to
+# dispatch_notification_from_template() in notification_service.py
+# =============================================================================
+# =============================================================================
+
+NOTIFICATION_TEMPLATES_SEED = [
+
+    # ── case_status_updated ──────────────────────────────────────────────────
+    {
+        "event_key": "case_status_updated", "channel": "email",
+        "name": "Case Status Updated (Email)",
+        "description": "Sent to all parties when application status changes",
+        "subject": "Case {{application_number}} updated to: {{new_status}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>Your case <strong>{{application_number}}</strong> status has been updated "
+            "to <strong>{{new_status}}</strong>.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nCase {{application_number}} status changed to: {{new_status}}.\n\nView it: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{new_status}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+    {
+        "event_key": "case_status_updated", "channel": "sms",
+        "name": "Case Status Updated (SMS)",
+        "description": "Short SMS on case status change",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: Case {{application_number}} → {{new_status}}. View: {{action_url}}",
+        "available_placeholders": '["{{application_number}}", "{{new_status}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": False,  # off by default — enable in admin
+    },
+    {
+        "event_key": "case_status_updated", "channel": "push",
+        "name": "Case Status Updated (Push)",
+        "description": "Browser push on case status change",
+        "subject": "Case Update — {{new_status}}", "body_html": None,
+        "body_text": "Your case {{application_number}} status changed to {{new_status}}.",
+        "available_placeholders": '["{{application_number}}", "{{new_status}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── participant_added ─────────────────────────────────────────────────────
+    {
+        "event_key": "participant_added", "channel": "email",
+        "name": "Case Participant Added (Email)",
+        "description": "Sent when HR or attorney is assigned to a case",
+        "subject": "You have been assigned to case {{application_number}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>You have been assigned to case <strong>{{application_number}}</strong> "
+            "by <strong>{{actor_label}}</strong>.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nYou have been assigned to case {{application_number}} by {{actor_label}}.\n\nOpen it: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{actor_label}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+    {
+        "event_key": "participant_added", "channel": "push",
+        "name": "Case Participant Added (Push)",
+        "description": "Push notification on assignment",
+        "subject": "New case assignment", "body_html": None,
+        "body_text": "You've been assigned to case {{application_number}}.",
+        "available_placeholders": '["{{application_number}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── approval_pending ──────────────────────────────────────────────────────
+    {
+        "event_key": "approval_pending", "channel": "email",
+        "name": "HR Approval Required (Email)",
+        "description": "Sent to HR when a case needs approval before attorney filing",
+        "subject": "Action required: {{application_number}} awaiting your approval",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>Case <strong>{{application_number}}</strong> is ready for HR review "
+            "before attorney filing.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nCase {{application_number}} needs your approval.\n\nReview: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{action_url}}"]',
+        "category": "approval", "is_active": True,
+    },
+    {
+        "event_key": "approval_pending", "channel": "sms",
+        "name": "HR Approval Required (SMS)",
+        "description": "Urgent SMS reminder for pending HR approval",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: Case {{application_number}} needs your approval. {{action_url}}",
+        "available_placeholders": '["{{application_number}}", "{{action_url}}"]',
+        "category": "approval", "is_active": False,
+    },
+
+    # ── approval_resolved ─────────────────────────────────────────────────────
+    {
+        "event_key": "approval_resolved", "channel": "email",
+        "name": "HR Decision Notification (Email)",
+        "description": "Sent to employee when HR approves/rejects their petition",
+        "subject": "HR decision on your case {{application_number}}",
+        "body_html": "<p>Hi {{user_name}},</p><p>HR has made a decision on your case <strong>{{application_number}}</strong>.</p>",
+        "body_text": "Hi {{user_name}},\n\nHR has made a decision on case {{application_number}}.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{action_url}}"]',
+        "category": "approval", "is_active": True,
+    },
+
+    # ── missing_document ──────────────────────────────────────────────────────
+    {
+        "event_key": "missing_document", "channel": "email",
+        "name": "Document Required (Email)",
+        "description": "Sent when a required document is missing or rejected",
+        "subject": "Action required: document needed for {{application_number}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>A document is required for case <strong>{{application_number}}</strong>.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nDocument needed for {{application_number}}.\n\nUpload: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{document_name}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+    {
+        "event_key": "missing_document", "channel": "push",
+        "name": "Document Required (Push)",
+        "description": "Push alert for missing document",
+        "subject": "Document needed", "body_html": None,
+        "body_text": "\"{{document_name}}\" is needed for your application.",
+        "available_placeholders": '["{{document_name}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── document_approved ─────────────────────────────────────────────────────
+    {
+        "event_key": "document_approved", "channel": "email",
+        "name": "Document Verified (Email)",
+        "description": "Sent to employee when their document is verified",
+        "subject": "Document verified for case {{application_number}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>Your document for case <strong>{{application_number}}</strong> "
+            "has been verified successfully.</p>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nYour document has been verified.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{application_number}}", "{{document_name}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── deadline_approaching ──────────────────────────────────────────────────
+    {
+        "event_key": "deadline_approaching", "channel": "email",
+        "name": "Deadline Approaching (Email)",
+        "description": "Sent when a case deadline is within the alert window",
+        "subject": "Deadline in {{days_remaining}} days: {{deadline_title}}",
+        "body_html": (
+            "<p>Hi {{user_name}},</p>"
+            "<p>You have a deadline coming up:</p>"
+            "<ul><li><strong>{{deadline_title}}</strong></li>"
+            "<li>Due: {{deadline_date}}</li>"
+            "<li>Days remaining: {{days_remaining}}</li></ul>"
+        ),
+        "body_text": "Hi {{user_name}},\n\nDeadline: {{deadline_title}}\nDue: {{deadline_date}}\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{deadline_title}}", "{{deadline_date}}", "{{days_remaining}}", "{{action_url}}"]',
+        "category": "deadline", "is_active": True,
+    },
+    {
+        "event_key": "deadline_approaching", "channel": "sms",
+        "name": "Deadline Approaching (SMS)",
+        "description": "Urgent SMS reminder for approaching deadlines",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: {{deadline_title}} due in {{days_remaining}} days ({{deadline_date}}).",
+        "available_placeholders": '["{{deadline_title}}", "{{days_remaining}}", "{{deadline_date}}"]',
+        "category": "deadline", "is_active": True,
+    },
+    {
+        "event_key": "deadline_approaching", "channel": "push",
+        "name": "Deadline Approaching (Push)",
+        "description": "Push alert for approaching deadlines",
+        "subject": "Deadline approaching", "body_html": None,
+        "body_text": "{{deadline_title}} due in {{days_remaining}} days.",
+        "available_placeholders": '["{{deadline_title}}", "{{days_remaining}}"]',
+        "category": "deadline", "is_active": True,
+    },
+
+    # ── employee_onboarded ────────────────────────────────────────────────────
+    {
+        "event_key": "employee_onboarded", "channel": "email",
+        "name": "New Employee Onboarded (Email)",
+        "description": "Sent to HR when an invited employee completes profile setup",
+        "subject": "{{actor_label}} has joined your company on VisaFlow",
+        "body_html": "<p>Hi {{user_name}},</p><p><strong>{{actor_label}}</strong> accepted your company invite and completed profile setup.</p>",
+        "body_text": "Hi {{user_name}},\n\n{{actor_label}} joined on VisaFlow.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{actor_label}}", "{{action_url}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── compliance_alert ──────────────────────────────────────────────────────
+    {
+        "event_key": "compliance_alert", "channel": "email",
+        "name": "Compliance Alert (Email)",
+        "description": "Sent to HR for urgent compliance issues",
+        "subject": "Compliance Alert: action required",
+        "body_html": "<p>Hi {{user_name}},</p><p>A compliance issue requires your immediate attention.</p>",
+        "body_text": "Hi {{user_name}},\n\nCompliance alert. Action required.\n\nView: {{action_url}}",
+        "available_placeholders": '["{{user_name}}", "{{action_url}}"]',
+        "category": "compliance", "is_active": True,
+    },
+
+    # ── security_alert ────────────────────────────────────────────────────────
+    {
+        "event_key": "security_alert", "channel": "email",
+        "name": "Security Alert — New Login (Email)",
+        "description": "Sent on new device login",
+        "subject": "Security Alert: new login to your VisaFlow account",
+        "body_html": "<p>Hi {{user_name}},</p><p>New login from <strong>{{device}}</strong> at {{login_time}}.</p>",
+        "body_text": "Hi {{user_name}},\n\nNew login from {{device}} at {{login_time}}.",
+        "available_placeholders": '["{{user_name}}", "{{device}}", "{{login_time}}", "{{ip_address}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── payment_receipt ───────────────────────────────────────────────────────
+    {
+        "event_key": "payment_receipt", "channel": "email",
+        "name": "Payment Receipt (Email)",
+        "description": "Sent after a successful payment",
+        "subject": "Payment confirmed — {{amount}} for {{visa_type}}",
+        "body_html": "<p>Hi {{user_name}},</p><p>Payment of <strong>{{amount}}</strong> confirmed.</p>",
+        "body_text": "Hi {{user_name}},\n\nPayment of {{amount}} confirmed.",
+        "available_placeholders": '["{{user_name}}", "{{amount}}", "{{payment_date}}", "{{visa_type}}"]',
+        "category": "billing", "is_active": True,
+    },
+
+    # ── weekly_summary ────────────────────────────────────────────────────────
+    {
+        "event_key": "weekly_summary", "channel": "email",
+        "name": "Weekly Case Summary (Email)",
+        "description": "Weekly digest of case activity",
+        "subject": "Your weekly VisaFlow summary — {{week_range}}",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{summary_content}}</p>",
+        "body_text": "Hi {{user_name}},\n\nYour weekly summary:\n{{summary_content}}",
+        "available_placeholders": '["{{user_name}}", "{{summary_content}}", "{{week_range}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── interview_scheduled — disabled until interview scheduling ships ──────
+    {
+        "event_key": "interview_scheduled", "channel": "sms",
+        "name": "Interview Scheduled (SMS)",
+        "description": "SMS reminder 24h before interview",
+        "subject": None, "body_html": None,
+        "body_text": "Reminder: Your {{visa_type}} interview is on {{interview_date}} at {{interview_time}}. Good luck!",
+        "available_placeholders": '["{{visa_type}}", "{{interview_date}}", "{{interview_time}}"]',
+        "category": "deadline", "is_active": False,
+    },
+
+    # =========================================================================
+    # NEW LAWYER-FACING IN-APP TEMPLATES  (added this session)
+    #
+    # These 6 drive the attorney's bell + toast + notifications page.  Every
+    # one is `channel: "in_app"` so the dispatcher writes them to the
+    # `notifications` table for the target attorney's user_id.
+    #
+    # Fired by the backend event listeners described in
+    # BACKEND_NOTIFICATIONS_WIRING.md steps 4a-4f.
+    # =========================================================================
+
+    # ── document_uploaded ────────────────────────────────────────────────────
+    {
+        "event_key": "document_uploaded", "channel": "in_app",
+        "name": "Document Uploaded (In-App)",
+        "description": "Sent to attorney when their assigned client uploads a new document",
+        "subject": "New document from {{client_name}}", "body_html": None,
+        "body_text": "{{client_name}} uploaded {{document_type}} for {{visa_type}} case ({{case_reference}}).",
+        "available_placeholders": '["{{client_name}}", "{{document_type}}", "{{visa_type}}", "{{case_reference}}", "{{document_id}}", "{{application_id}}", "{{uploaded_at}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── document_reuploaded ──────────────────────────────────────────────────
+    {
+        "event_key": "document_reuploaded", "channel": "in_app",
+        "name": "Document Re-uploaded (In-App)",
+        "description": "Sent to attorney when a client re-uploads a previously rejected document",
+        "subject": "{{client_name}} re-uploaded {{document_type}}", "body_html": None,
+        "body_text": "{{client_name}} submitted a fix for {{document_type}} ({{case_reference}}). Please review the new version.",
+        "available_placeholders": '["{{client_name}}", "{{document_type}}", "{{visa_type}}", "{{case_reference}}", "{{document_id}}", "{{application_id}}", "{{version}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── requested_document_submitted ─────────────────────────────────────────
+    {
+        "event_key": "requested_document_submitted", "channel": "in_app",
+        "name": "Requested Document Submitted (In-App)",
+        "description": "Sent to attorney when a client responds to a 'Request Additional Document' with an upload",
+        "subject": "{{client_name}} answered your request", "body_html": None,
+        "body_text": "{{client_name}} uploaded {{document_type}} for the additional document you requested ({{case_reference}}).",
+        "available_placeholders": '["{{client_name}}", "{{document_type}}", "{{visa_type}}", "{{case_reference}}", "{{document_id}}", "{{application_id}}", "{{request_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── chat_message_received ────────────────────────────────────────────────
+    {
+        "event_key": "chat_message_received", "channel": "in_app",
+        "name": "New Chat Message (In-App)",
+        "description": "Sent to a chat participant when the other party sends them a new message",
+        "subject": "New message from {{sender_name}}", "body_html": None,
+        "body_text": "{{sender_name}}: {{message_preview}}",
+        "available_placeholders": '["{{sender_name}}", "{{sender_role}}", "{{message_preview}}", "{{thread_id}}", "{{conversation_id}}", "{{sent_at}}"]',
+        "category": "news", "is_active": True,
+    },
+
+    # ── deadline_missed ──────────────────────────────────────────────────────
+    {
+        "event_key": "deadline_missed", "channel": "in_app",
+        "name": "Deadline Missed (In-App)",
+        "description": "Sent to attorney when a case deadline passes without completion",
+        "subject": "Missed deadline: {{deadline_type}}", "body_html": None,
+        "body_text": "{{client_name}} — {{deadline_type}} was due on {{due_date}} and has not been completed. Case: {{case_reference}}.",
+        "available_placeholders": '["{{client_name}}", "{{visa_type}}", "{{case_reference}}", "{{deadline_type}}", "{{due_date}}", "{{days_overdue}}", "{{application_id}}"]',
+        "category": "deadline", "is_active": True,
+    },
+
+    # ── calendar_event_reminder ──────────────────────────────────────────────
+    {
+        "event_key": "calendar_event_reminder", "channel": "in_app",
+        "name": "Calendar Event Reminder (In-App)",
+        "description": "Fires at the scheduled reminder time before a calendar event",
+        "subject": "Upcoming: {{event_title}}", "body_html": None,
+        "body_text": "{{event_title}} — {{time_until_event}}. {{event_description}}",
+        "available_placeholders": '["{{event_title}}", "{{event_description}}", "{{event_date}}", "{{event_time}}", "{{time_until_event}}", "{{reminder_minutes}}", "{{event_id}}"]',
+        "category": "deadline", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+    # ── policy_update ────────────────────────────────────────────────────────
+    {
+        "event_key": "policy_update", "channel": "email",
+        "name": "Policy Update (Email)",
+        "description": "Sent to affected users when a login/security policy rule changes",
+        "subject": "A security policy affecting your account has changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{policy_summary}}</p>",
+        "body_text": "Hi {{user_name}},\n\n{{policy_summary}}",
+        "available_placeholders": '["{{user_name}}", "{{policy_summary}}", "{{effective_date}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── document_comment ─────────────────────────────────────────────────────
+    {
+        "event_key": "document_comment", "channel": "in_app",
+        "name": "Document Comment (In-App)",
+        "description": "Sent when someone leaves a comment on a shared document",
+        "subject": "New comment on {{document_type}}", "body_html": None,
+        "body_text": "{{commenter_name}}: {{comment_preview}}",
+        "available_placeholders": '["{{commenter_name}}", "{{document_type}}", "{{comment_preview}}", "{{document_id}}", "{{application_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── immigration_news ─────────────────────────────────────────────────────
+    {
+        "event_key": "immigration_news", "channel": "email",
+        "name": "Immigration News (Email)",
+        "description": "Sent when a relevant immigration news article is published",
+        "subject": "Immigration update: {{article_title}}",
+        "body_html": "<p>{{article_summary}}</p>",
+        "body_text": "{{article_title}}\n\n{{article_summary}}",
+        "available_placeholders": '["{{article_title}}", "{{article_summary}}", "{{article_url}}"]',
+        "category": "news", "is_active": True,
+    },
+
+    # ── employee_profile_updated ─────────────────────────────────────────────
+    {
+        "event_key": "employee_profile_updated", "channel": "in_app",
+        "name": "Employee Profile Updated (In-App)",
+        "description": "Sent to HR when an employee's profile details change",
+        "subject": "{{employee_name}} updated their profile", "body_html": None,
+        "body_text": "{{employee_name}} updated: {{fields_changed}}.",
+        "available_placeholders": '["{{employee_name}}", "{{fields_changed}}", "{{updated_at}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── task_assigned ────────────────────────────────────────────────────────
+    {
+        "event_key": "task_assigned", "channel": "in_app",
+        "name": "Task Assigned (In-App)",
+        "description": "Sent when a case task is assigned to a user",
+        "subject": "New task: {{task_title}}", "body_html": None,
+        "body_text": "You were assigned: {{task_title}} (due {{due_date}}) for {{case_reference}}.",
+        "available_placeholders": '["{{task_title}}", "{{due_date}}", "{{case_reference}}", "{{assigned_by}}", "{{task_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── new_device_login ─────────────────────────────────────────────────────
+    {
+        "event_key": "new_device_login", "channel": "email",
+        "name": "New Device Login (Email)",
+        "description": "Sent when the account is accessed from a device never seen before",
+        "subject": "New device signed in to your account",
+        "body_html": "<p>Hi {{user_name}},</p><p>A new sign-in was detected from {{device}} in {{location}} at {{login_time}}.</p>",
+        "body_text": "Hi {{user_name}},\n\nNew sign-in from {{device}} in {{location}} at {{login_time}}.",
+        "available_placeholders": '["{{user_name}}", "{{device}}", "{{location}}", "{{login_time}}", "{{ip_address}}"]',
+        "category": "security", "is_active": True,
+    },
+    {
+        "event_key": "new_device_login", "channel": "sms",
+        "name": "New Device Login (SMS)",
+        "description": "SMS variant, sent only if the user has SMS enabled for this alert",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: New sign-in from {{device}} in {{location}} at {{login_time}}. Not you? Reset your password.",
+        "available_placeholders": '["{{device}}", "{{location}}", "{{login_time}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── failed_login_alert ───────────────────────────────────────────────────
+    {
+        "event_key": "failed_login_alert", "channel": "email",
+        "name": "Failed Login Attempts (Email)",
+        "description": "Sent after repeated failed login attempts on the account",
+        "subject": "Multiple failed sign-in attempts on your account",
+        "body_html": "<p>Hi {{user_name}},</p><p>{{attempt_count}} failed sign-in attempts were detected from {{ip_address}}.</p>",
+        "body_text": "Hi {{user_name}},\n\n{{attempt_count}} failed sign-in attempts from {{ip_address}}.",
+        "available_placeholders": '["{{user_name}}", "{{attempt_count}}", "{{ip_address}}", "{{last_attempt_time}}"]',
+        "category": "security", "is_active": True,
+    },
+    {
+        "event_key": "failed_login_alert", "channel": "sms",
+        "name": "Failed Login Attempts (SMS)",
+        "description": "SMS variant, sent only if the user has SMS enabled for this alert",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: {{attempt_count}} failed sign-in attempts detected on your account.",
+        "available_placeholders": '["{{attempt_count}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── password_changed ─────────────────────────────────────────────────────
+    {
+        "event_key": "password_changed", "channel": "email",
+        "name": "Password Changed (Email)",
+        "description": "Always sent immediately when the account password changes (cannot be muted)",
+        "subject": "Your password was changed",
+        "body_html": "<p>Hi {{user_name}},</p><p>Your password was changed on {{changed_at}} from {{device}}.</p>",
+        "body_text": "Hi {{user_name}},\n\nYour password was changed on {{changed_at}} from {{device}}.",
+        "available_placeholders": '["{{user_name}}", "{{changed_at}}", "{{device}}", "{{ip_address}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── unusual_activity ─────────────────────────────────────────────────────
+    {
+        "event_key": "unusual_activity", "channel": "email",
+        "name": "Unusual Activity Detected (Email)",
+        "description": "Sent when the Risk Engine flags a login as high/critical risk",
+        "subject": "Unusual activity detected on your account",
+        "body_html": "<p>Hi {{user_name}},</p><p>We noticed {{risk_reason}} from {{location}} at {{login_time}}.</p>",
+        "body_text": "Hi {{user_name}},\n\nUnusual activity: {{risk_reason}} from {{location}} at {{login_time}}.",
+        "available_placeholders": '["{{user_name}}", "{{risk_reason}}", "{{location}}", "{{login_time}}", "{{ip_address}}"]',
+        "category": "security", "is_active": True,
+    },
+    {
+        "event_key": "unusual_activity", "channel": "sms",
+        "name": "Unusual Activity Detected (SMS)",
+        "description": "SMS variant, sent only if the user has SMS enabled for this alert",
+        "subject": None, "body_html": None,
+        "body_text": "VisaFlow: Unusual activity detected on your account from {{location}}. Review now.",
+        "available_placeholders": '["{{location}}"]',
+        "category": "security", "is_active": True,
+    },
+
+    # ── document_requested ───────────────────────────────────────────────────
+    {
+        "event_key": "document_requested", "channel": "in_app",
+        "name": "Document Requested (In-App)",
+        "description": "Sent to the client when an attorney/HR requests an additional document",
+        "subject": "{{requester_name}} requested a document", "body_html": None,
+        "body_text": "{{requester_name}} requested: {{document_name}} ({{case_reference}}). Due {{due_date}}.",
+        "available_placeholders": '["{{requester_name}}", "{{document_name}}", "{{case_reference}}", "{{due_date}}", "{{request_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── document_request_fulfilled ───────────────────────────────────────────
+    {
+        "event_key": "document_request_fulfilled", "channel": "in_app",
+        "name": "Document Request Fulfilled (In-App)",
+        "description": "Sent to the requester once the requested document has been uploaded",
+        "subject": "{{client_name}} fulfilled your document request", "body_html": None,
+        "body_text": "{{client_name}} uploaded {{document_name}} you requested ({{case_reference}}).",
+        "available_placeholders": '["{{client_name}}", "{{document_name}}", "{{case_reference}}", "{{request_id}}", "{{document_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+
+    # ── document_uploaded_by_staff ───────────────────────────────────────────
+    {
+        "event_key": "document_uploaded_by_staff", "channel": "in_app",
+        "name": "Document Uploaded By Staff (In-App)",
+        "description": "Sent to the client when HR/attorney uploads a document on their behalf",
+        "subject": "{{staff_name}} uploaded a document for you", "body_html": None,
+        "body_text": "{{staff_name}} uploaded {{document_type}} on your behalf ({{case_reference}}).",
+        "available_placeholders": '["{{staff_name}}", "{{document_type}}", "{{case_reference}}", "{{document_id}}", "{{application_id}}"]',
+        "category": "case_update", "is_active": True,
+    },
+]
+
+
+
+
+
+
 
 

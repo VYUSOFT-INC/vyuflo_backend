@@ -160,6 +160,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.visamodels import (
+    NotificationTemplate,
     Role,
     Permission,
     RolePermission,
@@ -173,6 +174,7 @@ from app.models.visamodels import (
 )
 
 from app.models.seeds import (
+    NOTIFICATION_TEMPLATES_SEED,
     ROLES_SEED,
     PERMISSIONS_SEED,
     ROLE_PERMISSIONS_SEED,
@@ -484,3 +486,19 @@ async def seed_support_articles(db: AsyncSession):
 
     await db.commit()
     print("✅ Support articles seeded")
+
+async def seed_notification_templates(db: AsyncSession) -> None:
+    """
+    Idempotent — uses Postgres ON CONFLICT DO NOTHING so it's safe even if
+    called concurrently (e.g. by an overlapping uvicorn --reload restart).
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    for item in NOTIFICATION_TEMPLATES_SEED:
+        stmt = pg_insert(NotificationTemplate).values(**item)
+        stmt = stmt.on_conflict_do_nothing(
+            constraint="uq_notif_template_event_channel"
+        )
+        await db.execute(stmt)
+    await db.commit()
+    print("✅ NotificationTemplate seeded")
