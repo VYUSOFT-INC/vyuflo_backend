@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     AWS_REGION:            str = ""
     S3_BUCKET:             str = ""
     STORAGE_BACKEND:       str = ""
-    S3_ENDPOINT_URL: str
+    S3_ENDPOINT_URL: str= ""
     S3_CDN_URL: str = ""
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: List[str] = []
