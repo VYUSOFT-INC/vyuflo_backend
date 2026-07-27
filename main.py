@@ -90,12 +90,28 @@ async def _ensure_pg_enum_values(enum_name: str, values: tuple[str, ...]) -> Non
 
 async def _ensure_notif_template_unique_constraint() -> None:
     """
-    create_all does not add constraints to existing tables. Seed uses
-    ON CONFLICT ON CONSTRAINT uq_notif_template_event_channel, so ensure it exists.
+    create_all does not alter indexes on existing tables.
+
+    Seed data has one row per (event_key, channel). Older DBs may still have a
+    unique index on event_key alone (ix_notification_templates_event_key), which
+    blocks multi-channel templates. Drop that unique index and ensure the
+    composite unique constraint exists.
     """
     from sqlalchemy import text
 
     async with engine.begin() as conn:
+        # Drop leftover unique-on-event_key index if present (unique or not —
+        # model only needs a non-unique index, which create_all / Index below cover)
+        await conn.execute(text("""
+            DROP INDEX IF EXISTS ix_notification_templates_event_key;
+        """))
+
+        # Recreate as a non-unique index (matches Column(..., index=True))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_notification_templates_event_key
+            ON notification_templates (event_key);
+        """))
+
         await conn.execute(text("""
             DO $$
             BEGIN
