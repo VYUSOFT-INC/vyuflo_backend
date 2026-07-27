@@ -1014,7 +1014,7 @@ async def service_login(
         "access_token":    access_token,
         "refresh_token":   refresh_token,
         "roles":           roles,
-        "profile_picture": await resolve_url(user_profile.profile_picture_url) if user_profile else None,
+        "profile_picture": "/api/v1/users/me/avatar" if user_profile and user_profile.profile_picture_url else None,
         "theme_color": user_profile.theme_color if user_profile else None,
         "tour_employee_seen": user_profile.tour_employee_seen  if user_profile else False,
         "tour_hr_seen":       user_profile.tour_hr_seen        if user_profile else False,

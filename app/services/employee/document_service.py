@@ -4,6 +4,7 @@ import uuid
 import os
 from datetime import datetime, timezone
 from typing import Optional
+from app.core.config import settings
 from app.services.employee import storage
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -156,7 +157,8 @@ async def upload_document(
 
     # 3. Save to storage (local dev or S3 prod)
     safe_name    = os.path.basename(file.filename or f"document.{file_format}")
-    storage_path = f"users/{user_id}/documents/{document_type}/{safe_name}"
+    storage_prefix = settings.STORAGE_PREFIX
+    storage_path = f"{storage_prefix}/users/{user_id}/documents/{document_type}/{safe_name}"
     await storage.upload_file(
         content,
         storage_path,

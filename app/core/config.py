@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = []
     COOKIE_SECURE: bool = True
 
+    STORAGE_PREFIX: str = ""
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors(cls, v):

@@ -159,6 +159,16 @@ async def resolve_url(key: str | None) -> str | None:
     # return f"/api/v1/static/{key}"
     return None
 
+async def get_file_bytes(key: str) -> tuple[bytes, str]:
+    """Fetches raw bytes + content-type for a stored object. Used by the
+    avatar proxy endpoint so the browser never sees the bucket URL directly."""
+    if settings.STORAGE_BACKEND != "s3":
+        raise RuntimeError("Local storage is disabled — set STORAGE_BACKEND=s3")
+    async with _client() as s3:
+        obj = await s3.get_object(Bucket=settings.S3_BUCKET, Key=key)
+        body = await obj["Body"].read()
+        content_type = obj.get("ContentType", "image/jpeg")
+        return body, content_type
 
 # # test_spaces.py — run directly: python test_spaces.py
 # import boto3

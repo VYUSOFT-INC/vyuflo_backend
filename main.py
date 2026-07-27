@@ -136,7 +136,7 @@ register_exception_handlers(app)
 # Routers
 # ─────────────────────────────────────────────
 # app.mount("/api/v1/static", StaticFiles(directory="uploads"), name="static")
-app.include_router(ocr_router)          # add prefix="/api/v1" if that's your convention
+app.include_router(ocr_router,prefix="/api/v1", tags=["Ocr"])          # add prefix="/api/v1" if that's your convention
 app.include_router(auth.router,                prefix="/api/v1/auth",       tags=["Authentication"])
 app.include_router(onboarding.router,          prefix="/api/v1/onboarding", tags=["Onboarding"])
 app.include_router(document_router,            prefix="/api/v1", tags=["Documents"])

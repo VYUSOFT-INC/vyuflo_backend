@@ -9,6 +9,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.visamodels import User, UserProfile
 from app.schemas.employee.user_profile import UserProfileResponse, UserProfileUpdate
 from app.services.employee import storage
@@ -16,9 +17,16 @@ from app.services.employee.services import db_create, db_get_by_id, db_update, d
 
 
 
-async def _to_profile_response(profile: UserProfile) -> UserProfileResponse:
+# async def _to_profile_response(profile: UserProfile) -> UserProfileResponse:
+#     resp = UserProfileResponse.model_validate(profile)
+#     resp.profile_picture_url = await storage.resolve_url(profile.profile_picture_url)
+#     return resp
+
+async def _to_profile_response(db: AsyncSession, profile: UserProfile) -> UserProfileResponse:
+    user = await db_get_by_id(db, User, profile.user_id)
     resp = UserProfileResponse.model_validate(profile)
-    resp.profile_picture_url = await storage.resolve_url(profile.profile_picture_url)
+    resp.email = user.email if user else None
+    resp.profile_picture_url = "/api/v1/users/me/avatar" if profile.profile_picture_url else None
     return resp
 
 async def get_my_profile(
@@ -39,7 +47,7 @@ async def get_my_profile(
             created_by = current_user_id,
         )
         profile = await db_create(db, profile)
-    return await _to_profile_response(profile)
+    return await _to_profile_response(db,profile)
     # return UserProfileResponse.model_validate(profile)
 
 async def update_my_profile(
@@ -86,7 +94,7 @@ async def update_my_profile(
         if user:
             await db_update(db, User, user.id, user_update)
 
-    return await _to_profile_response(updated)
+    return await _to_profile_response(db,updated)
     # return UserProfileResponse.model_validate(updated)
 
 async def upload_profile_picture(
@@ -125,7 +133,8 @@ async def upload_profile_picture(
 
     # 5. Save NEW file via storage service (S3/Spaces in staging, local in dev)
     safe_name    = os.path.basename(file.filename or f"avatar.{ext}")
-    storage_path = f"users/{user_id}/profile_pictures/{safe_name}"
+    storage_prefix = settings.STORAGE_PREFIX
+    storage_path = f"{storage_prefix}/users/{user_id}/profile_pictures/{safe_name}"
     await storage.upload_file(
         content,
         storage_path,
@@ -171,4 +180,4 @@ async def remove_profile_picture(
         "profile_picture_url": None,
         "modified_by": user_id,
     })
-    return await _to_profile_response(updated)
+    return await _to_profile_response(db,updated)
