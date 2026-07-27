@@ -88,6 +88,39 @@ async def _ensure_pg_enum_values(enum_name: str, values: tuple[str, ...]) -> Non
             )
 
 
+async def _ensure_notif_template_unique_constraint() -> None:
+    """
+    create_all does not add constraints to existing tables. Seed uses
+    ON CONFLICT ON CONSTRAINT uq_notif_template_event_channel, so ensure it exists.
+    """
+    from sqlalchemy import text
+
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'uq_notif_template_event_channel'
+                ) THEN
+                    -- Drop duplicate (event_key, channel) rows, keep oldest
+                    DELETE FROM notification_templates
+                    WHERE id NOT IN (
+                        SELECT id FROM (
+                            SELECT DISTINCT ON (event_key, channel) id
+                            FROM notification_templates
+                            ORDER BY event_key, channel, created_at ASC NULLS LAST, id ASC
+                        ) keepers
+                    );
+
+                    ALTER TABLE notification_templates
+                        ADD CONSTRAINT uq_notif_template_event_channel
+                        UNIQUE (event_key, channel);
+                END IF;
+            END $$;
+        """))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Starting application...")
@@ -98,6 +131,9 @@ async def lifespan(app: FastAPI):
 
     # 1b. Sync enum values added to the model after the DB was first created
     await _ensure_pg_enum_values("visa_category_enum", _VISA_CATEGORY_ENUM_VALUES)
+
+    # 1c. Sync unique constraint needed by notification template seed
+    await _ensure_notif_template_unique_constraint()
 
     # 2. Run seed safely
     async with AsyncSessionLocal() as db:
