@@ -202,8 +202,7 @@ async def upload_document(
 
     # Reload with relationship and return
     doc_with_type = await _load_doc_with_type(db, doc.id)
-    return _to_response(doc_with_type)
-
+    return _to_response(doc_with_type) 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIRM OCR
