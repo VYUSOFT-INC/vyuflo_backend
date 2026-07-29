@@ -14,12 +14,25 @@ from enum import Enum
 
 
 class DocumentStatus(str, Enum):
-    required       = "required"
-    uploaded       = "uploaded"
-    pending_review = "pending_review"
-    verified       = "verified"
-    rejected       = "rejected"
-    missing        = "missing"
+    required           = "required"
+    uploaded           = "uploaded"
+    pending_review     = "pending_review"
+    verified           = "verified"
+    rejected           = "rejected"
+    missing            = "missing"
+    pending_hr_release = "pending_hr_release"   # NEW — see app/schemas/employee/document.py
+
+
+class HRDocumentReleaseDecision(str, Enum):
+    approve = "approve"
+    decline = "decline"
+
+
+class HRReviewUploadedDocument(BaseModel):
+    """PATCH /documents/{document_id}/hr-review — HR's decision on an
+    attorney-uploaded document sitting in 'pending_hr_release'."""
+    decision: HRDocumentReleaseDecision
+    reason:   Optional[str] = Field(None, max_length=1000, description="Required when declining")
 
 
 # ── Used by: GET /documents/{id}/versions ────────────────────────────────────
