@@ -558,6 +558,20 @@ class Application(Base):
 
     sponsor_employer = Column(String(200), nullable=True)
 
+    job_title        = Column(String(200), nullable=True)
+    annual_salary    = Column(String(50),  nullable=True)   # free text, e.g. "$135,000"
+    department       = Column(String(200), nullable=True)
+    worksite_address = Column(Text,        nullable=True)
+
+# ── LCA gate (minimal status flag — not full LCA case tracking) ──────────
+    lca_status = Column(
+        Enum("not_filed", "filed", "certified", "denied",
+            name="lca_status_enum"),
+        nullable=True, default="not_filed"
+    )
+    lca_case_number  = Column(String(50), nullable=True)
+    lca_certified_at = Column(DateTime(timezone=True), nullable=True)
+
     status = Column(
         Enum("draft", "in_progress", "action_needed", "rfe_response",
              "submitted", "approved", "rejected", "withdrawn",
@@ -625,6 +639,11 @@ class Application(Base):
                                      back_populates="application",
                                      order_by="ApplicationComment.created_at.desc()")
     fees              = relationship("Fee", back_populates="application")
+    generated_letters = relationship(
+        "ApplicationGeneratedLetter",
+        back_populates="application",
+        order_by="ApplicationGeneratedLetter.generated_at.desc()",
+    )
 
 
 # =============================================================================
@@ -805,6 +824,7 @@ class Document(Base):
     status           = Column(
                           Enum("required", "uploaded", "pending_review",
                                "verified", "rejected", "missing",
+                               "pending_hr_release",
                                name="document_status_enum"),
                           nullable=False, default="uploaded"
                        )
@@ -1206,8 +1226,13 @@ class Notification(Base):
              "document_uploaded",
              "chat_message_received",
              "deadline_missed",
-             "calendar_event_reminder",      
-             name="notification_type_enum"),
+             "calendar_event_reminder", 
+             # ── NEW — HR-relay workflow ──
+            "document_request_needs_hr_review",
+            "document_request_declined",
+            "document_needs_hr_release",
+            "document_release_declined",
+            name="notification_type_enum"),
         nullable=False
     )
     category = Column(
@@ -1362,7 +1387,7 @@ class NotificationTemplate(Base):
 
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
-              "approval", "compliance", "employee",
+                "approval", "compliance", "employee",
              name="notification_category_enum",
              create_type=False),
         nullable=False
@@ -3625,12 +3650,19 @@ class DocumentRequest(Base):
     due_date = Column(Date, nullable=True)
 
     status = Column(
-        Enum("pending", "fulfilled", "cancelled", name="doc_request_status_enum"),
+        Enum("pending", "fulfilled", "cancelled",
+                "pending_hr_approval", "declined",        # ← NEW
+                name="doc_request_status_enum"),
         nullable=False, default="pending"
     )
 
     document_id  = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)  # filled in once uploaded
     fulfilled_at = Column(DateTime(timezone=True), nullable=True)
+
+    # ── NEW — HR-relay tracking, only populated for attorney-originated requests ──
+    hr_reviewed_by     = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    hr_reviewed_at     = Column(DateTime(timezone=True), nullable=True)
+    hr_decision_reason = Column(Text, nullable=True)
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -3647,3 +3679,54 @@ class DocumentRequest(Base):
     requester   = relationship("User", foreign_keys=[requested_by])
     client      = relationship("User", foreign_keys=[requested_from])
     document    = relationship("Document", foreign_keys=[document_id])
+
+# =============================================================================
+# TABLE — 74 
+# application_generated_letters
+#
+# Actual immigration letters produced for a specific case. Distinct from
+# LetterTemplate (the stationery/template library) — this is a generated
+# INSTANCE. No FK to LetterTemplate yet; if letters are always generated
+# from a template, add template_id: Optional[UUID] here later so a letter
+# can be traced back to the template that produced it.
+# =============================================================================
+
+class ApplicationGeneratedLetter(Base):
+    __tablename__ = "application_generated_letters"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    application_id = Column(UUID(as_uuid=True), ForeignKey("applications.id"),
+                            nullable=False, index=True)
+
+    name        = Column(String(300), nullable=False)   # e.g. "H-1B Support Letter"
+    letter_type = Column(
+        Enum("offer", "support", "employment_verification", "lca_posting", "other",
+             name="generated_letter_type_enum"),
+        nullable=False
+    )
+    status = Column(
+        Enum("draft", "pending_hr_signature", "signed", "sent", "filed",
+             name="generated_letter_status_enum"),
+        nullable=False, default="draft"
+    )
+
+    generated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    generated_at         = Column(DateTime(timezone=True),
+                                  default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    signed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    signed_at         = Column(DateTime(timezone=True), nullable=True)
+
+    file_path = Column(Text, nullable=True)   # S3 key or local path
+
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    application  = relationship("Application", back_populates="generated_letters")
+    generated_by = relationship("User", foreign_keys=[generated_by_user_id])
+    signed_by    = relationship("User", foreign_keys=[signed_by_user_id])

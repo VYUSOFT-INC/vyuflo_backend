@@ -63,7 +63,12 @@ async def list_documents(
     stmt = (
         select(Document)
         .options(joinedload(Document.document_type))
-        .where(Document.user_id == user_id)
+        .where(
+            Document.user_id == user_id,
+            # NEW — attorney-uploaded docs staged behind HR approval stay
+            # invisible to the employee until HR releases them.
+            Document.status != "pending_hr_release",
+        )
         .order_by(Document.created_at.desc())
     )
     if application_id:
@@ -88,6 +93,10 @@ async def get_document_by_id(
         raise HTTPException(status_code=404, detail="Document not found.")
     if doc.user_id != current_user_id:
         raise HTTPException(status_code=403, detail="Access denied.")
+    if doc.status == "pending_hr_release":
+        # Not yet released by HR — treat as if it doesn't exist for the
+        # employee, same as a genuine 404, rather than leaking its existence.
+        raise HTTPException(status_code=404, detail="Document not found.")
     return _to_response(doc)
 
 
@@ -108,6 +117,8 @@ async def get_document_file_url(
         raise HTTPException(status_code=404, detail="Document not found.")
     if doc.user_id != user_id:
         raise HTTPException(status_code=403, detail="Access denied.")
+    if doc.status == "pending_hr_release":
+        raise HTTPException(status_code=404, detail="Document not found.")
 
     return {
         "id":          doc.id,
@@ -130,6 +141,9 @@ async def upload_document(
     document_type:  str,
     category:       str,
     file:           UploadFile,
+    initial_status: str = "uploaded",   # NEW — 'pending_hr_release' when an attorney
+                                         # uploads on the employee's behalf (see
+                                         # document_extra_service.upload_document_for_client)
 ) -> DocumentResponse:
 
     # 1. Find or create DocumentType
@@ -172,7 +186,7 @@ async def upload_document(
         file_path        = storage_path,
         file_size_kb     = file_size_kb,
         file_format      = file_format,
-        status           = "uploaded",
+        status           = initial_status,
         ocr_status       = "not_started",
         version          = 1,
         is_draft         = False,
@@ -197,6 +211,28 @@ async def upload_document(
                 "document_id": doc.id,   # link only — is_completed stays False
                 "modified_by": user_id,
             })
+
+    # 6. NEW — if this upload matches an open DocumentRequest for this employee,
+    #    fulfill it. Previously fulfill_document_request() existed but nothing
+    #    called it, so requests sat at 'pending' forever even after the
+    #    matching file showed up. Only matches requests already in 'pending'
+    #    (i.e. already relayed through HR if it was attorney-originated) —
+    #    a request still sitting in 'pending_hr_approval' isn't visible to
+    #    the employee yet, so it can't be what they're uploading for.
+    if initial_status == "uploaded":
+        from app.models.visamodels import DocumentRequest
+        from app.services.attorney.document_request_service import fulfill_document_request
+
+        request_result = await db.execute(
+            select(DocumentRequest).where(
+                DocumentRequest.requested_from == user_id,
+                DocumentRequest.status == "pending",
+                DocumentRequest.document_name.ilike(f"%{document_type}%"),
+            )
+        )
+        open_request = request_result.scalars().first()
+        if open_request:
+            await fulfill_document_request(db, open_request.id, doc.id, user_id)
 
     # Reload with relationship and return
     doc_with_type = await _load_doc_with_type(db, doc.id)
