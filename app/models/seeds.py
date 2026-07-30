@@ -929,7 +929,7 @@
 # # ]
 
 # # =============================================================================
-# # new_seeds.py — Vyuflo Complete Seed Data
+# # new_seeds.py — VisaFlow Complete Seed Data
 # # Run once at DB init via seeddata_service.py
 # #
 # # SECTIONS
@@ -1862,7 +1862,7 @@
 #     # ── General ───────────────────────────────────────────────────────────────
 #     {
 #         "key": "platform.name",
-#         "value": "Vyuflo",
+#         "value": "VisaFlow",
 #         "value_type": "string",
 #         "setting_group": "general",
 #         "label": "Platform Name",
@@ -1987,7 +1987,7 @@
 #     },
 #     {
 #         "key": "email.from_name",
-#         "value": "Vyuflo",
+#         "value": "VisaFlow",
 #         "value_type": "string",
 #         "setting_group": "email",
 #         "label": "From Name",
@@ -2081,7 +2081,7 @@
 #     },
 #     {
 #         "key": "maintenance.message",
-#         "value": "Vyuflo is temporarily down for scheduled maintenance. We'll be back shortly.",
+#         "value": "VisaFlow is temporarily down for scheduled maintenance. We'll be back shortly.",
 #         "value_type": "string",
 #         "setting_group": "maintenance",
 #         "label": "Maintenance Message",
@@ -2171,7 +2171,7 @@
 #     # ── Getting Started ───────────────────────────────────────────────────────
 #     {
 #         "title":        "How do I create my account?",
-#         "summary":      "Step-by-step guide to signing up for Vyuflo.",
+#         "summary":      "Step-by-step guide to signing up for VisaFlow.",
 #         "body":         "To create your account, click 'Sign Up' on the login page. Enter your name, email, and password. You'll receive a verification email — click the link to activate your account. You can also sign up with Google or Microsoft.",
 #         "article_type": "faq",
 #         "category":     "getting_started",
@@ -2244,7 +2244,7 @@
 #     {
 #         "title":        "What file formats are accepted for document uploads?",
 #         "summary":      "Supported formats and file size limits for uploads.",
-#         "body":         "Vyuflo accepts PDF, JPG, and PNG files. The maximum file size is 10MB per document (5MB for passport photos). Make sure documents are clear, legible, and not password-protected.",
+#         "body":         "VisaFlow accepts PDF, JPG, and PNG files. The maximum file size is 10MB per document (5MB for passport photos). Make sure documents are clear, legible, and not password-protected.",
 #         "article_type": "faq",
 #         "category":     "documents",
 #         "tag":          "Documents",
@@ -2429,6 +2429,7 @@ PERMISSIONS_SEED = [
 
     # ── Notifications ─────────────────────────────────────────────────────────
     {"code": "notifications.view",             "module": "notifications",  "description": "Receive and view notifications",         "is_system": True},
+    {"code": "notifications.view_all",         "module": "notifications",  "description": "Read the cross-role admin notification feed", "is_system": True},
     {"code": "notifications.manage_templates", "module": "notifications",  "description": "Create and edit notification templates",  "is_system": True},
 
     # ── Support ───────────────────────────────────────────────────────────────
@@ -2931,8 +2932,6 @@ VISA_TYPES_SEED = [
     },
 
     # =========================================================================
-    # NEW: added to cover visa types listed in US_Visa_Categories.docx that
-    # were missing from the seed data. Fees/processing days below marked
     # "TODO: verify" are best-effort placeholders — confirm against the
     # current USCIS/DOS fee schedule before relying on them.
     # =========================================================================
@@ -4057,6 +4056,7 @@ SUPPORT_ARTICLES_SEED = [
 # Event keys MUST exactly match the event_key strings passed to
 # dispatch_notification_from_template() in notification_service.py
 # =============================================================================
+# =============================================================================
 
 NOTIFICATION_TEMPLATES_SEED = [
 
@@ -4080,7 +4080,7 @@ NOTIFICATION_TEMPLATES_SEED = [
         "name": "Case Status Updated (SMS)",
         "description": "Short SMS on case status change",
         "subject": None, "body_html": None,
-        "body_text": "Vyuflo: Case {{application_number}} → {{new_status}}. View: {{action_url}}",
+        "body_text": "VisaFlow: Case {{application_number}} → {{new_status}}. View: {{action_url}}",
         "available_placeholders": '["{{application_number}}", "{{new_status}}", "{{action_url}}"]',
         "category": "case_update", "is_active": False,  # off by default — enable in admin
     },
@@ -4139,7 +4139,7 @@ NOTIFICATION_TEMPLATES_SEED = [
         "name": "HR Approval Required (SMS)",
         "description": "Urgent SMS reminder for pending HR approval",
         "subject": None, "body_html": None,
-        "body_text": "Vyuflo: Case {{application_number}} needs your approval. {{action_url}}",
+        "body_text": "VisaFlow: Case {{application_number}} needs your approval. {{action_url}}",
         "available_placeholders": '["{{application_number}}", "{{action_url}}"]',
         "category": "approval", "is_active": False,
     },
@@ -4218,7 +4218,7 @@ NOTIFICATION_TEMPLATES_SEED = [
         "name": "Deadline Approaching (SMS)",
         "description": "Urgent SMS reminder for approaching deadlines",
         "subject": None, "body_html": None,
-        "body_text": "Vyuflo: {{deadline_title}} due in {{days_remaining}} days ({{deadline_date}}).",
+        "body_text": "VisaFlow: {{deadline_title}} due in {{days_remaining}} days ({{deadline_date}}).",
         "available_placeholders": '["{{deadline_title}}", "{{days_remaining}}", "{{deadline_date}}"]',
         "category": "deadline", "is_active": True,
     },
@@ -4237,9 +4237,9 @@ NOTIFICATION_TEMPLATES_SEED = [
         "event_key": "employee_onboarded", "channel": "email",
         "name": "New Employee Onboarded (Email)",
         "description": "Sent to HR when an invited employee completes profile setup",
-        "subject": "{{actor_label}} has joined your company on Vyuflo",
+        "subject": "{{actor_label}} has joined your company on VisaFlow",
         "body_html": "<p>Hi {{user_name}},</p><p><strong>{{actor_label}}</strong> accepted your company invite and completed profile setup.</p>",
-        "body_text": "Hi {{user_name}},\n\n{{actor_label}} joined on Vyuflo.\n\nView: {{action_url}}",
+        "body_text": "Hi {{user_name}},\n\n{{actor_label}} joined on VisaFlow.\n\nView: {{action_url}}",
         "available_placeholders": '["{{user_name}}", "{{actor_label}}", "{{action_url}}"]',
         "category": "case_update", "is_active": True,
     },
@@ -4261,7 +4261,7 @@ NOTIFICATION_TEMPLATES_SEED = [
         "event_key": "security_alert", "channel": "email",
         "name": "Security Alert — New Login (Email)",
         "description": "Sent on new device login",
-        "subject": "Security Alert: new login to your Vyuflo account",
+        "subject": "Security Alert: new login to your VisaFlow account",
         "body_html": "<p>Hi {{user_name}},</p><p>New login from <strong>{{device}}</strong> at {{login_time}}.</p>",
         "body_text": "Hi {{user_name}},\n\nNew login from {{device}} at {{login_time}}.",
         "available_placeholders": '["{{user_name}}", "{{device}}", "{{login_time}}", "{{ip_address}}"]',
@@ -4285,7 +4285,7 @@ NOTIFICATION_TEMPLATES_SEED = [
         "event_key": "weekly_summary", "channel": "email",
         "name": "Weekly Case Summary (Email)",
         "description": "Weekly digest of case activity",
-        "subject": "Your weekly Vyuflo summary — {{week_range}}",
+        "subject": "Your weekly VisaFlow summary — {{week_range}}",
         "body_html": "<p>Hi {{user_name}},</p><p>{{summary_content}}</p>",
         "body_text": "Hi {{user_name}},\n\nYour weekly summary:\n{{summary_content}}",
         "available_placeholders": '["{{user_name}}", "{{summary_content}}", "{{week_range}}"]',
@@ -4551,7 +4551,7 @@ NOTIFICATION_TEMPLATES_SEED = [
         "name": "New Device Login (SMS)",
         "description": "SMS variant, sent only if the user has SMS enabled for this alert",
         "subject": None, "body_html": None,
-        "body_text": "Vyuflo: New sign-in from {{device}} in {{location}} at {{login_time}}. Not you? Reset your password.",
+        "body_text": "VisaFlow: New sign-in from {{device}} in {{location}} at {{login_time}}. Not you? Reset your password.",
         "available_placeholders": '["{{device}}", "{{location}}", "{{login_time}}"]',
         "category": "security", "is_active": True,
     },
@@ -4572,7 +4572,7 @@ NOTIFICATION_TEMPLATES_SEED = [
         "name": "Failed Login Attempts (SMS)",
         "description": "SMS variant, sent only if the user has SMS enabled for this alert",
         "subject": None, "body_html": None,
-        "body_text": "Vyuflo: {{attempt_count}} failed sign-in attempts detected on your account.",
+        "body_text": "VisaFlow: {{attempt_count}} failed sign-in attempts detected on your account.",
         "available_placeholders": '["{{attempt_count}}"]',
         "category": "security", "is_active": True,
     },
@@ -4605,7 +4605,7 @@ NOTIFICATION_TEMPLATES_SEED = [
         "name": "Unusual Activity Detected (SMS)",
         "description": "SMS variant, sent only if the user has SMS enabled for this alert",
         "subject": None, "body_html": None,
-        "body_text": "Vyuflo: Unusual activity detected on your account from {{location}}. Review now.",
+        "body_text": "VisaFlow: Unusual activity detected on your account from {{location}}. Review now.",
         "available_placeholders": '["{{location}}"]',
         "category": "security", "is_active": True,
     },

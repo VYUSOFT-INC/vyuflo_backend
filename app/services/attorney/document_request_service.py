@@ -59,7 +59,7 @@ async def create_document_request(
     if is_attorney_originated:
         # Notify HR that something needs their review — NOT the employee.
         if application.assigned_hr_id:
-            await db_create(db, Notification(
+            _notif = await db_create(db, Notification(
                 user_id            = application.assigned_hr_id,
                 notification_type  = "document_request_needs_hr_review",
                 category           = "case_update",
@@ -70,9 +70,11 @@ async def create_document_request(
                 actor_id           = actor_id,
                 created_by         = actor_id,
             ))
+            from app.services.admin_notification_fanout import fan_out_notification_to_admins
+            await fan_out_notification_to_admins(db, _notif)
     else:
         # HR (or admin) — goes straight to the employee, as before.
-        await db_create(db, Notification(
+        _notif = await db_create(db, Notification(
             user_id            = application.user_id,
             notification_type  = "document_requested",
             category           = "case_update",
@@ -83,9 +85,10 @@ async def create_document_request(
             actor_id           = actor_id,
             created_by         = actor_id,
         ))
+        from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
+        await fan_out_notification_to_admins(db, _notif)
 
     return DocumentRequestResponse.model_validate(request)
-
 
 # =============================================================================
 # 2. HR REVIEWS AN ATTORNEY-ORIGINATED REQUEST
@@ -127,7 +130,8 @@ async def hr_review_document_request(
         await db_update(db, DocumentRequest, request_id, update_data)
 
         # NOW notify the employee — this is the moment they first learn about it.
-        await db_create(db, Notification(
+# NOW notify the employee — this is the moment they first learn about it.
+        _notif = await db_create(db, Notification(
             user_id            = application.user_id,
             notification_type  = "document_requested",
             category           = "case_update",
@@ -138,6 +142,8 @@ async def hr_review_document_request(
             actor_id           = hr_user_id,
             created_by         = hr_user_id,
         ))
+        from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
+        await fan_out_notification_to_admins(db, _notif)
     else:
         update_data["status"] = "declined"
         update_data["hr_decision_reason"] = payload.reason
@@ -145,7 +151,7 @@ async def hr_review_document_request(
 
         # Notify the attorney who asked — the employee never knew, so they
         # don't get told anything either.
-        await db_create(db, Notification(
+        _notif = await db_create(db, Notification(
             user_id            = request.requested_by,
             notification_type  = "document_request_declined",
             category           = "case_update",
@@ -156,7 +162,8 @@ async def hr_review_document_request(
             actor_id           = hr_user_id,
             created_by         = hr_user_id,
         ))
-
+        from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
+        await fan_out_notification_to_admins(db, _notif)
     result = await db.execute(select(DocumentRequest).where(DocumentRequest.id == request_id))
     return DocumentRequestResponse.model_validate(result.scalars().first())
 
@@ -299,8 +306,8 @@ async def fulfill_document_request(
         created_by  = client_id,
     ))
 
-    # Notify whoever originally asked (attorney or HR — 'requested_by' either way)
-    await db_create(db, Notification(
+# Notify whoever originally asked (attorney or HR — 'requested_by' either way)
+    _notif = await db_create(db, Notification(
         user_id            = request.requested_by,
         notification_type  = "document_request_fulfilled",
         category           = "case_update",
@@ -312,3 +319,5 @@ async def fulfill_document_request(
         actor_id           = client_id,
         created_by         = client_id,
     ))
+    from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
+    await fan_out_notification_to_admins(db, _notif)
