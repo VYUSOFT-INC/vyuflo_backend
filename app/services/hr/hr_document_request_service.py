@@ -111,8 +111,6 @@ async def hr_create_document_request(
         created_by         = hr_user_id,
     )
     await db_create(db, notification)
-    from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
-    await fan_out_notification_to_admins(db, notification)
 
     return DocumentRequestResponse.model_validate(request)
 

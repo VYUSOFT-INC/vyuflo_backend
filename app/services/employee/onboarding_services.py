@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, NotFoundException
-from app.core.security import create_access_token, create_refresh_token
+from app.core.security import create_access_token, create_refresh_token, new_session_id
 from app.models.visamodels import (
     User,
     UserOTP,
@@ -26,6 +26,7 @@ from app.models.visamodels import (
 )
 from app.services.employee.otp_service import send_email_verification_otp
 from app.services.employee.services import (
+    _store_refresh_token,
     db_create,
     db_delete,
     db_get_by_field,
@@ -118,23 +119,30 @@ async def service_verify_email(
     profile_picture = getattr(profile, "profile_picture_url", None)
     theme_color = getattr(profile, "theme_color", None) or "#4f46e5"
 
+    # ── Tokens — session_id ties this refresh token to one device/browser ──
+    session_id    = new_session_id()
+    access_token  = create_access_token(
+        str(user.id),
+        roles,
+        user.email,
+        user.first_name or "",
+        user.last_name or "",
+        user.token_version,
+    )
+    refresh_token = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id), session_id, refresh_token)
+
     return {
-        "access_token": create_access_token(
-            str(user.id),
-            roles,
-            user.email,
-            user.first_name or "",
-            user.last_name or "",
-        ),
-        "refresh_token": create_refresh_token(str(user_id)),
-        "roles": roles,
-        "profile": profile_picture,
-        "theme_color": theme_color,
+        "access_token":  access_token,
+        "refresh_token": refresh_token,
+        "roles":         roles,
+        "profile":       profile_picture,
+        "theme_color":   theme_color,
         "user": {
-            "id": str(user.id),
+            "id":         str(user.id),
             "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": user.email,
+            "last_name":  user.last_name,
+            "email":      user.email,
         },
         "onboarding_step": 2,
     }

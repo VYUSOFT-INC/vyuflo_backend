@@ -9,7 +9,7 @@ Mount in main.py:
 from __future__ import annotations
 
 import uuid
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,8 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # ---------------------------------------------------------------------------
 # Project imports  (adjust paths to match your project layout)
 # ---------------------------------------------------------------------------
+from app.core.core_permissions import PermissionChecker
 from app.core.database import get_db                        # your AsyncSession dep
-from app.core.dependencies import get_current_user   # your auth dep → UUID
+from app.core.dependencies import CurrentUserData, get_current_user   # your auth dep → UUID
 from app.schemas.employee.application import (
     ApplicationCreate,
     ApplicationListResponse,
@@ -103,18 +104,37 @@ async def api_list_applications(
     )
 
 
+# @application_router.get(
+#     "/applications/{application_id}",
+#         response_model=ApplicationResponse,
+#         status_code=status.HTTP_200_OK,
+#         summary="Get a single application by ID",
+#     )
+# async def api_get_application(
+#         application_id: uuid.UUID,
+#         db: AsyncSession = Depends(get_db),
+#         current_user_id: uuid.UUID = Depends(get_current_user),
+#     ) -> ApplicationResponse:
+#         return await get_application(db, application_id, current_user_id.user_id)
+
 @application_router.get(
     "/applications/{application_id}",
-        response_model=ApplicationResponse,
-        status_code=status.HTTP_200_OK,
-        summary="Get a single application by ID",
-    )
+    response_model=ApplicationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get a single application by ID",
+)
 async def api_get_application(
-        application_id: uuid.UUID,
-        db: AsyncSession = Depends(get_db),
-        current_user_id: uuid.UUID = Depends(get_current_user),
-    ) -> ApplicationResponse:
-        return await get_application(db, application_id, current_user_id.user_id)
+    application_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Annotated[
+        CurrentUserData,
+        Depends(PermissionChecker(
+            ["applications.view_own", "applications.view_all"],
+            require_all=False,
+        )),
+    ] = None,
+) -> ApplicationResponse:
+    return await get_application(db, application_id, current_user.user_id)
 
 
 @application_router.patch(

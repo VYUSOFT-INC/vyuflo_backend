@@ -1,16 +1,17 @@
 # core/sms.py
 """
-SMS delivery for phone OTPs — Twilio.
-
-Twilio's Python SDK is synchronous, so calls are pushed to a thread with
-asyncio.to_thread to avoid blocking the event loop, matching the async
-style of core/email.py.
+SMS delivery via Twilio.
+Uses MessagingServiceSid (works for India + US without a dedicated number).
+Twilio SDK is sync — wrapped in asyncio.to_thread to avoid blocking event loop.
 """
 import asyncio
+import logging
 
 from twilio.rest import Client
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 _client: Client | None = None
 
@@ -23,10 +24,7 @@ def _get_client() -> Client:
 
 
 def _to_e164(phone: str, country_code: str | None = None) -> str:
-    """
-    Best-effort normalization to E.164 (e.g. +14155551234).
-    Assumes `phone` is already digits-only or has a leading '+'.
-    """
+    """Best-effort normalization to E.164 (e.g. +919014793898)."""
     phone = phone.strip()
     if phone.startswith("+"):
         return phone
@@ -38,36 +36,46 @@ def _to_e164(phone: str, country_code: str | None = None) -> str:
 
 async def send_sms(to: str, body: str) -> None:
     """
-    Sends a raw SMS via Twilio.
-    `to` must already be E.164 formatted (+countrycode number).
+    Sends a raw SMS via Twilio MessagingServiceSid.
+    Prefers MessagingServiceSid over From number — works for India + US.
     """
     def _send() -> None:
-        client = _get_client()
-        client.messages.create(
-            to=to,
-            from_=settings.TWILIO_FROM_NUMBER,
-            body=body,
-        )
+        client  = _get_client()
+        params = {
+            "to":   to,
+            "body": body,
+        }
+        # Prefer MessagingServiceSid — works globally including India
+        if settings.TWILIO_MESSAGING_SERVICE_SID:
+            params["messaging_service_sid"] = settings.TWILIO_MESSAGING_SERVICE_SID
+        elif settings.TWILIO_FROM_NUMBER:
+            params["from_"] = settings.TWILIO_FROM_NUMBER
+        else:
+            raise ValueError("Neither TWILIO_MESSAGING_SERVICE_SID nor TWILIO_FROM_NUMBER is set")
+
+        client.messages.create(**params)
 
     await asyncio.to_thread(_send)
 
 
-async def send_login_otp_sms(phone: str, otp_code: str, country_code: str | None = None) -> None:
-    """Sends the passwordless-login OTP code to a phone number."""
-    to = _to_e164(phone, country_code)
+async def send_login_otp_sms(
+    phone: str, otp_code: str, country_code: str | None = None
+) -> None:
+    to   = _to_e164(phone, country_code)
     body = (
-        f"Your VisaFlow login code is {otp_code}. "
-        f"It expires in {settings.OTP_EXPIRE_MINUTES} minutes. "
+        f"Your Vyuflo login code is {otp_code}. "
+        f"It expires in 60 seconds. "
         "Never share this code with anyone."
     )
     await send_sms(to=to, body=body)
 
 
-async def send_phone_verification_otp_sms(phone: str, otp_code: str, country_code: str | None = None) -> None:
-    """Sends the signup phone-verification OTP code."""
-    to = _to_e164(phone, country_code)
+async def send_phone_verification_otp_sms(
+    phone: str, otp_code: str, country_code: str | None = None
+) -> None:
+    to   = _to_e164(phone, country_code)
     body = (
-        f"Your VisaFlow phone verification code is {otp_code}. "
-        f"It expires in {settings.OTP_EXPIRE_MINUTES} minutes."
+        f"Your Vyuflo phone verification code is {otp_code}. "
+        "It expires in 60 seconds."
     )
     await send_sms(to=to, body=body)

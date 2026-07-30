@@ -133,14 +133,6 @@ class HRCaseUpdate(BaseModel):
     has_action_required: Optional[bool]          = None
     action_required_note: Optional[str]          = Field(None, max_length=500)
 
-    # ── Employment / LCA (optional — HR can fill these in as the case progresses) ──
-    job_title:        Optional[str] = Field(None, max_length=200)
-    annual_salary:    Optional[str] = Field(None, max_length=50)
-    department:       Optional[str] = Field(None, max_length=200)
-    worksite_address: Optional[str] = None
-    lca_status:       Optional[str] = None   # 'not_filed' | 'filed' | 'certified' | 'denied'
-    lca_case_number:  Optional[str] = Field(None, max_length=50)
-
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -191,10 +183,6 @@ class VisaTypeBasic(BaseModel):
     id:   uuid.UUID
     code: str
     name: str
-    required_documents: List[str] = Field(
-        default_factory=list,
-        description="Parsed from visa_types.required_documents (stored as JSON text)",
-    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -217,43 +205,6 @@ class AttorneyBasic(BaseModel):
     full_name:      str
     email:          str
     law_firm_name:  Optional[str]
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class EmploymentInfo(BaseModel):
-    """H-1B / L-1 / O-1 employment details required for I-129. Case-specific
-    overrides — see Application.job_title etc. and their fallback to
-    EmployerEmployee in hr_case_service._build_case_response."""
-    job_title:        Optional[str]  = None
-    annual_salary:    Optional[str]  = None
-    start_date:       Optional[date] = None
-    department:       Optional[str]  = None
-    worksite_address: Optional[str]  = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class DocumentBasic(BaseModel):
-    """Slim document reference — used by the Missing Checklist tab to check
-    off which required_documents already have a matching upload."""
-    id:            uuid.UUID
-    name:          str
-    document_type: Optional[str] = None
-    status:        str
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class GeneratedLetterInfo(BaseModel):
-    """An attorney-produced letter instance for this case (Generated Letters tab)."""
-    id:           uuid.UUID
-    name:         str
-    letter_type:  str    # 'offer' | 'support' | 'employment_verification' | 'lca_posting' | 'other'
-    generated_by: str    # attorney full name
-    generated_at: datetime
-    status:       str    # 'draft' | 'pending_hr_signature' | 'signed' | 'sent' | 'filed'
-    file_url:     Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -297,20 +248,6 @@ class HRCaseResponse(BaseModel):
     visa_type:  Optional[VisaTypeBasic]  = None
     employee:   Optional[EmployeeBasic]  = None
     attorney:   Optional[AttorneyBasic]  = None
-
-    # ── Employment / sponsor details (I-129) ──────────────────────────────────
-    employment: Optional[EmploymentInfo] = None
-
-    # ── LCA gate ───────────────────────────────────────────────────────────────
-    lca_certified:   bool          = False
-    lca_status:      Optional[str] = None      # 'not_filed' | 'filed' | 'certified' | 'denied'
-    lca_case_number: Optional[str] = None
-
-    # ── Documents already uploaded (Missing Checklist match) ──────────────────
-    documents: List[DocumentBasic] = Field(default_factory=list)
-
-    # ── Attorney-produced letters (Generated Letters tab) ─────────────────────
-    generated_letters: List[GeneratedLetterInfo] = Field(default_factory=list)
 
     # ── Audit ─────────────────────────────────────────────────────────────────
     created_by: uuid.UUID
@@ -360,5 +297,18 @@ class HRCaseCreateResponse(BaseModel):
     message:            str
     employee_name:      str
     visa_type_code:     str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GeneratedLetterInfo(BaseModel):
+    """An attorney-produced letter instance for this case (Generated Letters tab)."""
+    id:           uuid.UUID
+    name:         str
+    letter_type:  str    # 'offer' | 'support' | 'employment_verification' | 'lca_posting' | 'other'
+    generated_by: str    # attorney full name
+    generated_at: datetime
+    status:       str    # 'draft' | 'pending_hr_signature' | 'signed' | 'sent' | 'filed'
+    file_url:     Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

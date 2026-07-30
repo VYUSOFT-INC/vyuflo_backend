@@ -37,3 +37,9 @@ slowapi==0.1.9
 passlib
 twilio
 aioboto3
+
+pymupdf
+passporteye    
+paddleocr
+paddlepaddle
+user_agents 

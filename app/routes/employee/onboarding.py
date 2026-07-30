@@ -75,7 +75,7 @@ async def verify_email(
     _set_ui_cookie(
         response,
         user=result["user"],
-        profile=result.get("profile"),
+        # profile=result.get("profile"),
         theme_color=result.get("theme_color"),
         roles=result["roles"],
     )

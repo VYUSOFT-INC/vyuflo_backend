@@ -28,6 +28,7 @@ _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 class UserProfileResponse(BaseModel):
     id:                   uuid.UUID
     user_id:              uuid.UUID
+    email:                Optional[str]  = None
     full_legal_name:      Optional[str]  = None
     nationality:          Optional[str]  = None
     country_of_residence: Optional[str]  = None
