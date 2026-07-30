@@ -299,3 +299,16 @@ class HRCaseCreateResponse(BaseModel):
     visa_type_code:     str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class GeneratedLetterInfo(BaseModel):
+    """An attorney-produced letter instance for this case (Generated Letters tab)."""
+    id:           uuid.UUID
+    name:         str
+    letter_type:  str    # 'offer' | 'support' | 'employment_verification' | 'lca_posting' | 'other'
+    generated_by: str    # attorney full name
+    generated_at: datetime
+    status:       str    # 'draft' | 'pending_hr_signature' | 'signed' | 'sent' | 'filed'
+    file_url:     Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)

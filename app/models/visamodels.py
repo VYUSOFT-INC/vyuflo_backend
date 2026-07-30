@@ -48,7 +48,7 @@ class User(Base):
     marketing_opt_in  = Column(Boolean,  default=False, nullable=False)
     newsletter_opt_in = Column(Boolean,  default=False, nullable=False)
     referral_source   = Column(String(100), nullable=True)
-
+    token_version = Column(Integer, default=0, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at    = Column(DateTime(timezone=True),
                            default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -355,7 +355,10 @@ class UserProfile(Base):
     onboarding_step      = Column(Integer, default=1,     nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
     theme_color = Column(String(7), nullable=True, default="#4f46e5")
-
+    tour_employee_seen   = Column(Boolean, default=False, nullable=False)
+    tour_hr_seen         = Column(Boolean, default=False, nullable=False)
+    tour_attorney_seen   = Column(Boolean, default=False, nullable=False)
+    tour_admin_seen      = Column(Boolean, default=False, nullable=False)
     # ── Employer Link (set when employee accepts HR invitation) ───────────────
     employer_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
                          nullable=True, index=True)
@@ -785,7 +788,7 @@ class DocumentType(Base):
     accepted_formats = Column(String(100), nullable=True, default="PDF,JPG,PNG")
     max_file_size_mb = Column(Integer, default=10, nullable=False)
     is_active        = Column(Boolean, default=True, nullable=False)
-
+    ocr_slug    = Column(String(50), nullable=True, index=True)
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),

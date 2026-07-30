@@ -125,12 +125,13 @@ def _infer_status(doc: Document) -> ApprovalItemStatus:
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def hr_list_approvals(
-    db:           AsyncSession,
-    hr_user_id:   uuid.UUID,
-    status:       Optional[str] = None,    # 'pending' | 'edits_requested' | 'approved' | 'all'
-    priority:     Optional[str] = None,
-    doc_type:     Optional[str] = None,
-    date_range:   Optional[str] = "7days",
+    db:             AsyncSession,
+    hr_user_id:     uuid.UUID,
+    status:         Optional[str] = None,    # 'pending' | 'edits_requested' | 'approved' | 'all'
+    priority:       Optional[str] = None,
+    doc_type:       Optional[str] = None,
+    date_range:     Optional[str] = "7days",
+    application_id: Optional[uuid.UUID] = None,   # NEW — optional case scope (used by hr_case_overview_service)
 ) -> ApprovalListResponse:
     """
     Returns all documents pending HR review for the HR user's cases.
@@ -148,18 +149,25 @@ async def hr_list_approvals(
     elif status == "edits_requested": db_statuses = ["rejected"]
     elif status == "approved":      db_statuses = ["verified"]
 
+    filters = [
+        Application.assigned_hr_id == hr_user_id,
+        Document.application_id.isnot(None),
+        Document.status.in_(db_statuses),
+    ]
+    if application_id is not None:
+        # Case-scoped call (e.g. Overview quick-stat) — show all relevant docs for
+        # this case regardless of the date_range window, not just the last N days.
+        filters.append(Document.application_id == application_id)
+    else:
+        filters.append(Document.created_at >= date_cutoff)
+
     stmt = (
         select(Document)
         .join(Application, Document.application_id == Application.id)
         .options(
             joinedload(Document.document_type),
         )
-        .where(
-            Application.assigned_hr_id == hr_user_id,
-            Document.application_id.isnot(None),
-            Document.status.in_(db_statuses),
-            Document.created_at >= date_cutoff,
-        )
+        .where(*filters)
         .order_by(Document.created_at.desc())
         .limit(100)
     )
