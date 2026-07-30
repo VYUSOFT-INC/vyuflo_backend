@@ -32,7 +32,8 @@ from app.routes.employee.consultation_routes import consultation_router
 from app.routes.employee.notification_routes import notification_router
 from app.routes.admin.roles import roles_router
 from app.routes.admin.custom_roles import custom_roles_router
-# from app.routes.user_management import user_management_router
+from app.routes.admin.user_management import user_management_router
+from app.routes.admin.notifications_reminders import admin_notifications_router
 from app.routes.admin.system_settings import system_settings_router
 from app.routes.admin.notification_templates import notification_templates_router
 from app.routes.admin.admin_visa_types_router import admin_visa_types_router
@@ -228,6 +229,8 @@ app.include_router(notification_router, prefix="/api/v1", tags=["notifications"]
 app.include_router(attorney_router, prefix="/api/v1", tags=["attorneys"])
 # app.include_router(roles_router,       prefix="/api/v1")
 # app.include_router(user_roles_router,  prefix="/api/v1", tags=["User Roles"])
+app.include_router(user_management_router, prefix="/api/v1",tags=["User Management"])
+app.include_router(admin_notifications_router, prefix="/api/v1")
 app.include_router(custom_roles_router,prefix="/api/v1",tags=["Custom Roles"])
 app.include_router(system_settings_router, prefix="/api/v1",tags=["System Settings"])
 app.include_router(notification_templates_router, prefix="/api/v1",tags=["Notification Templates"])
