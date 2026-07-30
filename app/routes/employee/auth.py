@@ -1,4 +1,3 @@
-
 """
 Authentication routes — /api/v1/auth/*
 PRODUCTION VERSION — refresh_token as httpOnly cookie, ui_session as JS-readable cookie.
@@ -13,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, Request, Response, Cookie
 from app.core.dependencies import Current_User, DBSession
 from app.core.email import send_email
 from app.core.exceptions import NotFoundException, UnauthorizedException
+from app.core.security import create_access_token, decode_token
 from app.models.visamodels import User, UserProfile
 from app.schemas.employee.auth import (
     LoginRequest,
@@ -31,12 +31,14 @@ from app.services.employee.auth_services import (
     service_logout,
     service_refresh_token,
     service_request_password_reset,
+    service_sign_out_all_devices,
     service_signup,
     service_sso_login,
     service_verify_reset_otp,
 )
 from app.services.employee.services import db_get_by_field, db_get_by_id, get_user_role
 from app.core.config import settings
+from app.services.employee.storage import resolve_url
 
 router = APIRouter()
 
@@ -62,29 +64,31 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
 
 
 def _set_ui_cookie(
-    response: Response,
-    user:     dict,
-    profile:  str | None,
-    theme_color:str | None,
-    roles:    list[str],
+    response:    Response,
+    user:        dict,
+    theme_color: str | None,
+    roles:       list[str],
 ) -> None:
-    # Build the dict first, then dumps without any extra wrapping
+    """
+    NOTE: profile_picture_url is intentionally NOT stored here.
+    Presigned S3/Spaces URLs are long (signature query params) and can push
+    this cookie past the ~4KB browser limit, causing silent write failures.
+    Avatar is resolved live via GET /users/me/profile instead.
+    """
     data = {
-        "user_id":    str(user.get("id") or user.get("user_id") or ""),
-        "first_name": user["first_name"],
-        "last_name":  user["last_name"],
-        "email":      user["email"],
-        "profile":    profile,
-        "roles":      roles,
-        "theme_color":theme_color,
+        "user_id":     str(user.get("id") or user.get("user_id") or ""),
+        "first_name":  user["first_name"],
+        "last_name":   user["last_name"],
+        "email":       user["email"],
+        "roles":       roles,
+        "theme_color": theme_color,
     }
-    # Use standard base64 encoding — avoids ALL quote/escape issues with cookies
     import base64
     payload = base64.b64encode(json.dumps(data, separators=(",", ":")).encode()).decode()
 
     response.set_cookie(
         key      = "ui_session",
-        value    = payload,       # base64 is cookie-safe, no quotes, no escaping
+        value    = payload,
         httponly = False,
         secure   = settings.COOKIE_SECURE,
         samesite = "lax",
@@ -92,6 +96,30 @@ def _set_ui_cookie(
         path     = "/",
     )
 
+def _set_avatar_session_cookie(response: Response, user_id: str) -> None:
+    """
+    Lightweight, non-sensitive cookie used ONLY to authorize the avatar
+    image endpoint (so <img src> can load it without needing a header).
+    Deliberately NOT the refresh token — narrow scope, low value if leaked
+    (grants read access to one non-sensitive profile picture, nothing else).
+    """
+    token = create_access_token(user_id, [], "", "", "", 0)  # minimal payload, just carries sub
+    response.set_cookie(
+        key      = "avatar_session",
+        value    = token,
+        httponly = True,
+        secure   = settings.COOKIE_SECURE,
+        samesite = "lax",
+        max_age  = 60 * 60 * 24 * 7,
+        path     = "/api/v1/users/me/avatar",   # scoped ONLY to this one route
+    )
+
+def _clear_avatar_session_cookie(response: Response) -> None:
+    response.delete_cookie(key="avatar_session", path="/api/v1/users/me/avatar")
+
+def _clear_avatar_session_cookie(response: Response) -> None:
+    response.delete_cookie(key="avatar_session", path="/api/v1/users/me/avatar")
+    
 def _clear_refresh_cookie(response: Response) -> None:
     response.delete_cookie(key="refresh_token", path="/api/v1/auth")
 
@@ -123,7 +151,7 @@ async def get_me(db: DBSession, current_user: Current_User):
         "is_active":            user.is_active,
         "is_verified":          user.is_verified,
         "roles":                roles,
-        "profile_picture":      profile.profile_picture_url if profile else None,
+        "profile_picture":      await resolve_url(profile.profile_picture_url) if profile else None,
         "onboarding_step":      profile.onboarding_step      if profile else 1,
         "onboarding_completed": profile.onboarding_completed if profile else False,
         "created_at":           str(user.created_at),
@@ -155,7 +183,8 @@ async def signup(
 
     # ── Set both cookies ───────────────────────────────────────────────────
     _set_refresh_cookie(response, result["refresh_token"])
-    _set_ui_cookie(response, result["user"], result["profile_picture"],result["theme_color"], result["roles"])
+    _set_ui_cookie(response, result["user"], result["theme_color"], result["roles"])
+    _set_avatar_session_cookie(response, str(result["user"]["id"]))
 
     return TokenResponse(
         access_token    = result["access_token"],
@@ -189,15 +218,19 @@ async def login(
 
     # ── Set both cookies ───────────────────────────────────────────────────
     _set_refresh_cookie(response, result["refresh_token"])
-    _set_ui_cookie(response, result["user"], result["profile_picture"],result["theme_color"], result["roles"],)
-
+    _set_ui_cookie(response, result["user"], result.get("theme_color"), result["roles"])
+    _set_avatar_session_cookie(response, str(result["user"]["id"]))
 
     return TokenResponse(
-        access_token  = result["access_token"],
-        roles         = result["roles"],
-        profile       = result["profile_picture"],
-        theme_color = result["theme_color"],
-        user          = result["user"],
+        access_token       = result["access_token"],
+        roles              = result["roles"],
+        profile            = result["profile_picture"],
+        theme_color        = result["theme_color"],
+        user               = result["user"],
+        tour_employee_seen = result["tour_employee_seen"],
+        tour_hr_seen       = result["tour_hr_seen"],
+        tour_attorney_seen = result["tour_attorney_seen"],
+        tour_admin_seen    = result["tour_admin_seen"],
     )
 
 
@@ -221,8 +254,9 @@ async def sso_login(
 
     # ── Set both cookies ───────────────────────────────────────────────────
     _set_refresh_cookie(response, result["refresh_token"])
-    _set_ui_cookie(response, result["user"], result["profile_picture"], result["roles"])
-
+    _set_ui_cookie(response, result["user"], result.get("theme_color"), result["roles"])
+    _set_avatar_session_cookie(response, str(result["user"]["id"]))
+    
     return TokenResponse(
         access_token    = result["access_token"],
         refresh_token   = None,
@@ -267,13 +301,45 @@ async def refresh_token(
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 @router.post("/logout", response_model=MessageResponse)
-async def logout(response: Response, user_id: Current_User) -> MessageResponse:
-    """Revoke refresh token in Redis and clear both cookies."""
-    await service_logout(user_id.user_id)
+async def logout(
+    response: Response,
+    user_id: Current_User,
+    db: DBSession,
+    refresh_token: Optional[str] = Cookie(None),
+) -> MessageResponse:
+    """Revoke THIS session's refresh token in Redis and clear both cookies."""
+    if refresh_token:
+        try:
+            payload = decode_token(refresh_token)
+            session_id = payload.get("session_id")
+            if session_id:
+                await service_logout(user_id.user_id, session_id)
+        except Exception:
+            pass  # token already invalid/expired — nothing to revoke
+
     _clear_refresh_cookie(response)
-    _clear_ui_cookie(response)       # ← wipe sidebar data too
+    _clear_ui_cookie(response)
+    _clear_avatar_session_cookie(response)
     return MessageResponse(message="Logged out successfully")
 
+@router.post("/logout-all", response_model=MessageResponse)
+async def logout_all_devices(
+    response: Response,
+    user_id: Current_User,
+    db: DBSession,
+) -> MessageResponse:
+    """
+    Signs out every device/session for this user. Bumps token_version so
+    already-issued access tokens die immediately everywhere, not just on
+    future refresh attempts.
+    """
+    revoked_count = await service_sign_out_all_devices(db, user_id.user_id)
+    await db.commit()
+
+    _clear_refresh_cookie(response)
+    _clear_ui_cookie(response)
+    _clear_avatar_session_cookie(response)
+    return MessageResponse(message=f"Signed out from {revoked_count} device(s).")
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                        PASSWORD RESET                                    ║

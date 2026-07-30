@@ -12,7 +12,7 @@ from typing import Optional
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import joinedload
@@ -23,6 +23,7 @@ from app.models.visamodels import (
     Document, DocumentType, Application, DocumentActivity,
 )
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
+from app.services.employee import storage
 from app.services.employee.document_service import (
     get_document_file_url, upload_document,
 )
@@ -162,23 +163,26 @@ async def hr_view_document(
     db:           AsyncSession = Depends(get_db),
     current_user              = Depends(get_current_user),
 ):
-    doc_info  = await get_document_file_url(db, document_id, current_user.user_id)
-    file_path = f"./{doc_info['file_path']}"
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk.")
+    doc_info = await get_document_file_url(db, document_id, current_user.user_id)
+
     fmt = doc_info["file_format"].lower()
     media_types = {
-        "jpg": "image/jpeg", "jpeg": "image/jpeg",
-        "png": "image/png",  "pdf":  "application/pdf",
+        "jpg":  "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png":  "image/png",
+        "gif":  "image/gif",
+        "pdf":  "application/pdf",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
-    return FileResponse(
-        path       = file_path,
-        media_type = media_types.get(fmt, "application/octet-stream"),
-        filename   = doc_info["file_name"],
-        headers    = {"Content-Disposition": "inline"},
-    )
+    media_type = media_types.get(fmt, "application/octet-stream")
 
+    content, _ = await storage.get_file_bytes(doc_info["file_path"])
+
+    return StreamingResponse(
+        iter([content]),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{doc_info["file_name"]}"'},
+    )
 
 # ── PATCH /hr/documents/:documentId/verify ────────────────────────────────────
 # HR marks a document as verified.

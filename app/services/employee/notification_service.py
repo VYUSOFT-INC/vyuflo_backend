@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import asyncio
@@ -68,11 +69,10 @@ async def _get_company_context(
 ) -> dict:
     """
     Fetches HR company branding from EmployerProfile.
-    Used to personalise emails with company name + logo per HR tenant.
-    Falls back to Vyuflo defaults if no HR or no profile found.
+    Falls back to VyuFlo defaults if no HR or no profile found.
     """
     defaults = {
-        "company_name":     "Vyuflo",
+        "company_name":     "VyuFlo",
         "company_logo_url": f"{settings.FRONTEND_URL}/logo192.png",
         "portal_url":       settings.FRONTEND_URL,
         "hr_name":          "Your HR Team",
@@ -96,7 +96,7 @@ async def _get_company_context(
     )
 
     return {
-        "company_name":     profile.company_name or "Vyuflo",
+        "company_name":     profile.company_name or "VyuFlo",
         "company_logo_url": profile.logo_url or f"{settings.FRONTEND_URL}/logo192.png",
         "portal_url":       settings.FRONTEND_URL,
         "hr_name":          hr_name,
@@ -112,11 +112,7 @@ def _build_branded_html(
     cta_label:    Optional[str] = None,
     cta_url:      Optional[str] = None,
 ) -> str:
-    """
-    Wraps plain notification body in a clean branded HTML email.
-    Each HR company gets their own logo + company name in the header.
-    CTA button is optional — shown when cta_label + cta_url are provided.
-    """
+    """Wraps plain text in a branded HTML email — used when no template body_html exists."""
     body_html_content = body_text.replace("\n", "<br>")
 
     cta_block = ""
@@ -160,7 +156,7 @@ def _build_branded_html(
           <td style="padding:20px 32px;border-top:1px solid #f3f4f6;text-align:center;">
             <p style="font-size:12px;color:#9ca3af;margin:0;">
               This notification was sent by {company_name} via
-              <a href="{portal_url}" style="color:#4f46e5;text-decoration:none;">Vyuflo</a>.
+              <a href="{portal_url}" style="color:#4f46e5;text-decoration:none;">VyuFlo</a>.
               If you have questions, contact your HR team.
             </p>
           </td>
@@ -364,7 +360,7 @@ async def _deliver_push(
     if not settings.VAPID_PRIVATE_KEY:
         return
 
-    from app.services.push_service import send_push_to_user
+    from app.core.push_service import send_push_to_user
 
     push_title = subject
     push_body  = body_text
@@ -407,18 +403,22 @@ async def dispatch_notification(
     hr_user_id:          Optional[uuid.UUID] = None,
     cta_label:           Optional[str]       = None,
     cta_url:             Optional[str]       = None,
+    email_pref_field:    Optional[str]       = None,   # NEW — overrides category_pref_field for email gating
+    sms_pref_field:       Optional[str]       = None,   # NEW — overrides category_pref_field for sms gating
 ) -> None:
     """
-    Fires all channels the user has enabled AND that have an active template
-    (or falls back to hardcoded content for email if no template exists).
+    Fires all channels the user has enabled AND that have an active template.
 
     Gating per channel:
       - email → prefs.email_enabled AND prefs.<category_pref_field>
+                AND (prefs.<email_pref_field> if provided, else True)
       - sms   → prefs.sms_enabled   AND prefs.<category_pref_field> AND user has phone
+                AND (prefs.<sms_pref_field> if provided, else True)
       - push  → prefs.push_enabled  AND user has a push subscription
 
-    Each channel runs concurrently. One channel failing never blocks another.
-    in_app is already persisted by _create_notification() before this runs.
+    email_pref_field/sms_pref_field let callers (e.g. security alerts) gate
+    individual alert types + channels without touching the broader category
+    switch (notify_security_alerts) used by every other security notification.
     """
     try:
         prefs = await _get_or_create_prefs(db, user_id)
@@ -427,6 +427,9 @@ async def dispatch_notification(
             return
 
         category_enabled = getattr(prefs, category_pref_field, True)
+        email_specific    = getattr(prefs, email_pref_field, True) if email_pref_field else True
+        sms_specific      = getattr(prefs, sms_pref_field,   True) if sms_pref_field   else True
+
         company = await _get_company_context(db, hr_user_id)
 
         full_context = {
@@ -437,7 +440,7 @@ async def dispatch_notification(
 
         tasks = []
 
-        if prefs.email_enabled and category_enabled:
+        if prefs.email_enabled and category_enabled and email_specific:
             tasks.append(_deliver_email(
                 db=db, notif_id=notif_id, user=user,
                 event_key=event_key, full_context=full_context,
@@ -445,7 +448,7 @@ async def dispatch_notification(
                 company=company, cta_label=cta_label, cta_url=cta_url,
             ))
 
-        if prefs.sms_enabled and category_enabled:
+        if prefs.sms_enabled and category_enabled and sms_specific:
             tasks.append(_deliver_sms(
                 db=db, notif_id=notif_id, user=user,
                 event_key=event_key, full_context=full_context,
@@ -672,10 +675,10 @@ async def fire_case_created(
         )
         await dispatch_notification(
             db, notif_id=emp_notif.id, user_id=user_id,
-            subject=f"Vyuflo — Application {case_ref} Created",
+            subject=f"VyuFlo — Application {case_ref} Created",
             body_text=(
                 f"Hi,\n\nYour visa application {case_ref} has been created.\n"
-                f"Track your progress at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
+                f"Track your progress at: {settings.FRONTEND_URL}{app_url}\n\nVyuFlo Team"
             ),
             category_pref_field="notify_case_updates",
             hr_user_id=hr_id, cta_label="View Application", cta_url=app_url,
@@ -698,10 +701,10 @@ async def fire_case_created(
             )
             await dispatch_notification(
                 db, notif_id=hr_notif.id, user_id=hr_id,
-                subject=f"Vyuflo — New Case Assigned: {case_ref}",
+                subject=f"VyuFlo — New Case Assigned: {case_ref}",
                 body_text=(
                     f"A new application ({case_ref}) has been assigned to you.\n"
-                    f"Review it at: {settings.FRONTEND_URL}/employer/cases/{app_id}\n\nVyuflo Team"
+                    f"Review it at: {settings.FRONTEND_URL}/employer/cases/{app_id}\n\nVyuFlo Team"
                 ),
                 category_pref_field="notify_case_updates",
                 hr_user_id=hr_id, cta_label="Review Case", cta_url=f"/employer/cases/{app_id}",
@@ -724,10 +727,10 @@ async def fire_case_created(
             )
             await dispatch_notification(
                 db, notif_id=att_notif.id, user_id=att_id,
-                subject=f"Vyuflo — New Case Assigned: {case_ref}",
+                subject=f"VyuFlo — New Case Assigned: {case_ref}",
                 body_text=(
                     f"Case {case_ref} has been assigned to you.\n"
-                    f"Open it at: {settings.FRONTEND_URL}/lawyer/cases/{app_id}\n\nVyuflo Team"
+                    f"Open it at: {settings.FRONTEND_URL}/lawyer/cases/{app_id}\n\nVyuFlo Team"
                 ),
                 category_pref_field="notify_case_updates",
                 hr_user_id=hr_id, cta_label="Open Case", cta_url=f"/lawyer/cases/{app_id}",
@@ -769,10 +772,10 @@ async def fire_case_assigned_to_hr(
         )
         await dispatch_notification(
             db, notif_id=hr_notif.id, user_id=new_hr_id,
-            subject=f"Vyuflo — Case {case_ref} Assigned to You",
+            subject=f"VyuFlo — Case {case_ref} Assigned to You",
             body_text=(
                 f"Hi {hr_name},\n\nCase {case_ref} has been assigned to you by {actor_label}.\n"
-                f"Open it at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
+                f"Open it at: {settings.FRONTEND_URL}{app_url}\n\nVyuFlo Team"
             ),
             category_pref_field="notify_case_updates",
             hr_user_id=new_hr_id, cta_label="Open Case", cta_url=app_url,
@@ -792,10 +795,10 @@ async def fire_case_assigned_to_hr(
         )
         await dispatch_notification(
             db, notif_id=emp_notif.id, user_id=user_id,
-            subject=f"Vyuflo — HR Assigned to Your Case {case_ref}",
+            subject=f"VyuFlo — HR Assigned to Your Case {case_ref}",
             body_text=(
                 f"Hi,\n\n{hr_name} has been assigned to your case {case_ref}.\n"
-                f"View your application at: {settings.FRONTEND_URL}/applications/{app_id}\n\nVyuflo Team"
+                f"View your application at: {settings.FRONTEND_URL}/applications/{app_id}\n\nVyuFlo Team"
             ),
             category_pref_field="notify_case_updates",
             hr_user_id=new_hr_id, cta_label="View Case", cta_url=f"/applications/{app_id}",
@@ -860,11 +863,11 @@ async def fire_case_status_changed(
             )
             await dispatch_notification(
                 db, notif_id=notif.id, user_id=recipient_id,
-                subject=f"Vyuflo — Case {case_ref}: {new_label}",
+                subject=f"VyuFlo — Case {case_ref}: {new_label}",
                 body_text=(
                     f"Hi,\n\nCase {case_ref} has been updated.\nNew status: {new_label}\n"
                     f"{('Note: ' + note) if note else ''}\n\n"
-                    f"View it at: {settings.FRONTEND_URL}{role_url}\n\nVyuflo Team"
+                    f"View it at: {settings.FRONTEND_URL}{role_url}\n\nVyuFlo Team"
                 ),
                 category_pref_field="notify_case_updates",
                 hr_user_id=hr_id, cta_label="View Case", cta_url=role_url,
@@ -915,8 +918,8 @@ async def fire_hr_approval_changed(
         )
         await dispatch_notification(
             db, notif_id=notif.id, user_id=user_id,
-            subject=f"Vyuflo — HR Review Update for {case_ref}",
-            body_text=f"Hi,\n\n{body}\n\nView your application at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team",
+            subject=f"VyuFlo — HR Review Update for {case_ref}",
+            body_text=f"Hi,\n\n{body}\n\nView your application at: {settings.FRONTEND_URL}{app_url}\n\nVyuFlo Team",
             category_pref_field="notify_case_updates",
             hr_user_id=hr_id, cta_label="View Case", cta_url=app_url,
             event_key="case_status_updated",
@@ -958,10 +961,10 @@ async def fire_document_uploaded(
             )
             await dispatch_notification(
                 db, notif_id=notif.id, user_id=recipient_id,
-                subject=f"Vyuflo — Document Uploaded: {document_name}",
+                subject=f"VyuFlo — Document Uploaded: {document_name}",
                 body_text=(
                     f"Hi,\n\n{actor_label} uploaded \"{document_name}\".\n"
-                    f"Review it at: {settings.FRONTEND_URL}{doc_url}\n\nVyuflo Team"
+                    f"Review it at: {settings.FRONTEND_URL}{doc_url}\n\nVyuFlo Team"
                 ),
                 category_pref_field="notify_document_updates",
                 hr_user_id=notify_hr_id, cta_label="Review Document", cta_url=doc_url,
@@ -996,10 +999,10 @@ async def fire_document_verified(
         )
         await dispatch_notification(
             db, notif_id=notif.id, user_id=employee_id,
-            subject=f"Vyuflo — Document Verified: {document_name}",
+            subject=f"VyuFlo — Document Verified: {document_name}",
             body_text=(
                 f"Hi,\n\nYour document \"{document_name}\" has been verified by {actor_label}.\n\n"
-                f"View your application at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
+                f"View your application at: {settings.FRONTEND_URL}{app_url}\n\nVyuFlo Team"
             ),
             category_pref_field="notify_document_updates",
             cta_label="View Application", cta_url=app_url,
@@ -1038,8 +1041,8 @@ async def fire_document_rejected(
         )
         await dispatch_notification(
             db, notif_id=notif.id, user_id=employee_id,
-            subject=f"Vyuflo — Action Required: Document Rejected ({document_name})",
-            body_text=f"Hi,\n\n{body}\n\nUpload here: {settings.FRONTEND_URL}{doc_url}\n\nVyuflo Team",
+            subject=f"VyuFlo — Action Required: Document Rejected ({document_name})",
+            body_text=f"Hi,\n\n{body}\n\nUpload here: {settings.FRONTEND_URL}{doc_url}\n\nVyuFlo Team",
             category_pref_field="notify_document_updates",
             cta_label="Re-upload Document", cta_url=doc_url,
             event_key="missing_document",
@@ -1081,11 +1084,11 @@ async def fire_deadline_approaching(
         )
         await dispatch_notification(
             db, notif_id=notif.id, user_id=deadline_uid,
-            subject=f"Vyuflo — Deadline Approaching: {deadline_title} ({days_remaining} days)",
+            subject=f"VyuFlo — Deadline Approaching: {deadline_title} ({days_remaining} days)",
             body_text=(
                 f"Hi,\n\nYou have a deadline coming up:\n\n  {deadline_title}\n"
                 f"  Due: {deadline_date.strftime('%B %d, %Y')}\n  Days remaining: {days_remaining}\n\n"
-                f"View it at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
+                f"View it at: {settings.FRONTEND_URL}{app_url}\n\nVyuFlo Team"
             ),
             category_pref_field="notify_deadlines",
             cta_label="View Deadline", cta_url=app_url,
@@ -1129,10 +1132,10 @@ async def fire_approval_pending(
         )
         await dispatch_notification(
             db, notif_id=notif.id, user_id=hr_id,
-            subject=f"Vyuflo — Approval Needed: {case_ref}",
+            subject=f"VyuFlo — Approval Needed: {case_ref}",
             body_text=(
                 f"Hi,\n\n{employee_name}'s case {case_ref} needs your approval.{deadline_clause}\n\n"
-                f"Review it at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team"
+                f"Review it at: {settings.FRONTEND_URL}{app_url}\n\nVyuFlo Team"
             ),
             category_pref_field="notify_case_updates",
             hr_user_id=hr_id, cta_label="Review Now", cta_url=app_url,
@@ -1177,8 +1180,8 @@ async def fire_approval_resolved(
         )
         await dispatch_notification(
             db, notif_id=notif.id, user_id=employee_id,
-            subject=f"Vyuflo — HR Decision on {case_ref}",
-            body_text=f"Hi,\n\n{title}.\n\nView it at: {settings.FRONTEND_URL}{app_url}\n\nVyuflo Team",
+            subject=f"VyuFlo — HR Decision on {case_ref}",
+            body_text=f"Hi,\n\n{title}.\n\nView it at: {settings.FRONTEND_URL}{app_url}\n\nVyuFlo Team",
             category_pref_field="notify_case_updates",
             hr_user_id=hr_id, cta_label="View Case", cta_url=app_url,
             event_key="approval_resolved",
@@ -1205,10 +1208,10 @@ async def fire_employee_onboarded(
         )
         await dispatch_notification(
             db, notif_id=notif.id, user_id=hr_id,
-            subject=f"Vyuflo — {employee_name} Joined Your Company",
+            subject=f"VyuFlo — {employee_name} Joined Your Company",
             body_text=(
                 f"Hi,\n\n{employee_name} accepted your invitation and completed setup.\n\n"
-                f"View the employee roster at: {settings.FRONTEND_URL}/employer/employees\n\nVyuflo Team"
+                f"View the employee roster at: {settings.FRONTEND_URL}/employer/employees\n\nVyuFlo Team"
             ),
             category_pref_field="notify_case_updates",
             hr_user_id=hr_id, cta_label="View Employee", cta_url="/employer/employees",
@@ -1260,8 +1263,8 @@ async def fire_compliance_alert(
         )
         await dispatch_notification(
             db, notif_id=notif.id, user_id=hr_id,
-            subject=f"Vyuflo Compliance Alert — {title}",
-            body_text=f"Hi,\n\n{full_body}\n\nView details at: {settings.FRONTEND_URL}{cta_url}\n\nVyuflo Team",
+            subject=f"VyuFlo Compliance Alert — {title}",
+            body_text=f"Hi,\n\n{full_body}\n\nView details at: {settings.FRONTEND_URL}{cta_url}\n\nVyuFlo Team",
             category_pref_field="notify_compliance_alerts",
             hr_user_id=hr_id, cta_label="View Employees", cta_url=cta_url,
             event_key="compliance_alert",
@@ -1270,4 +1273,127 @@ async def fire_compliance_alert(
 
     except Exception:
         logger.exception("fire_compliance_alert failed for hr %s", hr_id)
+        await db.rollback()
+
+
+async def fire_new_device_login(
+    db: AsyncSession, *, user_id: uuid.UUID,
+    ip_address: Optional[str], city: Optional[str], country: Optional[str],
+    browser: Optional[str], os_name: Optional[str], device_type: str,
+) -> None:
+    try:
+        location = ", ".join(filter(None, [city, country])) or "Unknown location"
+        device_str = f"{browser or 'Unknown browser'} on {os_name or 'Unknown OS'} ({device_type})"
+
+        notif = await _create_notification(
+            db, user_id=user_id, notification_type="new_device_login",
+            category="security", priority="high",
+            title="New device login detected",
+            body=f"A new sign-in was detected from {device_str} in {location}. If this wasn't you, secure your account immediately.",
+            cta_primary_label="Review Login History", cta_primary_url="/profile/login-history",
+        )
+        await dispatch_notification(
+            db, notif_id=notif.id, user_id=user_id,
+            subject="VyuFlo — New Device Login Detected",
+            body_text=(
+                f"Hi,\n\nA new sign-in to your VyuFlo account was detected:\n\n"
+                f"  Device: {device_str}\n  Location: {location}\n  IP: {ip_address or 'Unknown'}\n\n"
+                f"If this was you, no action is needed. If not, change your password immediately "
+                f"and review your login history at: {settings.FRONTEND_URL}/profile/login-history\n\nVyuFlo Team"
+            ),
+            category_pref_field="notify_security_alerts",
+            email_pref_field="notify_new_device_login_email",
+            sms_pref_field="notify_new_device_login_sms",
+            event_key="new_device_login",
+            cta_label="Review Login History", cta_url="/profile/login-history",
+            template_context={"device": device_str, "location": location, "ip": ip_address or "Unknown"},
+        )
+    except Exception:
+        logger.exception("fire_new_device_login failed for user %s", user_id)
+        await db.rollback()
+
+
+async def fire_failed_login_alert(
+    db: AsyncSession, *, user_id: uuid.UUID,
+    ip_address: Optional[str], attempt_count: int,
+) -> None:
+    try:
+        notif = await _create_notification(
+            db, user_id=user_id, notification_type="failed_login_alert",
+            category="security", priority="urgent",
+            title="Multiple failed login attempts",
+            body=f"{attempt_count} failed login attempt(s) were made on your account from IP {ip_address or 'Unknown'}.",
+            cta_primary_label="Review Login History", cta_primary_url="/profile/login-history",
+        )
+        await dispatch_notification(
+            db, notif_id=notif.id, user_id=user_id,
+            subject="VyuFlo — Multiple Failed Login Attempts",
+            body_text=(
+                f"Hi,\n\n{attempt_count} failed login attempt(s) were made on your account "
+                f"from IP {ip_address or 'Unknown'}.\n\nIf this wasn't you, consider changing your password.\n\n"
+                f"Review your login history at: {settings.FRONTEND_URL}/profile/login-history\n\nVyuFlo Team"
+            ),
+            category_pref_field="notify_security_alerts",
+            email_pref_field="notify_failed_login_email",
+            sms_pref_field="notify_failed_login_sms",
+            event_key="failed_login_alert",
+            cta_label="Review Login History", cta_url="/profile/login-history",
+            template_context={"attempt_count": str(attempt_count), "ip": ip_address or "Unknown"},
+        )
+    except Exception:
+        logger.exception("fire_failed_login_alert failed for user %s", user_id)
+        await db.rollback()
+
+
+async def fire_password_changed(db: AsyncSession, *, user_id: uuid.UUID) -> None:
+    try:
+        notif = await _create_notification(
+            db, user_id=user_id, notification_type="password_changed",
+            category="security", priority="high",
+            title="Your password was changed",
+            body="Your VyuFlo account password was just changed. If you didn't make this change, contact support immediately.",
+        )
+        await dispatch_notification(
+            db, notif_id=notif.id, user_id=user_id,
+            subject="VyuFlo — Your Password Was Changed",
+            body_text=(
+                "Hi,\n\nYour VyuFlo account password was just changed.\n\n"
+                "If you made this change, no action is needed. If you didn't, contact support immediately "
+                "and reset your password.\n\nVyuFlo Team"
+            ),
+            category_pref_field="notify_security_alerts",
+            email_pref_field="notify_password_changed_email",
+            sms_pref_field="notify_password_changed_sms",
+            event_key="password_changed",
+            template_context={},
+        )
+    except Exception:
+        logger.exception("fire_password_changed failed for user %s", user_id)
+        await db.rollback()
+
+
+async def fire_unusual_activity(
+    db: AsyncSession, *, user_id: uuid.UUID, description: str,
+) -> None:
+    try:
+        notif = await _create_notification(
+            db, user_id=user_id, notification_type="unusual_activity",
+            category="security", priority="urgent",
+            title="Unusual activity detected",
+            body=description,
+            cta_primary_label="Review Account", cta_primary_url="/profile/security-alerts",
+        )
+        await dispatch_notification(
+            db, notif_id=notif.id, user_id=user_id,
+            subject="VyuFlo — Unusual Account Activity Detected",
+            body_text=f"Hi,\n\n{description}\n\nReview your account at: {settings.FRONTEND_URL}/profile/security-alerts\n\nVyuFlo Team",
+            category_pref_field="notify_security_alerts",
+            email_pref_field="notify_unusual_activity_email",
+            sms_pref_field="notify_unusual_activity_sms",
+            event_key="unusual_activity",
+            cta_label="Review Account", cta_url="/profile/security-alerts",
+            template_context={"description": description},
+        )
+    except Exception:
+        logger.exception("fire_unusual_activity failed for user %s", user_id)
         await db.rollback()

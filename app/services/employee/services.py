@@ -214,10 +214,9 @@ async def db_upsert(
 # ║                 PRIVATE HELPERS                                          ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-async def _store_refresh_token(user_id: str, token: str) -> None:
-    """Cache refresh token in Redis (overwrites previous)."""
-    expire = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86_400
-    await redis_set(f"refresh:{user_id}", token, expire)
+async def _store_refresh_token(user_id: str, session_id: str, refresh_token: str) -> None:
+    key = f"refresh:{user_id}:{session_id}"
+    await redis_set(key, refresh_token, settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60)
 
 
 async def _verify_provider_token(provider: str, token: str) -> dict:

@@ -1,15 +1,21 @@
+
 # app/routers/documents.py
 
 import os
 import uuid
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
 from fastapi.responses import FileResponse
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.core_permissions import PermissionChecker
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import CurrentUserData, get_current_user
+from app.models.visamodels import User
+from app.ocr.ocr_service_router import run_extraction
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
 from app.schemas.employee.ocr import OCRFieldResponse, OCRFieldUpdate, SaveOCRFieldsRequest
 from app.services.employee.document_service import (
@@ -17,7 +23,10 @@ from app.services.employee.document_service import (
     delete_document,
     get_document_by_id,
     get_document_file_url,
+    get_expected_ocr_slug,
     list_documents,
+    list_hub_documents,
+    reuse_document_for_case,
     upload_document,
 )
 from app.services.employee.ocr_service import (
@@ -73,7 +82,27 @@ async def api_upload_document(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIRM OCR  ← NEW
+# HUB — MUST stay above every /documents/{document_id} route below.
+# FastAPI matches path patterns in registration order — if this sits after
+# {document_id}, a request for "hub" gets matched against {document_id}: uuid.UUID
+# first and fails validation with a 422 before this handler ever runs.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@document_router.get(
+    "/documents/hub",
+    response_model=DocumentListResponse,
+    summary="List all of the current user's documents across cases — for the reuse picker",
+)
+async def api_list_hub_documents(
+    search:       Optional[str] = Query(None),
+    db:           AsyncSession  = Depends(get_db),
+    current_user                = Depends(get_current_user),
+) -> DocumentListResponse:
+    return await list_hub_documents(db, current_user.user_id, search)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIRM OCR
 # Called by frontend after user reviews and submits OCR fields.
 # This is what actually marks the task as completed.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,7 +121,28 @@ async def api_confirm_document_ocr(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DELETE  ← NEW
+# REUSE — attach an existing Hub document to a new case, without re-uploading
+# ─────────────────────────────────────────────────────────────────────────────
+
+@document_router.post(
+    "/documents/{document_id}/reuse",
+    response_model=DocumentResponse,
+    status_code=201,
+    summary="Reuse an existing Hub document for a new case (duplicates the file)",
+)
+async def api_reuse_document(
+    document_id:    uuid.UUID,
+    application_id: str = Form(...),
+    db:             AsyncSession = Depends(get_db),
+    current_user                 = Depends(get_current_user),
+) -> DocumentResponse:
+    return await reuse_document_for_case(
+        db, current_user.user_id, document_id, uuid.UUID(application_id)
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DELETE
 # Deletes document + OCR fields + resets task to pending.
 # Used when OCR fails and user wants to re-upload a different file.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,38 +164,96 @@ async def api_delete_document(
 # VIEW (serve file inline)
 # ─────────────────────────────────────────────────────────────────────────────
 
+from fastapi.responses import StreamingResponse
+from app.services.employee import storage
+
+# @document_router.get(
+#     "/documents/{document_id}/view",
+#     summary="Get document file for inline viewing",
+# )
+# async def api_view_document(
+#     document_id:  uuid.UUID,
+#     db:           AsyncSession = Depends(get_db),
+#     current_user               = Depends(get_current_user),
+# ):
+#     doc = await get_document_file_url(db, document_id, current_user.user_id)
+
+#     fmt = doc["file_format"].lower()
+#     media_types = {
+#         "jpg":  "image/jpeg",
+#         "jpeg": "image/jpeg",
+#         "png":  "image/png",
+#         "pdf":  "application/pdf",
+#         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+#     }
+#     media_type = media_types.get(fmt, "application/octet-stream")
+
+#     content, _ = await storage.get_file_bytes(doc["file_path"])
+
+#     return StreamingResponse(
+#         iter([content]),
+#         media_type=media_type,
+#         headers={"Content-Disposition": f'inline; filename="{doc["file_name"]}"'},
+#     )
+
 @document_router.get(
     "/documents/{document_id}/view",
     summary="Get document file for inline viewing",
 )
 async def api_view_document(
-    document_id:  uuid.UUID,
-    db:           AsyncSession = Depends(get_db),
-    current_user               = Depends(get_current_user),
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Annotated[
+        CurrentUserData,
+        Depends(PermissionChecker(
+            [
+                "documents.view_own",
+                "documents.view_team",
+                "documents.view_assigned",
+                "documents.view_all",
+            ],
+            require_all=False,   # holding ANY one of these passes the gate
+        )),
+    ] = None,
 ):
+    # ── Layer 1 (PermissionChecker above): user holds SOME document-view capability ──
+    # ── Layer 2 (inside get_document_file_url): is THIS document in scope for them? ──
     doc = await get_document_file_url(db, document_id, current_user.user_id)
-    file_path = f"./{doc['file_path']}"
-
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk.")
 
     fmt = doc["file_format"].lower()
     media_types = {
         "jpg":  "image/jpeg",
         "jpeg": "image/jpeg",
         "png":  "image/png",
+        "gif":  "image/gif",
         "pdf":  "application/pdf",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
     media_type = media_types.get(fmt, "application/octet-stream")
 
-    return FileResponse(
-        path        = file_path,
-        media_type  = media_type,
-        filename    = doc["file_name"],
-        headers     = {"Content-Disposition": "inline"},
+    content, _ = await storage.get_file_bytes(doc["file_path"])
+
+    return StreamingResponse(
+        iter([content]),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{doc["file_name"]}"'},
     )
 
+@document_router.post("/documents/{doc_id}/ocr-extract")
+async def ocr_extract_for_document(
+    doc_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    expected_slug = await get_expected_ocr_slug(db, doc_id)
+    filename = file.filename or "upload"
+    ext = filename.rsplit(".", 1)[-1].lower()
+    content = await file.read()
+
+    result = await run_extraction(content, ext, expected_slug)
+    result.filename = filename
+    return result
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GET BY ID
