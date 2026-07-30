@@ -89,25 +89,31 @@ def _assert_hr_access(application: Application, hr_user_id: uuid.UUID):
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def hr_list_deadlines(
-    db:            AsyncSession,
-    hr_user_id:    uuid.UUID,
-    search:        Optional[str] = None,
-    urgency:       Optional[str] = None,
-    deadline_type: Optional[str] = None,
+    db:             AsyncSession,
+    hr_user_id:     uuid.UUID,
+    search:         Optional[str] = None,
+    urgency:        Optional[str] = None,
+    deadline_type:  Optional[str] = None,
+    application_id: Optional[uuid.UUID] = None,   # NEW — optional case scope (used by hr_case_overview_service)
 ) -> DeadlineListResponse:
 
     # Load Deadlines that belong to applications assigned to this HR user.
     # Also load Deadlines directly assigned to the HR user (user_id = hr_user_id)
     # for HR-created tasks that aren't tied to a specific case.
+    filters = [
+        Deadline.is_completed == False,
+        Deadline.is_dismissed == False,
+        # Scope: either HR owns this application OR deadline is assigned to HR directly
+        (Application.assigned_hr_id == hr_user_id) | (Deadline.user_id == hr_user_id),
+    ]
+    if application_id is not None:
+        # Narrow to a single case — used by the Case Detail → Overview "Upcoming Deadlines" widget
+        filters.append(Deadline.application_id == application_id)
+
     stmt = (
         select(Deadline)
         .outerjoin(Application, Deadline.application_id == Application.id)
-        .where(
-            Deadline.is_completed == False,
-            Deadline.is_dismissed == False,
-            # Scope: either HR owns this application OR deadline is assigned to HR directly
-            (Application.assigned_hr_id == hr_user_id) | (Deadline.user_id == hr_user_id),
-        )
+        .where(*filters)
         .order_by(Deadline.due_date.asc())
     )
     result    = await db.execute(stmt)

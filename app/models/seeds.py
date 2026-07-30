@@ -2409,7 +2409,6 @@ PERMISSIONS_SEED = [
     {"code": "documents.verify",        "module": "documents",  "description": "Mark a document verified or rejected",      "is_system": True},
     {"code": "documents.delete",        "module": "documents",  "description": "Permanently delete a document",             "is_system": True},
     {"code": "documents.manage_rules",  "module": "documents",  "description": "Configure document rules engine",           "is_system": True},
-    {"code": "documents.request_additional", "module": "documents", "description": "Request an additional document from a client", "is_system": True},
 
     # ── Users ─────────────────────────────────────────────────────────────────
     {"code": "users.view_own_profile",  "module": "users",  "description": "View and edit own profile & security",        "is_system": True},
@@ -2452,7 +2451,6 @@ PERMISSIONS_SEED = [
     {"code": "settings.manage", "module": "settings",  "description": "Modify system settings and security config",      "is_system": True},
     {"code": "billing.manage",  "module": "settings",  "description": "Manage subscriptions, pricing, and billing",      "is_system": True},
 ]
-
 
 # =============================================================================
 # 3. ROLE_PERMISSIONS — which role gets which permission codes
