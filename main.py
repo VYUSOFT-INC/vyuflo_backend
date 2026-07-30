@@ -61,8 +61,10 @@ from app.routes.hr.hr_task_routes import hr_task_router
 from app.routes.hr.hr_document_routes import hr_document_router
 from app.routes.hr.hr_deadline_routes  import hr_deadline_router
 from app.routes.hr.hr_approval_routes  import hr_approval_router
-
-
+from app.routes.employee.security import employee_security_router
+from app.routes.hr.hr_document_request_routes import hr_document_request_router
+from app.routes.hr.hr_case_overview_routes import hr_case_overview_router
+from app.routes.hr.hr_case_letters_routes import hr_case_letters_router
 
 
 from fastapi.staticfiles import StaticFiles
@@ -147,7 +149,6 @@ async def lifespan(app: FastAPI):
 
     # 1b. Sync enum values added to the model after the DB was first created
     await _ensure_pg_enum_values("visa_category_enum", _VISA_CATEGORY_ENUM_VALUES)
-
     # 1c. Sync unique constraint needed by notification template seed
     await _ensure_notif_template_unique_constraint()
 
@@ -256,7 +257,10 @@ app.include_router(hr_task_router, prefix="/api/v1/hr", tags=["HR Tasks"])
 app.include_router(hr_document_router, prefix="/api/v1/hr", tags=["HR Documents"])
 app.include_router(hr_deadline_router, prefix="/api/v1/hr", tags=["HR Deadlines"])
 app.include_router(hr_approval_router, prefix="/api/v1/hr", tags=["HR Approvals"])
-
+app.include_router(employee_security_router,prefix="/api/v1/hr", tags=["Login_History"] )
+app.include_router(hr_case_overview_router,prefix="/api/v1/hr", tags=["Case Overview"] )
+app.include_router(hr_document_request_router, prefix="/api/v1/hr", tags=["HR Document Request"])
+app.include_router(hr_case_letters_router,prefix="/api/v1/hr", tags=["Case Generated Letters"] )
 
 
 
