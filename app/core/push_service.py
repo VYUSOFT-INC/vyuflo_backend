@@ -1,4 +1,9 @@
-
+# core/push_service.py (place in app/services/push_service.py)
+"""
+Push notification delivery via Web Push (VAPID).
+Uses pywebpush — sync library, wrapped in asyncio.to_thread to avoid
+blocking the event loop, matching the pattern in core/sms.py.
+"""
 import asyncio
 import json
 import logging

@@ -9,10 +9,25 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.visamodels import User, UserProfile
 from app.schemas.employee.user_profile import UserProfileResponse, UserProfileUpdate
+from app.services.employee import storage
 from app.services.employee.services import db_create, db_get_by_id, db_update, db_get_by_field
 
+
+
+# async def _to_profile_response(profile: UserProfile) -> UserProfileResponse:
+#     resp = UserProfileResponse.model_validate(profile)
+#     resp.profile_picture_url = await storage.resolve_url(profile.profile_picture_url)
+#     return resp
+
+async def _to_profile_response(db: AsyncSession, profile: UserProfile) -> UserProfileResponse:
+    user = await db_get_by_id(db, User, profile.user_id)
+    resp = UserProfileResponse.model_validate(profile)
+    resp.email = user.email if user else None
+    resp.profile_picture_url = "/api/v1/users/me/avatar" if profile.profile_picture_url else None
+    return resp
 
 async def get_my_profile(
     db: AsyncSession,
@@ -32,8 +47,8 @@ async def get_my_profile(
             created_by = current_user_id,
         )
         profile = await db_create(db, profile)
-
-    return UserProfileResponse.model_validate(profile)
+    return await _to_profile_response(db,profile)
+    # return UserProfileResponse.model_validate(profile)
 
 async def update_my_profile(
     db:              AsyncSession,
@@ -79,8 +94,8 @@ async def update_my_profile(
         if user:
             await db_update(db, User, user.id, user_update)
 
-    return UserProfileResponse.model_validate(updated)
-
+    return await _to_profile_response(db,updated)
+    # return UserProfileResponse.model_validate(updated)
 
 async def upload_profile_picture(
     db: AsyncSession,
@@ -109,19 +124,24 @@ async def upload_profile_picture(
     if not profile:
         raise HTTPException(status_code=404, detail="User profile not found.")
 
-    # 4. ── Delete OLD file from disk before saving new one ────────────────────
+    # 4. ── Delete OLD file (local disk or Space, whichever backend is active) ──
     if profile.profile_picture_url:
-        old_path = f"./{profile.profile_picture_url}"
-        if os.path.isfile(old_path):
-            os.remove(old_path)
+        try:
+            await storage.delete_file(profile.profile_picture_url)
+        except Exception:
+            pass  # don't block upload if old file cleanup fails
 
-    # 5. Save NEW file
-    storage_path = f"uploads/profile_pictures/{user_id}/{file.filename}"
-    os.makedirs(os.path.dirname(f"./{storage_path}"), exist_ok=True)
-    with open(f"./{storage_path}", "wb") as f_out:
-        f_out.write(content)
+    # 5. Save NEW file via storage service (S3/Spaces in staging, local in dev)
+    safe_name    = os.path.basename(file.filename or f"avatar.{ext}")
+    storage_prefix = settings.STORAGE_PREFIX
+    storage_path = f"{storage_prefix}/users/{user_id}/profile_pictures/{safe_name}"
+    await storage.upload_file(
+        content,
+        storage_path,
+        file.content_type or "application/octet-stream",
+    )
 
-    # 6. Update DB
+    # 6. Update DB — store the key, not a full URL
     await db_update(
         db,
         UserProfile,
@@ -137,3 +157,27 @@ async def upload_profile_picture(
         select(UserProfile).where(UserProfile.id == profile.id)
     )
     return result.scalars().first()
+
+
+
+
+async def remove_profile_picture(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> UserProfileResponse:
+    result  = await db.execute(select(UserProfile).where(UserProfile.user_id == user_id))
+    profile = result.scalars().first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="User profile not found.")
+
+    if profile.profile_picture_url:
+        try:
+            await storage.delete_file(profile.profile_picture_url)
+        except Exception:
+            pass
+
+    updated = await db_update(db, UserProfile, profile.id, {
+        "profile_picture_url": None,
+        "modified_by": user_id,
+    })
+    return await _to_profile_response(db,updated)

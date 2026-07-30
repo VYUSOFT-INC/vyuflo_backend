@@ -153,6 +153,7 @@
 # All functions are idempotent — safe to run on an already-seeded DB.
 # =============================================================================
 
+from asyncio.log import logger
 import uuid
 import json
 
@@ -277,7 +278,6 @@ async def seed_visa_types(db: AsyncSession):
             required_documents=required_docs,
             typical_processing_days=visa_data.get("typical_processing_days"),
             government_fee_usd=visa_data.get("government_fee_usd"),
-            lca_required=visa_data.get("lca_required", False),
             uscis_url=visa_data.get("uscis_url"),
             display_order=visa_data.get("display_order", 0),
             is_active=visa_data.get("is_active", True),
@@ -488,18 +488,52 @@ async def seed_support_articles(db: AsyncSession):
     await db.commit()
     print("✅ Support articles seeded")
 
-async def seed_notification_templates(db: AsyncSession) -> None:
-    """
-    Idempotent — uses Postgres ON CONFLICT DO NOTHING so it's safe even if
-    called concurrently (e.g. by an overlapping uvicorn --reload restart).
-    """
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-    for item in NOTIFICATION_TEMPLATES_SEED:
-        stmt = pg_insert(NotificationTemplate).values(**item)
-        stmt = stmt.on_conflict_do_nothing(
-            constraint="uq_notif_template_event_channel"
+# async def seed_notification_templates(db: AsyncSession) -> None:
+#     """
+#     Idempotent — skips already-seeded event_keys.
+#     Safe to run on every startup or migration.
+#     """
+#     for item in NOTIFICATION_TEMPLATES_SEED:
+#         exists = (await db.execute(
+#             select(NotificationTemplate).where(
+#                 NotificationTemplate.event_key == item["event_key"]
+#             )
+#         )).scalar_one_or_none()
+#         if not exists:
+#             db.add(NotificationTemplate(**item))
+#     await db.commit()
+#     print("✅ NotificationTemplate seeded")
+
+
+from sqlalchemy.dialects.postgresql import insert
+
+
+async def seed_notification_templates(db: AsyncSession) -> None:
+    try:
+        if not NOTIFICATION_TEMPLATES_SEED:
+            return
+
+        stmt = insert(NotificationTemplate).values(
+            NOTIFICATION_TEMPLATES_SEED
         )
-        await db.execute(stmt)
-    await db.commit()
-    print("✅ NotificationTemplate seeded")
+
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=[
+                NotificationTemplate.event_key,
+                NotificationTemplate.channel,
+            ]
+        )
+
+        result = await db.execute(stmt)
+        await db.commit()
+
+        logger.info(
+            "Notification templates seeded; inserted %s row(s)",
+            result.rowcount,
+        )
+
+    except Exception:
+        await db.rollback()
+        logger.exception("Failed to seed notification templates")
+        raise

@@ -5,18 +5,12 @@ from pydantic import BaseModel, ConfigDict
 from enum import Enum
 
 class DocumentStatus(str, Enum):
-    required           = "required"
-    uploaded           = "uploaded"
-    pending_review     = "pending_review"
-    verified           = "verified"
-    rejected           = "rejected"
-    missing            = "missing"
-    pending_hr_release = "pending_hr_release"   # NEW — attorney uploaded on the
-                                                 # employee's behalf, staged
-                                                 # behind HR approval. Never
-                                                 # returned to the employee's
-                                                 # own document list/view/get —
-                                                 # see document_service.py.
+    required       = "required"
+    uploaded       = "uploaded"
+    pending_review = "pending_review"
+    verified       = "verified"
+    rejected       = "rejected"
+    missing        = "missing"
 
 class DocumentResponse(BaseModel):
     id:              uuid.UUID

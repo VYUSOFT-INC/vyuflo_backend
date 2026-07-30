@@ -43,7 +43,7 @@ class Settings(BaseSettings):
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
-
+    OCR_SERVICE_URL: str = "http://localhost:8002"
     # ── JWT ───────────────────────────────────────────────────────────────────
     ALGORITHM:                   str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     AWS_REGION:            str = ""
     S3_BUCKET:             str = ""
     STORAGE_BACKEND:       str = ""
-    S3_ENDPOINT_URL: str= ""
+    S3_ENDPOINT_URL: str = ""
     S3_CDN_URL: str = ""
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: List[str] = []
