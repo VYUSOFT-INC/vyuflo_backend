@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.core_permissions import PermissionChecker
 from app.core.database import get_db
-from app.core.dependencies import CurrentUserData, get_current_user
+from app.core.dependencies import CurrentUserData, get_current_user 
 from app.models.visamodels import User
 from app.ocr.ocr_service_router import run_extraction
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
