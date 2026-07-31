@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     APPLE_CLIENT_ID:         str = ""
 
     # LinkedIn
-    LINKEDIN_CLIENT_ID:     str = ""
+    LINKEDIN_CLIENT_ID:     str = "" 
     LINKEDIN_CLIENT_SECRET: str = ""
     LINKEDIN_REDIRECT_URI:  str = ""
 

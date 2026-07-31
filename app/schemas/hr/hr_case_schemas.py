@@ -307,7 +307,7 @@ class GeneratedLetterInfo(BaseModel):
     name:         str
     letter_type:  str    # 'offer' | 'support' | 'employment_verification' | 'lca_posting' | 'other'
     generated_by: str    # attorney full name
-    generated_at: datetime
+    generated_at: datetime 
     status:       str    # 'draft' | 'pending_hr_signature' | 'signed' | 'sent' | 'filed'
     file_url:     Optional[str] = None
 
@@ -322,7 +322,7 @@ class EmploymentInfo(BaseModel):
     annual_salary:    Optional[str]  = None
     start_date:       Optional[date] = None
     department:       Optional[str]  = None
-    worksite_address: Optional[str]  = None
+    worksite_address: Optional[str]  = None 
 
     model_config = ConfigDict(from_attributes=True)
 

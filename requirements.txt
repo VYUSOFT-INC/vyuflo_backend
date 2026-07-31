@@ -40,6 +40,6 @@ aioboto3
 
 pymupdf
 passporteye    
-paddleocr
+paddleocr 
 paddlepaddle
 user_agents 
