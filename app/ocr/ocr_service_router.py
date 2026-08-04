@@ -13,7 +13,7 @@
 # only when VLM_ENABLED=true. If the VLM is off or unreachable, the endpoint
 # still returns the deterministic result.
 
-from typing import Optional
+from typing import Optional 
 
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from starlette.concurrency import run_in_threadpool
