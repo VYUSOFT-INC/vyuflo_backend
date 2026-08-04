@@ -12,9 +12,9 @@ from sqlalchemy import (
 )
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import  relationship
 
-Base = declarative_base()
+from app.core.database import Base
 
 
 # =============================================================================
