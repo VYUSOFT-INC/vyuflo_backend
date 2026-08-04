@@ -46,6 +46,35 @@ class ValidateTokenRequest(BaseModel):
     invite_token: Optional[str] = None
     invite_code:  Optional[str] = None
 
+class AcceptInviteNewUserRequest(BaseModel):
+    """Public — used when NO existing account matches the invited email."""
+    invite_token:     Optional[str] = None
+    invite_code:      Optional[str] = None
+    first_name:       str
+    last_name:        str
+    password:         str = Field(..., min_length=8)
+    terms_accepted:   bool
+
+
+class AcceptInviteExistingUserRequest(BaseModel):
+    """
+    Public — used when an existing account WAS found matching the invited
+    email. Provide EITHER `password` OR `reset_token_id` (from the forgot-
+    password OTP flow). `new_password` is optional, only used with
+    `reset_token_id`.
+    """
+    invite_token:   Optional[str] = None
+    invite_code:    Optional[str] = None
+    login_email:    EmailStr
+    password:       Optional[str] = None
+    reset_token_id: Optional[str] = None
+    new_password:   Optional[str] = Field(None, min_length=8)
+
+
+class AddPersonalEmailRequest(BaseModel):
+    """Authenticated — sets/updates the personal (primary) email on file."""
+    personal_email: EmailStr
+
 
 class UpdateEmployeeRequest(BaseModel):
     """HR updates job info for a linked employee."""
@@ -134,15 +163,33 @@ class EmployeeResponse(BaseModel):
         from_attributes = True
 
 
+# class ValidateTokenResponse(BaseModel):
+    # valid:        bool
+    # company_name: Optional[str] = None
+    # hr_name:      Optional[str] = None
+    # invite_method: Optional[str] = None
+    # message:      str
+    "Valid invite from TechCorp" or "This invite has expired"
+# 
 class ValidateTokenResponse(BaseModel):
-    valid:        bool
-    company_name: Optional[str] = None
-    hr_name:      Optional[str] = None
+    valid:         bool
+    company_name:  Optional[str] = None
+    hr_name:       Optional[str] = None
     invite_method: Optional[str] = None
-    message:      str
-    # "Valid invite from TechCorp" or "This invite has expired"
+    message:       str
+    account_exists: bool = False   # ← NEW
 
 
+class AcceptInviteAuthResponse(BaseModel):
+    """Returned by both the new-user and existing-user accept endpoints."""
+    access_token:            str
+    refresh_token:           str
+    roles:                   list[str]
+    company_name:            str
+    employer_id:             uuid.UUID
+    requires_personal_email: bool
+    message:                 str
+    
 class InvitationListResponse(BaseModel):
     items: list[InvitationResponse]
     total: int

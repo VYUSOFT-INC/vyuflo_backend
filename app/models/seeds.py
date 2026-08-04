@@ -2409,6 +2409,7 @@ PERMISSIONS_SEED = [
     {"code": "documents.verify",        "module": "documents",  "description": "Mark a document verified or rejected",      "is_system": True},
     {"code": "documents.delete",        "module": "documents",  "description": "Permanently delete a document",             "is_system": True},
     {"code": "documents.manage_rules",  "module": "documents",  "description": "Configure document rules engine",           "is_system": True},
+    {"code": "documents.request_additional", "module": "documents", "description": "Request an additional document from a client", "is_system": True},
 
     # ── Users ─────────────────────────────────────────────────────────────────
     {"code": "users.view_own_profile",  "module": "users",  "description": "View and edit own profile & security",        "is_system": True},
@@ -2452,6 +2453,7 @@ PERMISSIONS_SEED = [
     {"code": "settings.manage", "module": "settings",  "description": "Modify system settings and security config",      "is_system": True},
     {"code": "billing.manage",  "module": "settings",  "description": "Manage subscriptions, pricing, and billing",      "is_system": True},
 ]
+
 
 # =============================================================================
 # 3. ROLE_PERMISSIONS — which role gets which permission codes
@@ -2558,25 +2560,25 @@ VISA_TYPES_SEED = [
         "display_order": 1,
         "is_active": True,
     },
-    {
-        "code": "H-1B-EXT",
-        "name": "H-1B Extension",
-        "short_label": "H-1B Ext",
-        "category": "employment",
-        "requires_employer_sponsor": True,
-        "lca_required": True,
-        "description": "Extension of an existing H-1B status with the same or a new employer.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Current I-797 Approval Notice",
-            "Offer Letter", "Resume / CV", "Pay Stubs (Last 3 Months)",
-            "Labor Condition Application (LCA)",
+    # {
+    #     "code": "H-1B-EXT",
+    #     "name": "H-1B Extension",
+    #     "short_label": "H-1B Ext",
+    #     "category": "employment",
+    #     "requires_employer_sponsor": True,
+    #     "lca_required": True,
+    #     "description": "Extension of an existing H-1B status with the same or a new employer.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Current I-797 Approval Notice",
+    #         "Offer Letter", "Resume / CV", "Pay Stubs (Last 3 Months)",
+    #         "Labor Condition Application (LCA)",
 
-        ]),
-        "typical_processing_days": 120,
-        "government_fee_usd": 46000,
-        "display_order": 2,
-        "is_active": True,
-    },
+    #     ]),
+    #     "typical_processing_days": 120,
+    #     "government_fee_usd": 46000,
+    #     "display_order": 2,
+    #     "is_active": True,
+    # },
     {
         "code": "L-1A",
         "name": "L-1A Intracompany Transferee (Manager/Executive)",
@@ -2617,48 +2619,48 @@ VISA_TYPES_SEED = [
         "display_order": 4,
         "is_active": True,
     },
-    {
-        "code": "O-1A",
-        "name": "O-1A Extraordinary Ability (Science/Business/Athletics)",
-        "short_label": "O-1A",
-        "category": "employment",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": (
-            "For individuals with extraordinary ability in sciences, "
-            "education, business, or athletics."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Resume / CV", "Awards and Recognition Evidence",
-            "Published Work or Media Coverage", "Expert Reference Letters",
-            "Contracts or Itinerary",
-        ]),
-        "typical_processing_days": 90,
-        "government_fee_usd": 46000,
-        "display_order": 5,
-        "is_active": True,
-    },
-    {
-        "code": "O-1B",
-        "name": "O-1B Extraordinary Ability (Arts/Film/TV)",
-        "short_label": "O-1B",
-        "category": "employment",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": (
-            "For individuals with extraordinary achievement in motion "
-            "picture or television productions, or extraordinary ability in the arts."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Resume / CV", "Portfolio or Showreel",
-            "Critical Role Evidence", "Expert Reference Letters",
-            "Contracts or Itinerary",
-        ]),
-        "typical_processing_days": 90,
-        "government_fee_usd": 46000,
-        "display_order": 6,
-        "is_active": True,
-    },
+    # {
+    #     "code": "O-1A",
+    #     "name": "O-1A Extraordinary Ability (Science/Business/Athletics)",
+    #     "short_label": "O-1A",
+    #     "category": "employment",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": (
+    #         "For individuals with extraordinary ability in sciences, "
+    #         "education, business, or athletics."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Resume / CV", "Awards and Recognition Evidence",
+    #         "Published Work or Media Coverage", "Expert Reference Letters",
+    #         "Contracts or Itinerary",
+    #     ]),
+    #     "typical_processing_days": 90,
+    #     "government_fee_usd": 46000,
+    #     "display_order": 5,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "O-1B",
+    #     "name": "O-1B Extraordinary Ability (Arts/Film/TV)",
+    #     "short_label": "O-1B",
+    #     "category": "employment",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": (
+    #         "For individuals with extraordinary achievement in motion "
+    #         "picture or television productions, or extraordinary ability in the arts."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Resume / CV", "Portfolio or Showreel",
+    #         "Critical Role Evidence", "Expert Reference Letters",
+    #         "Contracts or Itinerary",
+    #     ]),
+    #     "typical_processing_days": 90,
+    #     "government_fee_usd": 46000,
+    #     "display_order": 6,
+    #     "is_active": True,
+    # },
     {
         "code": "TN",
         "name": "TN NAFTA/USMCA",
@@ -2679,26 +2681,26 @@ VISA_TYPES_SEED = [
         "display_order": 7,
         "is_active": True,
     },
-    {
-        "code": "E-2",
-        "name": "E-2 Treaty Investor",
-        "short_label": "E-2",
-        "category": "employment",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": (
-            "For nationals of treaty countries investing a substantial amount "
-            "of capital in a U.S. business."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Investment Evidence", "Business Plan",
-            "Source of Funds Documentation", "Company Registration Documents",
-        ]),
-        "typical_processing_days": 120,
-        "government_fee_usd": 20500,   # $205 in cents
-        "display_order": 8,
-        "is_active": True,
-    },
+    # {
+    #     "code": "E-2",
+    #     "name": "E-2 Treaty Investor",
+    #     "short_label": "E-2",
+    #     "category": "employment",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": (
+    #         "For nationals of treaty countries investing a substantial amount "
+    #         "of capital in a U.S. business."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Investment Evidence", "Business Plan",
+    #         "Source of Funds Documentation", "Company Registration Documents",
+    #     ]),
+    #     "typical_processing_days": 120,
+    #     "government_fee_usd": 20500,   # $205 in cents
+    #     "display_order": 8,
+    #     "is_active": True,
+    # },
 
     # ── Student ───────────────────────────────────────────────────────────────
     {
@@ -2721,107 +2723,107 @@ VISA_TYPES_SEED = [
         "display_order": 9,
         "is_active": True,
     },
-    {
-        "code": "F-1-OPT",
-        "name": "F-1 OPT",
-        "short_label": "F-1 OPT",
-        "category": "student",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": (
-            "Optional Practical Training — allows F-1 students to work "
-            "in a job related to their major for up to 12 months."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Form I-20 (OPT Recommendation)",
-            "EAD Application (Form I-765)", "Passport Photos",
-            "Copy of Current Visa",
-        ]),
-        "typical_processing_days": 90,
-        "government_fee_usd": 41000,   # $410 in cents
-        "display_order": 10,
-        "is_active": True,
-    },
-    {
-        "code": "F-1-OPT-EXT",
-        "name": "F-1 OPT Extension",
-        "short_label": "F-1 OPT Ext",
-        "category": "student",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "Extension of F-1 OPT for non-STEM degree holders under special circumstances.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Current EAD Card",
-            "Form I-20 (Updated)", "Employment Verification Letter",
-        ]),
-        "typical_processing_days": 90,
-        "government_fee_usd": 41000,
-        "display_order": 11,
-        "is_active": True,
-    },
-    {
-        "code": "F-1-STEM-OPT",
-        "name": "F-1 STEM OPT Extension",
-        "short_label": "STEM OPT",
-        "category": "student",
-        "requires_employer_sponsor": True,
-        "lca_required": False,
-        "description": (
-            "24-month STEM OPT extension for F-1 students who graduated "
-            "with a STEM degree and are employed by an E-Verify employer."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "EAD Card", "Form I-20",
-            "I-983 Training Plan", "Employer Attestation",
-            "STEM Degree Transcript",
-        ]),
-        "typical_processing_days": 90,
-        "government_fee_usd": 41000,
-        "display_order": 12,
-        "is_active": True,
-    },
-    {
-        "code": "F-1-CPT",
-        "name": "F-1 CPT",
-        "short_label": "CPT",
-        "category": "student",
-        "requires_employer_sponsor": True,
-        "lca_required": False,
-        "description": (
-            "Curricular Practical Training — allows F-1 students to work "
-            "off-campus as part of their academic program."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Form I-20 (CPT Authorization)",
-            "Offer Letter", "Enrollment Verification",
-        ]),
-        "typical_processing_days": 14,
-        "government_fee_usd": 0,
-        "display_order": 13,
-        "is_active": True,
-    },
+    # {
+    #     "code": "F-1-OPT",
+    #     "name": "F-1 OPT",
+    #     "short_label": "F-1 OPT",
+    #     "category": "student",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": (
+    #         "Optional Practical Training — allows F-1 students to work "
+    #         "in a job related to their major for up to 12 months."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Form I-20 (OPT Recommendation)",
+    #         "EAD Application (Form I-765)", "Passport Photos",
+    #         "Copy of Current Visa",
+    #     ]),
+    #     "typical_processing_days": 90,
+    #     "government_fee_usd": 41000,   # $410 in cents
+    #     "display_order": 10,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "F-1-OPT-EXT",
+    #     "name": "F-1 OPT Extension",
+    #     "short_label": "F-1 OPT Ext",
+    #     "category": "student",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "Extension of F-1 OPT for non-STEM degree holders under special circumstances.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Current EAD Card",
+    #         "Form I-20 (Updated)", "Employment Verification Letter",
+    #     ]),
+    #     "typical_processing_days": 90,
+    #     "government_fee_usd": 41000,
+    #     "display_order": 11,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "F-1-STEM-OPT",
+    #     "name": "F-1 STEM OPT Extension",
+    #     "short_label": "STEM OPT",
+    #     "category": "student",
+    #     "requires_employer_sponsor": True,
+    #     "lca_required": False,
+    #     "description": (
+    #         "24-month STEM OPT extension for F-1 students who graduated "
+    #         "with a STEM degree and are employed by an E-Verify employer."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "EAD Card", "Form I-20",
+    #         "I-983 Training Plan", "Employer Attestation",
+    #         "STEM Degree Transcript",
+    #     ]),
+    #     "typical_processing_days": 90,
+    #     "government_fee_usd": 41000,
+    #     "display_order": 12,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "F-1-CPT",
+    #     "name": "F-1 CPT",
+    #     "short_label": "CPT",
+    #     "category": "student",
+    #     "requires_employer_sponsor": True,
+    #     "lca_required": False,
+    #     "description": (
+    #         "Curricular Practical Training — allows F-1 students to work "
+    #         "off-campus as part of their academic program."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Form I-20 (CPT Authorization)",
+    #         "Offer Letter", "Enrollment Verification",
+    #     ]),
+    #     "typical_processing_days": 14,
+    #     "government_fee_usd": 0,
+    #     "display_order": 13,
+    #     "is_active": True,
+    # },
 
     # ── Exchange ──────────────────────────────────────────────────────────────
-    {
-        "code": "J-1",
-        "name": "J-1 Exchange Visitor",
-        "short_label": "J-1",
-        "category": "exchange",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": (
-            "For participants in approved exchange visitor programs — "
-            "researchers, students, professors, and trainees."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Form DS-2019", "SEVIS Fee Receipt",
-            "Financial Support Evidence", "Program Sponsor Letter",
-        ]),
-        "typical_processing_days": 60,
-        "government_fee_usd": 22000,   # $220 SEVIS fee in cents
-        "display_order": 14,
-        "is_active": True,
-    },
+    # {
+    #     "code": "J-1",
+    #     "name": "J-1 Exchange Visitor",
+    #     "short_label": "J-1",
+    #     "category": "exchange",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": (
+    #         "For participants in approved exchange visitor programs — "
+    #         "researchers, students, professors, and trainees."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Form DS-2019", "SEVIS Fee Receipt",
+    #         "Financial Support Evidence", "Program Sponsor Letter",
+    #     ]),
+    #     "typical_processing_days": 60,
+    #     "government_fee_usd": 22000,   # $220 SEVIS fee in cents
+    #     "display_order": 14,
+    #     "is_active": True,
+    # },
 
     # ── Visitor ───────────────────────────────────────────────────────────────
     # {
@@ -2844,92 +2846,92 @@ VISA_TYPES_SEED = [
     # },
 
     # ── Permanent Resident ────────────────────────────────────────────────────
-    {
-        "code": "EB-1",
-        "name": "EB-1 Priority Worker",
-        "short_label": "EB-1",
-        "category": "permanent_resident",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": (
-            "For individuals with extraordinary ability, outstanding professors "
-            "or researchers, or multinational managers/executives."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Resume / CV", "Awards and Recognition Evidence",
-            "Published Work or Media Coverage", "Expert Reference Letters",
-            "Form I-140 Supporting Documents",
-        ]),
-        "typical_processing_days": 180,
-        "government_fee_usd": 70000,   # $700 in cents
-        "display_order": 16,
-        "is_active": True,
-    },
-    {
-        "code": "EB-2",
-        "name": "EB-2 Advanced Degree / NIW",
-        "short_label": "EB-2",
-        "category": "permanent_resident",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": (
-            "For professionals with advanced degrees or exceptional ability. "
-            "NIW allows self-petition if the work benefits the U.S. national interest."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Educational Transcripts", "Resume / CV",
-            "Expert Reference Letters",
-            "National Interest Waiver Justification Letter",
-            "Form I-140 Supporting Documents",
-        ]),
-        "typical_processing_days": 180,
-        "government_fee_usd": 70000,
-        "display_order": 17,
-        "is_active": True,
-    },
-    {
-        "code": "EB-3",
-        "name": "EB-3 Skilled Worker",
-        "short_label": "EB-3",
-        "category": "permanent_resident",
-        "requires_employer_sponsor": True,
-        "lca_required": False,
-        "description": (
-            "For skilled workers, professionals, and unskilled workers "
-            "with a permanent job offer from a U.S. employer."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Educational Transcripts", "Resume / CV",
-            "Offer Letter", "PERM Labor Certification",
-            "Form I-140 Supporting Documents",
-        ]),
-        "typical_processing_days": 365,
-        "government_fee_usd": 70000,
-        "display_order": 18,
-        "is_active": True,
-    },
-    {
-        "code": "GREEN-CARD",
-        "name": "Green Card (Adjustment of Status)",
-        "short_label": "Green Card",
-        "category": "permanent_resident",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": (
-            "Adjustment of Status (Form I-485) for individuals already in the U.S. "
-            "who are eligible for lawful permanent residence."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Birth Certificate", "Form I-485",
-            "Medical Examination (Form I-693)",
-            "Affidavit of Support (Form I-864)",
-            "Two Passport Photos", "Current Immigration Status Evidence",
-        ]),
-        "typical_processing_days": 365,
-        "government_fee_usd": 134500,  # $1,345 in cents
-        "display_order": 19,
-        "is_active": True,
-    },
+    # {
+    #     "code": "EB-1",
+    #     "name": "EB-1 Priority Worker",
+    #     "short_label": "EB-1",
+    #     "category": "permanent_resident",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": (
+    #         "For individuals with extraordinary ability, outstanding professors "
+    #         "or researchers, or multinational managers/executives."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Resume / CV", "Awards and Recognition Evidence",
+    #         "Published Work or Media Coverage", "Expert Reference Letters",
+    #         "Form I-140 Supporting Documents",
+    #     ]),
+    #     "typical_processing_days": 180,
+    #     "government_fee_usd": 70000,   # $700 in cents
+    #     "display_order": 16,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "EB-2",
+    #     "name": "EB-2 Advanced Degree / NIW",
+    #     "short_label": "EB-2",
+    #     "category": "permanent_resident",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": (
+    #         "For professionals with advanced degrees or exceptional ability. "
+    #         "NIW allows self-petition if the work benefits the U.S. national interest."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Educational Transcripts", "Resume / CV",
+    #         "Expert Reference Letters",
+    #         "National Interest Waiver Justification Letter",
+    #         "Form I-140 Supporting Documents",
+    #     ]),
+    #     "typical_processing_days": 180,
+    #     "government_fee_usd": 70000,
+    #     "display_order": 17,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "EB-3",
+    #     "name": "EB-3 Skilled Worker",
+    #     "short_label": "EB-3",
+    #     "category": "permanent_resident",
+    #     "requires_employer_sponsor": True,
+    #     "lca_required": False,
+    #     "description": (
+    #         "For skilled workers, professionals, and unskilled workers "
+    #         "with a permanent job offer from a U.S. employer."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Educational Transcripts", "Resume / CV",
+    #         "Offer Letter", "PERM Labor Certification",
+    #         "Form I-140 Supporting Documents",
+    #     ]),
+    #     "typical_processing_days": 365,
+    #     "government_fee_usd": 70000,
+    #     "display_order": 18,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "GREEN-CARD",
+    #     "name": "Green Card (Adjustment of Status)",
+    #     "short_label": "Green Card",
+    #     "category": "permanent_resident",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": (
+    #         "Adjustment of Status (Form I-485) for individuals already in the U.S. "
+    #         "who are eligible for lawful permanent residence."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Birth Certificate", "Form I-485",
+    #         "Medical Examination (Form I-693)",
+    #         "Affidavit of Support (Form I-864)",
+    #         "Two Passport Photos", "Current Immigration Status Evidence",
+    #     ]),
+    #     "typical_processing_days": 365,
+    #     "government_fee_usd": 134500,  # $1,345 in cents
+    #     "display_order": 19,
+    #     "is_active": True,
+    # },
 
     # =========================================================================
     # "TODO: verify" are best-effort placeholders — confirm against the
@@ -2937,43 +2939,43 @@ VISA_TYPES_SEED = [
     # =========================================================================
 
     # ── Employment (additional) ─────────────────────────────────────────────
-    {
-        "code": "H-1B1",
-        "name": "H-1B1 Free Trade Visa (Chile/Singapore)",
-        "short_label": "H-1B1",
-        "category": "employment",
-        "requires_employer_sponsor": True,
-        "lca_required": True,
-        "description": (
-            "For nationals of Chile and Singapore in specialty occupations, "
-            "processed via consular application rather than USCIS petition."
-        ),
-        "required_documents": json.dumps([
-            "Passport Copy", "Offer Letter", "Educational Transcripts",
-            "Labor Condition Application (LCA)", "DS-160 Confirmation",
-        ]),
-        "typical_processing_days": 30,
-        "government_fee_usd": 0,  # TODO: verify — consular processing, no I-129 filing fee
-        "display_order": 20,
-        "is_active": True,
-    },
-    {
-        "code": "E-1",
-        "name": "E-1 Treaty Trader",
-        "short_label": "E-1",
-        "category": "employment",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "For nationals of treaty countries carrying on substantial trade with the U.S.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Trade Records Evidence", "Company Registration Documents",
-            "Company Financial Statements", "DS-160 Confirmation",
-        ]),
-        "typical_processing_days": 60,
-        "government_fee_usd": 20500,  # TODO: verify — using E-2 rate as placeholder
-        "display_order": 21,
-        "is_active": True,
-    },
+    # {
+    #     "code": "H-1B1",
+    #     "name": "H-1B1 Free Trade Visa (Chile/Singapore)",
+    #     "short_label": "H-1B1",
+    #     "category": "employment",
+    #     "requires_employer_sponsor": True,
+    #     "lca_required": True,
+    #     "description": (
+    #         "For nationals of Chile and Singapore in specialty occupations, "
+    #         "processed via consular application rather than USCIS petition."
+    #     ),
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Offer Letter", "Educational Transcripts",
+    #         "Labor Condition Application (LCA)", "DS-160 Confirmation",
+    #     ]),
+    #     "typical_processing_days": 30,
+    #     "government_fee_usd": 0,  # TODO: verify — consular processing, no I-129 filing fee
+    #     "display_order": 20,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "E-1",
+    #     "name": "E-1 Treaty Trader",
+    #     "short_label": "E-1",
+    #     "category": "employment",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "For nationals of treaty countries carrying on substantial trade with the U.S.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Trade Records Evidence", "Company Registration Documents",
+    #         "Company Financial Statements", "DS-160 Confirmation",
+    #     ]),
+    #     "typical_processing_days": 60,
+    #     "government_fee_usd": 20500,  # TODO: verify — using E-2 rate as placeholder
+    #     "display_order": 21,
+    #     "is_active": True,
+    # },
     {
         "code": "E-3",
         "name": "E-3 Specialty Occupation (Australia)",
@@ -2991,72 +2993,72 @@ VISA_TYPES_SEED = [
         "display_order": 22,
         "is_active": True,
     },
-    {
-        "code": "H-2A",
-        "name": "H-2A Agricultural Worker",
-        "short_label": "H-2A",
-        "category": "employment",
-        "requires_employer_sponsor": True,
-        "lca_required": False,
-        "description": "For temporary or seasonal agricultural workers.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Offer Letter", "Temporary Labor Certification",
-        ]),
-        "typical_processing_days": 90,
-        "government_fee_usd": 46000,  # TODO: verify — I-129 base fee assumed
-        "display_order": 23,
-        "is_active": True,
-    },
-    {
-        "code": "H-2B",
-        "name": "H-2B Temporary Non-Agricultural Worker",
-        "short_label": "H-2B",
-        "category": "employment",
-        "requires_employer_sponsor": True,
-        "lca_required": False,
-        "description": "For temporary non-agricultural workers filling seasonal or peak-load positions.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Offer Letter", "Temporary Labor Certification",
-        ]),
-        "typical_processing_days": 90,
-        "government_fee_usd": 46000,  # TODO: verify — I-129 base fee assumed
-        "display_order": 24,
-        "is_active": True,
-    },
-    {
-        "code": "H-3",
-        "name": "H-3 Trainee/Special Education Visitor",
-        "short_label": "H-3",
-        "category": "employment",
-        "requires_employer_sponsor": True,
-        "lca_required": False,
-        "description": "For individuals invited to receive training not available in their home country.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Training Program Plan", "Employer Support Letter",
-        ]),
-        "typical_processing_days": 90,
-        "government_fee_usd": 46000,  # TODO: verify — I-129 base fee assumed
-        "display_order": 25,
-        "is_active": True,
-    },
+    # {
+    #     "code": "H-2A",
+    #     "name": "H-2A Agricultural Worker",
+    #     "short_label": "H-2A",
+    #     "category": "employment",
+    #     "requires_employer_sponsor": True,
+    #     "lca_required": False,
+    #     "description": "For temporary or seasonal agricultural workers.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Offer Letter", "Temporary Labor Certification",
+    #     ]),
+    #     "typical_processing_days": 90,
+    #     "government_fee_usd": 46000,  # TODO: verify — I-129 base fee assumed
+    #     "display_order": 23,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "H-2B",
+    #     "name": "H-2B Temporary Non-Agricultural Worker",
+    #     "short_label": "H-2B",
+    #     "category": "employment",
+    #     "requires_employer_sponsor": True,
+    #     "lca_required": False,
+    #     "description": "For temporary non-agricultural workers filling seasonal or peak-load positions.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Offer Letter", "Temporary Labor Certification",
+    #     ]),
+    #     "typical_processing_days": 90,
+    #     "government_fee_usd": 46000,  # TODO: verify — I-129 base fee assumed
+    #     "display_order": 24,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "H-3",
+    #     "name": "H-3 Trainee/Special Education Visitor",
+    #     "short_label": "H-3",
+    #     "category": "employment",
+    #     "requires_employer_sponsor": True,
+    #     "lca_required": False,
+    #     "description": "For individuals invited to receive training not available in their home country.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Training Program Plan", "Employer Support Letter",
+    #     ]),
+    #     "typical_processing_days": 90,
+    #     "government_fee_usd": 46000,  # TODO: verify — I-129 base fee assumed
+    #     "display_order": 25,
+    #     "is_active": True,
+    # },
 
     # ── Student (additional) ─────────────────────────────────────────────────
-    {
-        "code": "M-1",
-        "name": "M-1 Vocational Student",
-        "short_label": "M-1",
-        "category": "student",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "For students enrolled in vocational or non-academic training programs.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Form I-20", "Financial Support Evidence", "Acceptance Letter",
-        ]),
-        "typical_processing_days": 60,
-        "government_fee_usd": 18500,
-        "display_order": 26,
-        "is_active": True,
-    },
+    # {
+    #     "code": "M-1",
+    #     "name": "M-1 Vocational Student",
+    #     "short_label": "M-1",
+    #     "category": "student",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "For students enrolled in vocational or non-academic training programs.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Form I-20", "Financial Support Evidence", "Acceptance Letter",
+    #     ]),
+    #     "typical_processing_days": 60,
+    #     "government_fee_usd": 18500,
+    #     "display_order": 26,
+    #     "is_active": True,
+    # },
 
     # ── Visitor  ──
     {
@@ -3095,40 +3097,40 @@ VISA_TYPES_SEED = [
     },
 
     # ── Permanent Resident (additional) ──────────────────────────────────────
-    {
-        "code": "EB-4",
-        "name": "EB-4 Special Immigrant",
-        "short_label": "EB-4",
-        "category": "permanent_resident",
-        "requires_employer_sponsor": True,
-        "lca_required": False,
-        "description": "For special immigrants, e.g. religious workers and certain government employees.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Religious/Special Immigrant Category Evidence",
-            "Form I-140 Supporting Documents",
-        ]),
-        "typical_processing_days": 365,
-        "government_fee_usd": 70000,  # TODO: verify — using standard I-140 rate
-        "display_order": 29,
-        "is_active": True,
-    },
-    {
-        "code": "EB-5",
-        "name": "EB-5 Immigrant Investor",
-        "short_label": "EB-5",
-        "category": "permanent_resident",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "For individuals investing the required capital amount in a new U.S. commercial enterprise.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Investment Evidence", "Business Plan",
-            "Source of Funds Documentation", "Company Registration Documents", "Tax Returns",
-        ]),
-        "typical_processing_days": 730,
-        "government_fee_usd": 0,  # TODO: verify — current I-526/I-526E fee
-        "display_order": 30,
-        "is_active": True,
-    },
+    # {
+    #     "code": "EB-4",
+    #     "name": "EB-4 Special Immigrant",
+    #     "short_label": "EB-4",
+    #     "category": "permanent_resident",
+    #     "requires_employer_sponsor": True,
+    #     "lca_required": False,
+    #     "description": "For special immigrants, e.g. religious workers and certain government employees.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Religious/Special Immigrant Category Evidence",
+    #         "Form I-140 Supporting Documents",
+    #     ]),
+    #     "typical_processing_days": 365,
+    #     "government_fee_usd": 70000,  # TODO: verify — using standard I-140 rate
+    #     "display_order": 29,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "EB-5",
+    #     "name": "EB-5 Immigrant Investor",
+    #     "short_label": "EB-5",
+    #     "category": "permanent_resident",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "For individuals investing the required capital amount in a new U.S. commercial enterprise.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Investment Evidence", "Business Plan",
+    #         "Source of Funds Documentation", "Company Registration Documents", "Tax Returns",
+    #     ]),
+    #     "typical_processing_days": 730,
+    #     "government_fee_usd": 0,  # TODO: verify — current I-526/I-526E fee
+    #     "display_order": 30,
+    #     "is_active": True,
+    # },
 
     # ── Dependent Visas (new category: "dependent") ─────────────────────────
     {
@@ -3149,208 +3151,235 @@ VISA_TYPES_SEED = [
         "is_active": True,
     },
     {
-        "code": "L-2",
-        "name": "L-2 Dependent of L-1 Holder",
-        "short_label": "L-2",
-        "category": "dependent",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "For spouses and unmarried children under 21 of L-1 visa holders.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Marriage Certificate", "Birth Certificate",
-            "Current I-797 Approval Notice", "Copy of Current Visa",
-        ]),
-        "typical_processing_days": 90,
-        "government_fee_usd": 0,  # TODO: verify
-        "display_order": 32,
-        "is_active": True,
+    "code": "H-4-EAD",
+    "name": "H-4 Employment Authorization (EAD)",
+    "short_label": "H-4 EAD",
+    "category": "dependent",
+    "requires_employer_sponsor": False,
+    "lca_required": False,
+    "description": (
+        "Employment Authorization Document (Form I-765) for eligible H-4 "
+        "dependent spouses, based on the H-1B holder having an approved "
+        "Form I-140 or an H-1B extension under AC21 sections 106(a)/(b)."
+    ),
+    "required_documents": json.dumps([
+        "Passport Copy",
+        "Marriage Certificate",
+        "Copy of Current Visa",
+        "Current Immigration Status Evidence",   # I-94 showing valid H-4 status
+        "EAD Application (Form I-765)",
+        "Passport Photos",
+        "Current I-797 Approval Notice",          # principal H-1B holder's I-140/I-797 evidence
+        "Current EAD Card",                       # only relevant if this is a renewal
+    ]),
+    "typical_processing_days": 180,
+    "government_fee_usd": 52000,   # $520 in cents — TODO: verify against current USCIS I-765 fee schedule
+    "display_order": 32,
+    "is_active": True,
     },
-    {
-        "code": "F-2",
-        "name": "F-2 Dependent of F-1 Student",
-        "short_label": "F-2",
-        "category": "dependent",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "For spouses and unmarried children under 21 of F-1 student visa holders.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Marriage Certificate", "Birth Certificate", "Form I-20",
-        ]),
-        "typical_processing_days": 60,
-        "government_fee_usd": 18500,  # TODO: verify
-        "display_order": 33,
-        "is_active": True,
-    },
-    {
-        "code": "J-2",
-        "name": "J-2 Dependent of J-1 Exchange Visitor",
-        "short_label": "J-2",
-        "category": "dependent",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "For spouses and unmarried children under 21 of J-1 exchange visitor visa holders.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Marriage Certificate", "Birth Certificate", "Form DS-2019",
-        ]),
-        "typical_processing_days": 60,
-        "government_fee_usd": 0,  # TODO: verify
-        "display_order": 34,
-        "is_active": True,
-    },
-    {
-        "code": "TD",
-        "name": "TD Dependent of TN Holder",
-        "short_label": "TD",
-        "category": "dependent",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "For spouses and unmarried children under 21 of TN visa holders.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Marriage Certificate", "Birth Certificate", "Copy of Current Visa",
-        ]),
-        "typical_processing_days": 30,
-        "government_fee_usd": 0,
-        "display_order": 35,
-        "is_active": True,
-    },
+    # {
+    #     "code": "L-2",
+    #     "name": "L-2 Dependent of L-1 Holder",
+    #     "short_label": "L-2",
+    #     "category": "dependent",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "For spouses and unmarried children under 21 of L-1 visa holders.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Marriage Certificate", "Birth Certificate",
+    #         "Current I-797 Approval Notice", "Copy of Current Visa",
+    #     ]),
+    #     "typical_processing_days": 90,
+    #     "government_fee_usd": 0,  # TODO: verify
+    #     "display_order": 32,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "F-2",
+    #     "name": "F-2 Dependent of F-1 Student",
+    #     "short_label": "F-2",
+    #     "category": "dependent",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "For spouses and unmarried children under 21 of F-1 student visa holders.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Marriage Certificate", "Birth Certificate", "Form I-20",
+    #     ]),
+    #     "typical_processing_days": 60,
+    #     "government_fee_usd": 18500,  # TODO: verify
+    #     "display_order": 33,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "J-2",
+    #     "name": "J-2 Dependent of J-1 Exchange Visitor",
+    #     "short_label": "J-2",
+    #     "category": "dependent",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "For spouses and unmarried children under 21 of J-1 exchange visitor visa holders.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Marriage Certificate", "Birth Certificate", "Form DS-2019",
+    #     ]),
+    #     "typical_processing_days": 60,
+    #     "government_fee_usd": 0,  # TODO: verify
+    #     "display_order": 34,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "TD",
+    #     "name": "TD Dependent of TN Holder",
+    #     "short_label": "TD",
+    #     "category": "dependent",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "For spouses and unmarried children under 21 of TN visa holders.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Marriage Certificate", "Birth Certificate", "Copy of Current Visa",
+    #     ]),
+    #     "typical_processing_days": 30,
+    #     "government_fee_usd": 0,
+    #     "display_order": 35,
+    #     "is_active": True,
+    # },
 
-    # ── Family-Based Immigrant Visas (new category: "family_based") ─────────
-    {
-        "code": "IR-1",
-        "name": "IR-1 Spouse of U.S. Citizen",
-        "short_label": "IR-1",
-        "category": "family_based",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "Immediate relative immigrant visa for the spouse of a U.S. citizen.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Marriage Certificate", "Form I-130 Petition for Alien Relative",
-            "Affidavit of Support (Form I-864)", "Tax Returns",
-        ]),
-        "typical_processing_days": 365,
-        "government_fee_usd": 67500,  # TODO: verify — I-130 filing fee placeholder
-        "display_order": 36,
-        "is_active": True,
-    },
-    {
-        "code": "IR-2",
-        "name": "IR-2 Child of U.S. Citizen",
-        "short_label": "IR-2",
-        "category": "family_based",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "Immediate relative immigrant visa for the unmarried child under 21 of a U.S. citizen.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
-            "Affidavit of Support (Form I-864)",
-        ]),
-        "typical_processing_days": 365,
-        "government_fee_usd": 67500,  # TODO: verify
-        "display_order": 37,
-        "is_active": True,
-    },
-    {
-        "code": "IR-5",
-        "name": "IR-5 Parent of U.S. Citizen",
-        "short_label": "IR-5",
-        "category": "family_based",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "Immediate relative immigrant visa for the parent of a U.S. citizen (petitioner must be 21+).",
-        "required_documents": json.dumps([
-            "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
-            "Affidavit of Support (Form I-864)", "Tax Returns",
-        ]),
-        "typical_processing_days": 365,
-        "government_fee_usd": 67500,  # TODO: verify
-        "display_order": 38,
-        "is_active": True,
-    },
-    {
-        "code": "F1-PREF",
-        "name": "F1 - Unmarried Sons/Daughters of U.S. Citizens",
-        "short_label": "F1",
-        "category": "family_based",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "Family preference category for unmarried adult sons/daughters of U.S. citizens. Subject to annual visa quotas and priority-date waits.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
-            "Affidavit of Support (Form I-864)",
-        ]),
-        "typical_processing_days": 2555,  # ~7 years — TODO: verify current visa bulletin wait time
-        "government_fee_usd": 67500,  # TODO: verify
-        "display_order": 39,
-        "is_active": True,
-    },
-    {
-        "code": "F2A-PREF",
-        "name": "F2A - Spouses/Minor Children of Green Card Holders",
-        "short_label": "F2A",
-        "category": "family_based",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "Family preference category for spouses and unmarried minor children of lawful permanent residents. Subject to annual visa quotas.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Marriage Certificate", "Birth Certificate",
-            "Form I-130 Petition for Alien Relative", "Affidavit of Support (Form I-864)",
-        ]),
-        "typical_processing_days": 730,  # TODO: verify current visa bulletin wait time
-        "government_fee_usd": 67500,  # TODO: verify
-        "display_order": 40,
-        "is_active": True,
-    },
-    {
-        "code": "F2B-PREF",
-        "name": "F2B - Unmarried Adult Sons/Daughters of Green Card Holders",
-        "short_label": "F2B",
-        "category": "family_based",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "Family preference category for unmarried adult sons/daughters of lawful permanent residents. Subject to annual visa quotas.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
-            "Affidavit of Support (Form I-864)",
-        ]),
-        "typical_processing_days": 2555,  # TODO: verify current visa bulletin wait time
-        "government_fee_usd": 67500,  # TODO: verify
-        "display_order": 41,
-        "is_active": True,
-    },
-    {
-        "code": "F3-PREF",
-        "name": "F3 - Married Sons/Daughters of U.S. Citizens",
-        "short_label": "F3",
-        "category": "family_based",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "Family preference category for married sons/daughters of U.S. citizens. Subject to annual visa quotas.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Marriage Certificate", "Birth Certificate",
-            "Form I-130 Petition for Alien Relative", "Affidavit of Support (Form I-864)",
-        ]),
-        "typical_processing_days": 3650,  # TODO: verify current visa bulletin wait time
-        "government_fee_usd": 67500,  # TODO: verify
-        "display_order": 42,
-        "is_active": True,
-    },
-    {
-        "code": "F4-PREF",
-        "name": "F4 - Siblings of U.S. Citizens",
-        "short_label": "F4",
-        "category": "family_based",
-        "requires_employer_sponsor": False,
-        "lca_required": False,
-        "description": "Family preference category for siblings of U.S. citizens (petitioner must be 21+). Subject to annual visa quotas.",
-        "required_documents": json.dumps([
-            "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
-            "Affidavit of Support (Form I-864)",
-        ]),
-        "typical_processing_days": 4745,  # TODO: verify current visa bulletin wait time
-        "government_fee_usd": 67500,  # TODO: verify
-        "display_order": 43,
-        "is_active": True,
-    },
+    # # ── Family-Based Immigrant Visas (new category: "family_based") ─────────
+    # {
+    #     "code": "IR-1",
+    #     "name": "IR-1 Spouse of U.S. Citizen",
+    #     "short_label": "IR-1",
+    #     "category": "family_based",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "Immediate relative immigrant visa for the spouse of a U.S. citizen.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Marriage Certificate", "Form I-130 Petition for Alien Relative",
+    #         "Affidavit of Support (Form I-864)", "Tax Returns",
+    #     ]),
+    #     "typical_processing_days": 365,
+    #     "government_fee_usd": 67500,  # TODO: verify — I-130 filing fee placeholder
+    #     "display_order": 36,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "IR-2",
+    #     "name": "IR-2 Child of U.S. Citizen",
+    #     "short_label": "IR-2",
+    #     "category": "family_based",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "Immediate relative immigrant visa for the unmarried child under 21 of a U.S. citizen.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
+    #         "Affidavit of Support (Form I-864)",
+    #     ]),
+    #     "typical_processing_days": 365,
+    #     "government_fee_usd": 67500,  # TODO: verify
+    #     "display_order": 37,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "IR-5",
+    #     "name": "IR-5 Parent of U.S. Citizen",
+    #     "short_label": "IR-5",
+    #     "category": "family_based",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "Immediate relative immigrant visa for the parent of a U.S. citizen (petitioner must be 21+).",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
+    #         "Affidavit of Support (Form I-864)", "Tax Returns",
+    #     ]),
+    #     "typical_processing_days": 365,
+    #     "government_fee_usd": 67500,  # TODO: verify
+    #     "display_order": 38,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "F1-PREF",
+    #     "name": "F1 - Unmarried Sons/Daughters of U.S. Citizens",
+    #     "short_label": "F1",
+    #     "category": "family_based",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "Family preference category for unmarried adult sons/daughters of U.S. citizens. Subject to annual visa quotas and priority-date waits.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
+    #         "Affidavit of Support (Form I-864)",
+    #     ]),
+    #     "typical_processing_days": 2555,  # ~7 years — TODO: verify current visa bulletin wait time
+    #     "government_fee_usd": 67500,  # TODO: verify
+    #     "display_order": 39,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "F2A-PREF",
+    #     "name": "F2A - Spouses/Minor Children of Green Card Holders",
+    #     "short_label": "F2A",
+    #     "category": "family_based",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "Family preference category for spouses and unmarried minor children of lawful permanent residents. Subject to annual visa quotas.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Marriage Certificate", "Birth Certificate",
+    #         "Form I-130 Petition for Alien Relative", "Affidavit of Support (Form I-864)",
+    #     ]),
+    #     "typical_processing_days": 730,  # TODO: verify current visa bulletin wait time
+    #     "government_fee_usd": 67500,  # TODO: verify
+    #     "display_order": 40,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "F2B-PREF",
+    #     "name": "F2B - Unmarried Adult Sons/Daughters of Green Card Holders",
+    #     "short_label": "F2B",
+    #     "category": "family_based",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "Family preference category for unmarried adult sons/daughters of lawful permanent residents. Subject to annual visa quotas.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
+    #         "Affidavit of Support (Form I-864)",
+    #     ]),
+    #     "typical_processing_days": 2555,  # TODO: verify current visa bulletin wait time
+    #     "government_fee_usd": 67500,  # TODO: verify
+    #     "display_order": 41,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "F3-PREF",
+    #     "name": "F3 - Married Sons/Daughters of U.S. Citizens",
+    #     "short_label": "F3",
+    #     "category": "family_based",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "Family preference category for married sons/daughters of U.S. citizens. Subject to annual visa quotas.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Marriage Certificate", "Birth Certificate",
+    #         "Form I-130 Petition for Alien Relative", "Affidavit of Support (Form I-864)",
+    #     ]),
+    #     "typical_processing_days": 3650,  # TODO: verify current visa bulletin wait time
+    #     "government_fee_usd": 67500,  # TODO: verify
+    #     "display_order": 42,
+    #     "is_active": True,
+    # },
+    # {
+    #     "code": "F4-PREF",
+    #     "name": "F4 - Siblings of U.S. Citizens",
+    #     "short_label": "F4",
+    #     "category": "family_based",
+    #     "requires_employer_sponsor": False,
+    #     "lca_required": False,
+    #     "description": "Family preference category for siblings of U.S. citizens (petitioner must be 21+). Subject to annual visa quotas.",
+    #     "required_documents": json.dumps([
+    #         "Passport Copy", "Birth Certificate", "Form I-130 Petition for Alien Relative",
+    #         "Affidavit of Support (Form I-864)",
+    #     ]),
+    #     "typical_processing_days": 4745,  # TODO: verify current visa bulletin wait time
+    #     "government_fee_usd": 67500,  # TODO: verify
+    #     "display_order": 43,
+    #     "is_active": True,
+    # },
 ]
 
 
