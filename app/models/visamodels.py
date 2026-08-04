@@ -32,6 +32,10 @@ class User(Base):
     phone        = Column(String(20),  nullable=True)
     country_code = Column(String(10),  nullable=True)
 
+    # ── Personal email (the "true" identity across employers) ────────────────
+    personal_email          = Column(String(255), nullable=True, unique=True, index=True)
+    requires_personal_email = Column(Boolean, default=False, nullable=False)
+
     password_hash    = Column(String(255), nullable=True)
     auth_provider    = Column(
         Enum("email", "google", "microsoft", "apple",
@@ -48,7 +52,7 @@ class User(Base):
     marketing_opt_in  = Column(Boolean,  default=False, nullable=False)
     newsletter_opt_in = Column(Boolean,  default=False, nullable=False)
     referral_source   = Column(String(100), nullable=True)
-    token_version = Column(Integer, default=0, nullable=False)
+
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at    = Column(DateTime(timezone=True),
                            default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -355,10 +359,7 @@ class UserProfile(Base):
     onboarding_step      = Column(Integer, default=1,     nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
     theme_color = Column(String(7), nullable=True, default="#4f46e5")
-    tour_employee_seen   = Column(Boolean, default=False, nullable=False)
-    tour_hr_seen         = Column(Boolean, default=False, nullable=False)
-    tour_attorney_seen   = Column(Boolean, default=False, nullable=False)
-    tour_admin_seen      = Column(Boolean, default=False, nullable=False)
+
     # ── Employer Link (set when employee accepts HR invitation) ───────────────
     employer_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
                          nullable=True, index=True)
@@ -612,6 +613,27 @@ class Application(Base):
     hr_approved_at = Column(DateTime(timezone=True), nullable=True)
     hr_approved_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
+    intake_accepted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    intake_accepted_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+ 
+    # ── Filing pipeline (client-facing case lifecycle) ───────────────────────
+    # Deliberately separate from `current_stage` above, which tracks the
+    # attorney's internal prep workflow (profile_eligibility → ... →
+    # uscis_submission). This field is the Intake → Filed → RFE → Decision
+    # timeline your colleague described — set to 'intake' the moment
+    # intake_accepted_at is populated, then advanced by the attorney as the
+    # case actually moves (filing, RFE, decision).
+    case_pipeline_stage = Column(
+        Enum("intake", "filed", "rfe", "decision",
+             name="case_pipeline_stage_enum"),
+        nullable=True   # NULL until intake is accepted — not yet a "case"
+    )
+ 
+    # ── Filed-case identifiers — shown front-and-center once populated ───────
+    receipt_number = Column(String(50), nullable=True, index=True)   # e.g. "WAC-24-123-45678"
+    priority_date  = Column(Date, nullable=True)
+
+
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -788,7 +810,7 @@ class DocumentType(Base):
     accepted_formats = Column(String(100), nullable=True, default="PDF,JPG,PNG")
     max_file_size_mb = Column(Integer, default=10, nullable=False)
     is_active        = Column(Boolean, default=True, nullable=False)
-    ocr_slug    = Column(String(50), nullable=True, index=True)
+
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -3235,6 +3257,19 @@ class ClientIntakeSession(Base):
     last_saved_at = Column(DateTime(timezone=True), nullable=True)
     is_submitted  = Column(Boolean, default=False, nullable=False)
     submitted_at  = Column(DateTime(timezone=True), nullable=True)
+
+    # ── Attorney Review Fields (mirrors Application.hr_approval_status) ──────
+    review_status = Column(
+        Enum("not_submitted", "pending_review", "changes_requested", "accepted",
+             name="intake_review_status_enum"),
+        nullable=False, default="not_submitted"
+    )
+    review_note   = Column(Text, nullable=True)   # whole-form correction note or acceptance note
+    reviewed_by   = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    reviewed_at   = Column(DateTime(timezone=True), nullable=True)
+    # Bumped every time employee is sent back for corrections and resubmits —
+    # lets the attorney/UI show "resubmission #2" instead of losing that history.
+    revision_count = Column(Integer, default=0, nullable=False)
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

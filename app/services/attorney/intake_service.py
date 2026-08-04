@@ -39,9 +39,11 @@ from app.models.visamodels import (
     Deadline,
     Fee,
     IntakeImmigrationHistory,
+    Notification,
     User,
 )
 from app.schemas.attorney.intake import (
+    AcceptIntakeRequest,               # ← ADD THIS
     ActiveCaseSnapshot,
     ActivityItem,
     AssignedApplicationResponse,
@@ -50,9 +52,11 @@ from app.schemas.attorney.intake import (
     GenerateLinkResponse,
     IntakeDataResponse,
     IntakeDataSave,
+    IntakeReviewDecisionResponse,
     IntakeSessionCreate,
     IntakeSessionResponse,
     PreviousVisaItem,
+    RequestIntakeChangesRequest,
     SaveDraftResponse,
     SubmitIntakeResponse,
     VisaStatusOption,
@@ -739,6 +743,11 @@ def _build_session_response(
         created_at       = session.created_at,
         updated_at       = session.updated_at,
         intake_data      = _build_intake_data_response(intake_data) if intake_data else None,
+        review_status    = session.review_status,
+        review_note      = session.review_note,
+        reviewed_by      = session.reviewed_by,
+        reviewed_at      = session.reviewed_at,
+        revision_count   = session.revision_count,
     )
 
 
@@ -1092,6 +1101,159 @@ async def submit_intake(
         detail       = "Intake form submitted successfully.",
         submitted_at = now,
         session_id   = session_id,
+    )
+# ===========================================================================
+# ATTORNEY REVIEW — accept intake (converts intake → active case)
+# ===========================================================================
+ 
+async def accept_intake(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    payload: AcceptIntakeRequest,
+    current_user_id: uuid.UUID,
+) -> IntakeReviewDecisionResponse:
+    """
+    Attorney accepts a submitted intake.
+ 
+    - Requires the session to be submitted and awaiting review
+      (review_status == 'pending_review'; also allowed straight from
+      'changes_requested' in case the attorney changes their mind before
+      the employee resubmits — but NOT already 'accepted', that's a 409).
+    - Sets ClientIntakeSession.review_status = 'accepted'.
+    - Graduates the Application into an active case:
+        intake_accepted_at / intake_accepted_by populated,
+        case_pipeline_stage set to 'intake' (first stage of the filing
+        pipeline — attorney advances it to 'filed' etc. separately).
+    - Notifies the employee.
+    """
+    session = await _verify_session_access(db, session_id, current_user_id)
+ 
+    if not session.is_submitted:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This intake has not been submitted yet — nothing to accept.",
+        )
+    if session.review_status == "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This intake has already been accepted.",
+        )
+ 
+    now = datetime.now(timezone.utc)
+ 
+    await db_update(db, ClientIntakeSession, session_id, {
+        "review_status": "accepted",
+        "review_note":   payload.note,
+        "reviewed_by":   current_user_id,
+        "reviewed_at":   now,
+        "modified_by":   current_user_id,
+    })
+ 
+    application = await _load_application_or_404(db, session.application_id)
+    await db_update(db, Application, application.id, {
+        "intake_accepted_at":  now,
+        "intake_accepted_by":  current_user_id,
+        "case_pipeline_stage": "intake",
+        "modified_by":         current_user_id,
+    })
+ 
+    if application.user_id:
+        await db_create(db, Notification, {
+            "user_id":           application.user_id,
+            "notification_type": "case_status_updated",
+            "category":          "case_update",
+            "priority":          "medium",
+            "title":             "Your intake was accepted",
+            "body":              "Your attorney has accepted your intake. Your case is now active and moving into the filing pipeline.",
+            "application_id":    application.id,
+            "actor_id":          current_user_id,
+        })
+ 
+    return IntakeReviewDecisionResponse(
+        detail               = "Intake accepted. Application has been converted into an active case.",
+        session_id           = session_id,
+        application_id       = application.id,
+        review_status        = "accepted",
+        reviewed_at           = now,
+        revision_count        = session.revision_count,
+        intake_accepted_at    = now,
+        case_pipeline_stage   = "intake",
+    )
+ 
+ 
+# ===========================================================================
+# ATTORNEY REVIEW — request changes (sends the whole form back)
+# ===========================================================================
+ 
+async def request_intake_changes(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    payload: RequestIntakeChangesRequest,
+    current_user_id: uuid.UUID,
+) -> IntakeReviewDecisionResponse:
+    """
+    Attorney sends the intake back for corrections — whole-form, per the
+    agreed design (no per-step/per-field granularity in V1).
+ 
+    Reopens the ENTIRE wizard: is_submitted/is_draft reset, all step
+    completion flags cleared, current_step pinned back to 1. The employee
+    sees correction_note as the reason and redoes the form from the start.
+    revision_count increments so the attorney can see "this is resubmission #2".
+    """
+    session = await _verify_session_access(db, session_id, current_user_id)
+ 
+    if not session.is_submitted:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This intake has not been submitted yet — nothing to send back.",
+        )
+    if session.review_status == "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This intake was already accepted and converted into a case; it can no longer be sent back.",
+        )
+ 
+    now = datetime.now(timezone.utc)
+ 
+    await db_update(db, ClientIntakeSession, session_id, {
+        "review_status":    "changes_requested",
+        "review_note":      payload.correction_note,
+        "reviewed_by":       current_user_id,
+        "reviewed_at":       now,
+        "revision_count":    session.revision_count + 1,
+        # Whole-form reopen — employee redoes everything from step 1.
+        "is_submitted":      False,
+        "submitted_at":      None,
+        "is_draft":          True,
+        "current_step":      1,
+        "step_1_completed":  False,
+        "step_2_completed":  False,
+        "step_3_completed":  False,
+        "step_4_completed":  False,
+        "step_5_completed":  False,
+        "modified_by":       current_user_id,
+    })
+ 
+    application = await _load_application_or_404(db, session.application_id)
+    if application.user_id:
+        await db_create(db, Notification, {
+            "user_id":           application.user_id,
+            "notification_type": "case_status_updated",
+            "category":          "case_update",
+            "priority":          "high",
+            "title":             "Your intake needs corrections",
+            "body":              payload.correction_note,
+            "application_id":    application.id,
+            "actor_id":          current_user_id,
+        })
+ 
+    return IntakeReviewDecisionResponse(
+        detail          = "Changes requested. The employee has been notified and the form has been reopened.",
+        session_id      = session_id,
+        application_id  = application.id,
+        review_status   = "changes_requested",
+        reviewed_at      = now,
+        revision_count   = session.revision_count + 1,
     )
 
 

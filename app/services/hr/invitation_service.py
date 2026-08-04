@@ -13,8 +13,11 @@ from app.models.visamodels import (
     EmployerInvitation,
     EmployerEmployee,
     EmployerProfile,
+    PasswordResetToken,
     UserProfile,
     User,
+    UserRole,
+    Role,
     Application,
     VisaType,
 )
@@ -24,10 +27,24 @@ from app.schemas.hr.invitation_schemas import (
     InviteByCodeRequest,
     InviteByLinkRequest,
     AcceptInviteRequest,
+    AcceptInviteNewUserRequest,
+    AcceptInviteExistingUserRequest,
     UpdateEmployeeRequest,
 )
+from app.core.exceptions import ConflictException, UnauthorizedException
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    hash_password,
+    verify_password,
+)
 from app.services.employee.message_service import get_or_create_thread_for_participants
-from app.services.employee.services import db_create, db_get_by_id, db_update
+from app.services.employee.services import (
+    _store_refresh_token,
+    db_create,
+    db_get_by_id,
+    db_update,
+)
 
 
 # =============================================================================
@@ -56,6 +73,129 @@ async def _get_employer_profile(
         select(EmployerProfile).where(EmployerProfile.user_id == hr_user_id)
     )
     return result.scalars().first()
+
+
+async def _find_existing_user_for_email(
+    db: AsyncSession,
+    email: str,
+) -> Optional[User]:
+    """
+    Used to answer "does this person already have an account?" when a
+    company invite comes in for `email`.
+
+    Matches against BOTH:
+    - User.personal_email (the true identity, once a user has added one)
+    - User.email           (covers users who signed up the normal way and
+                             never got a personal_email split out yet)
+
+    This is intentionally NOT scoped to a single employer — the whole point
+    is to catch the same person coming back under a DIFFERENT employer.
+    """
+    email = email.lower().strip()
+    result = await db.execute(
+        select(User).where(
+            (User.personal_email == email) | (User.email == email)
+        )
+    )
+    return result.scalars().first()
+
+
+async def _link_employee_to_employer(
+    db: AsyncSession,
+    *,
+    invite: EmployerInvitation,
+    employer: EmployerProfile,
+    employee_id: uuid.UUID,
+    work_email: Optional[str],
+) -> None:
+    """
+    Shared "attach this employee to this employer" logic — used by:
+    - accept_invite            (already-logged-in employee, code/link invite)
+    - accept_invite_new_user   (brand new account created from a company invite)
+    - accept_invite_existing_user (merge into a pre-existing account)
+
+    Does NOT touch User.personal_email / User.email — those are decided by
+    the caller depending on which of the three scenarios above we're in.
+    """
+    now = datetime.now(timezone.utc)
+
+    # ── Create employer_employees record ──────────────────────────────────
+    link = EmployerEmployee(
+        employer_id         = invite.created_by,
+        employee_id         = employee_id,
+        employer_profile_id = invite.employer_profile_id,
+        invitation_id        = invite.id,
+        is_active            = True,
+        work_email           = work_email,
+        created_by           = employee_id,
+    )
+    await db_create(db, link)
+
+    # ── Update user_profiles.employer_id ───────────────────────────────────
+    profile_result = await db.execute(
+        select(UserProfile).where(UserProfile.user_id == employee_id)
+    )
+    profile = profile_result.scalars().first()
+    if profile:
+        await db_update(db, UserProfile, profile.id, {
+            "employer_id": invite.employer_profile_id,
+            "invited_by":  invite.created_by,
+        })
+
+    # ── Update invite status ────────────────────────────────────────────────
+    if invite.max_uses and invite.max_uses == 1:
+        await db_update(db, EmployerInvitation, invite.id, {
+            "status":      "accepted",
+            "accepted_by": employee_id,
+            "accepted_at": now,
+            "used_count":  invite.used_count + 1,
+        })
+    else:
+        await db_update(db, EmployerInvitation, invite.id, {
+            "used_count":  invite.used_count + 1,
+            "accepted_by": employee_id,
+            "accepted_at": now,
+        })
+
+    # ── Auto-assign HR to existing applications ────────────────────────────
+    await db.execute(
+        Application.__table__.update()
+        .where(
+            Application.user_id        == employee_id,
+            Application.assigned_hr_id == None,
+        )
+        .values(assigned_hr_id=invite.created_by)
+    )
+
+    # ── Auto-create direct HR ↔ employee conversation ──────────────────────
+    hr_user = await db_get_by_id(db, User, invite.created_by)
+    hr_name = (
+        f"{hr_user.first_name} {hr_user.last_name}".strip()
+        if hr_user else "HR"
+    )
+    await get_or_create_thread_for_participants(
+        db              = db,
+        actor_id        = invite.created_by,
+        participant_ids = [employee_id],
+        thread_type     = "direct",
+        initial_message = (
+            f"Hi! I'm {hr_name} from {employer.company_name}. "
+            "Welcome to Vyuflo — I'll be your HR contact for your immigration case. "
+            "Feel free to reach out here with any questions."
+        ),
+    )
+
+
+async def _validate_invite_object(invite: Optional[EmployerInvitation]) -> None:
+    """Raises ValueError with a user-facing message if the invite can't be used."""
+    if not invite:
+        raise ValueError("Invalid invite code or link.")
+    if invite.status == "revoked":
+        raise ValueError("This invitation has been revoked.")
+    if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
+        raise ValueError("This invitation has expired.")
+    if invite.max_uses and invite.used_count >= invite.max_uses:
+        raise ValueError("This invite has reached its maximum uses.")
 
 
 async def _resolve_invitation(
@@ -322,12 +462,20 @@ async def validate_invite(
     hr_user  = await db_get_by_id(db, User, invite.created_by)
     hr_name  = f"{hr_user.first_name} {hr_user.last_name}".strip() if hr_user else "HR Team"
 
+    # Does someone already own this email (personal_email OR login email)?
+    # Drives whether the frontend shows a "log in" or "sign up" screen next.
+    account_exists = False
+    if invite.invited_email:
+        existing = await _find_existing_user_for_email(db, invite.invited_email)
+        account_exists = existing is not None
+
     return {
-        "valid":         True,
-        "company_name":  employer.company_name if employer else "Unknown Company",
-        "hr_name":       hr_name,
-        "invite_method": invite.invite_method,
-        "message":       f"Valid invite from {employer.company_name if employer else 'a company'}",
+        "valid":          True,
+        "company_name":   employer.company_name if employer else "Unknown Company",
+        "hr_name":        hr_name,
+        "invite_method":  invite.invite_method,
+        "message":        f"Valid invite from {employer.company_name if employer else 'a company'}",
+        "account_exists": account_exists,
     }
 
 
@@ -376,79 +524,250 @@ async def accept_invite(
     if not employer:
         raise ValueError("Company not found.")
 
-    now = datetime.now(timezone.utc)
+    await _link_employee_to_employer(
+        db,
+        invite       = invite,
+        employer     = employer,
+        employee_id  = employee_id,
+        work_email   = invite.invited_email,
+    )
 
-    # ── Step 1: Create employer_employees record ──────────────────────────────
-    link = EmployerEmployee(
-        employer_id         = invite.created_by,         # HR user's user.id
-        employee_id         = employee_id,
-        employer_profile_id = invite.employer_profile_id,
-        invitation_id       = invite.id,
-        is_active           = True,
-        created_by          = employee_id,
-    )
-    await db_create(db, link)
-
-    # ── Step 2: Update user_profiles.employer_id ──────────────────────────────
-    profile_result = await db.execute(
-        select(UserProfile).where(UserProfile.user_id == employee_id)
-    )
-    profile = profile_result.scalars().first()
-    if profile:
-        await db_update(db, UserProfile, profile.id, {
-            "employer_id": invite.employer_profile_id,
-            "invited_by":  invite.created_by,
-        })
-
-    # ── Step 3: Update invite status ─────────────────────────────────────────
-    if invite.max_uses and invite.max_uses == 1:
-        # Single-use invite (email method) — mark fully accepted
-        await db_update(db, EmployerInvitation, invite.id, {
-            "status":      "accepted",
-            "accepted_by": employee_id,
-            "accepted_at": now,
-            "used_count":  invite.used_count + 1,
-        })
-    else:
-        # Multi-use invite (code/link) — just increment count
-        await db_update(db, EmployerInvitation, invite.id, {
-            "used_count":  invite.used_count + 1,
-            "accepted_by": employee_id,   # last accepted_by
-            "accepted_at": now,
-        })
-
-    # ── Step 4: Auto-assign HR to existing applications ───────────────────────
-    # Any applications this employee has without an HR assigned
-    await db.execute(
-        Application.__table__.update()
-        .where(
-            Application.user_id        == employee_id,
-            Application.assigned_hr_id == None,
-        )
-        .values(assigned_hr_id=invite.created_by)
-    )
-    # ── Step 5: Auto-create direct HR ↔ employee conversation ────────────────
-    hr_user = await db_get_by_id(db, User, invite.created_by)
-    hr_name = (
-        f"{hr_user.first_name} {hr_user.last_name}".strip()
-        if hr_user else "HR"
-    )
-    await get_or_create_thread_for_participants(
-        db              = db,
-        actor_id        = invite.created_by,          # HR is the "sender"
-        participant_ids = [employee_id],
-        thread_type     = "direct",
-        initial_message = (
-            f"Hi! I'm {hr_name} from {employer.company_name}. "
-            "Welcome to Vyuflo — I'll be your HR contact for your immigration case. "
-            "Feel free to reach out here with any questions."
-        ),
-    )
     return {
         "message":      f"Successfully linked to {employer.company_name}",
         "company_name": employer.company_name,
         "employer_id":  invite.employer_profile_id,
     }
+
+
+# =============================================================================
+# EMPLOYEE — ACCEPT INVITE (PUBLIC, NOT-YET-AUTHENTICATED FLOWS)
+# =============================================================================
+#
+# These two cover your manager's actual requirement:
+#
+#   accept_invite_existing_user  → "user already has an account" → MERGE
+#   accept_invite_new_user       → "user has no account"         → CREATE,
+#                                    then ask for personal email
+#
+# In both cases `personal_email` ends up being the long-term primary
+# identifier — new accounts are flagged `requires_personal_email=True`
+# until they add one.
+# =============================================================================
+
+async def accept_invite_existing_user(
+    db:   AsyncSession,
+    data: AcceptInviteExistingUserRequest,
+) -> dict:
+    """
+    Scenario 1 — employee already has an account.
+    They prove it's them by logging in (email + password) or via a verified
+    forgot-password OTP token, then we attach the new employer link to their
+    EXISTING account. Old data (documents, applications, previous cases,
+    etc.) stays exactly where it is — nothing is duplicated.
+    """
+    invite = await _resolve_invitation(db, data.invite_token, data.invite_code)
+    await _validate_invite_object(invite)
+
+    employer = await db_get_by_id(db, EmployerProfile, invite.employer_profile_id)
+    if not employer:
+        raise ValueError("Company not found.")
+
+    # ── Confirm identity ────────────────────────────────────────────────────
+    login_email = data.login_email.lower().strip()
+    result = await db.execute(
+        select(User).where(
+            (User.personal_email == login_email) | (User.email == login_email)
+        )
+    )
+    user = result.scalars().first()
+    if not user:
+        raise UnauthorizedException("Incorrect email or password.")
+
+    identity_confirmed = False
+    reset_token = None
+
+    if data.password:
+        identity_confirmed = bool(
+            user.password_hash and verify_password(data.password, user.password_hash)
+        )
+    elif data.reset_token_id:
+        # "Forgot password?" path — they already completed request → OTP →
+        # verify against this same email, so a VERIFIED token for THIS user
+        # is proof enough. No separate password change required here.
+        reset_token = await db_get_by_id(db, PasswordResetToken, uuid.UUID(data.reset_token_id))
+        identity_confirmed = bool(
+            reset_token
+            and reset_token.status == "verified"
+            and reset_token.user_id == user.id
+        )
+
+    if not identity_confirmed:
+        raise UnauthorizedException("Incorrect email or password.")
+
+    if reset_token:
+        # Consume it — a verified reset token should only unlock one action.
+        await db_update(db, PasswordResetToken, reset_token.id, {"status": "completed"})
+
+        # If they set a new password in the same step, apply it now — avoids
+        # leaving them stuck re-doing "forgot password" on their next login.
+        if data.new_password:
+            await db_update(db, User, user.id, {"password_hash": hash_password(data.new_password)})
+
+    # ── Already linked to this employer? ───────────────────────────────────
+    existing_link = await db.execute(
+        select(EmployerEmployee).where(
+            EmployerEmployee.employee_id         == user.id,
+            EmployerEmployee.employer_profile_id == invite.employer_profile_id,
+            EmployerEmployee.is_active           == True,
+        )
+    )
+    if existing_link.scalars().first():
+        raise ValueError("You are already linked to this company.")
+
+    # ── Merge: attach invite to the EXISTING user, personal_email untouched ─
+    await _link_employee_to_employer(
+        db,
+        invite      = invite,
+        employer    = employer,
+        employee_id = user.id,
+        work_email  = invite.invited_email,
+    )
+
+    role_result = await db.execute(
+        select(Role.name).join(UserRole, UserRole.role_id == Role.id)
+        .where(UserRole.user_id == user.id)
+    )
+    roles = [r for (r,) in role_result.all()] or ["employee"]
+
+    access_token  = create_access_token(str(user.id), roles, user.email, user.first_name or "", user.last_name or "")
+    refresh_token = create_refresh_token(str(user.id))
+    await _store_refresh_token(str(user.id), refresh_token)
+
+    return {
+        "access_token":            access_token,
+        "refresh_token":           refresh_token,
+        "roles":                   roles,
+        "company_name":            employer.company_name,
+        "employer_id":             invite.employer_profile_id,
+        "requires_personal_email": user.requires_personal_email,
+        "message":                 f"Welcome back! Your account is now linked to {employer.company_name}.",
+    }
+
+
+async def accept_invite_new_user(
+    db:   AsyncSession,
+    data: AcceptInviteNewUserRequest,
+) -> dict:
+    """
+    Scenario 2 — no existing account for this email.
+    Creates a fresh account using the COMPANY email (invite.invited_email).
+    `personal_email` is left NULL and `requires_personal_email=True` — the
+    frontend must show a "please add your personal email" step right after
+    this call succeeds, since company email should never be treated as the
+    long-term primary identifier.
+    """
+    invite = await _resolve_invitation(db, data.invite_token, data.invite_code)
+    await _validate_invite_object(invite)
+
+    if not invite.invited_email:
+        raise ValueError("This invite type doesn't support account creation directly.")
+
+    employer = await db_get_by_id(db, EmployerProfile, invite.employer_profile_id)
+    if not employer:
+        raise ValueError("Company not found.")
+
+    company_email = invite.invited_email.lower().strip()
+
+    # Guard against a race: someone may have signed up with this exact email
+    # between validate_invite() and this call.
+    existing = await _find_existing_user_for_email(db, company_email)
+    if existing:
+        raise ConflictException(
+            "An account already exists for this email. Please log in instead."
+        )
+
+    # ── Create User (company email as login, personal_email left NULL) ─────
+    user = User(
+        first_name              = data.first_name,
+        last_name               = data.last_name,
+        email                   = company_email,
+        personal_email          = None,
+        requires_personal_email = True,
+        password_hash           = hash_password(data.password),
+        auth_provider           = "email",
+        is_active               = True,
+        is_verified             = True,   # employer already vouched for this email
+        terms_accepted          = data.terms_accepted,
+        terms_accepted_at       = datetime.now(timezone.utc) if data.terms_accepted else None,
+    )
+    user = await db_create(db, user)
+
+    profile = UserProfile(
+        user_id         = user.id,
+        onboarding_step = 1,
+        full_legal_name = f"{data.first_name} {data.last_name}",
+        created_by      = user.id,
+        modified_by     = user.id,
+    )
+    await db_create(db, profile)
+
+    role_obj = await db.scalar(select(Role).where(Role.name == "employee"))
+    if not role_obj:
+        raise Exception("RBAC not seeded. Run seed migration first.")
+    await db_create(db, UserRole(
+        user_id     = user.id,
+        role_id     = role_obj.id,
+        assigned_by = user.id,
+        created_by  = user.id,
+        modified_by = user.id,
+    ))
+
+    # ── Link to employer (work_email = the company email they were invited on) ─
+    await _link_employee_to_employer(
+        db,
+        invite      = invite,
+        employer    = employer,
+        employee_id = user.id,
+        work_email  = company_email,
+    )
+
+    access_token  = create_access_token(str(user.id), ["employee"], user.email, user.first_name, user.last_name)
+    refresh_token = create_refresh_token(str(user.id))
+    await _store_refresh_token(str(user.id), refresh_token)
+
+    return {
+        "access_token":            access_token,
+        "refresh_token":           refresh_token,
+        "roles":                   ["employee"],
+        "company_name":            employer.company_name,
+        "employer_id":             invite.employer_profile_id,
+        "requires_personal_email": True,
+        "message":                 f"Account created and linked to {employer.company_name}. "
+                                    "Please add your personal email to finish setting up your account.",
+    }
+
+
+async def add_personal_email(
+    db:      AsyncSession,
+    user_id: uuid.UUID,
+    email:   str,
+) -> dict:
+    """
+    Lets a user set/update their personal (primary) email — this is the step
+    that follows accept_invite_new_user, but can also be used any time a
+    user wants to add one proactively.
+    """
+    email = email.lower().strip()
+
+    existing = await _find_existing_user_for_email(db, email)
+    if existing and existing.id != user_id:
+        raise ConflictException("This email is already used by another account.")
+
+    await db_update(db, User, user_id, {
+        "personal_email":          email,
+        "requires_personal_email": False,
+    })
+    return {"message": "Personal email added.", "personal_email": email}
 
 
 # =============================================================================

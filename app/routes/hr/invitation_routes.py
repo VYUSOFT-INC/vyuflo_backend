@@ -14,11 +14,15 @@ from app.schemas.hr.invitation_schemas import (
     InviteByCodeRequest,
     InviteByLinkRequest,
     AcceptInviteRequest,
+    AcceptInviteNewUserRequest,       # ← NEW
+    AcceptInviteExistingUserRequest,  # ← NEW
+    AddPersonalEmailRequest,          # ← NEW
     ValidateTokenRequest,
     UpdateEmployeeRequest,
     InvitationResponse,
     InvitationListResponse,
     AcceptInviteResponse,
+    AcceptInviteAuthResponse,         # ← NEW
     EmployeeListResponse,
     ValidateTokenResponse,
 )
@@ -33,6 +37,9 @@ from app.services.hr.invitation_service import (
     resend_email_invite,
     validate_invite,
     accept_invite,
+    accept_invite_new_user,       # ← NEW
+    accept_invite_existing_user,  # ← NEW
+    add_personal_email,           # ← NEW
     get_my_employees,
     update_employee_info,
     deactivate_employee,
@@ -264,6 +271,59 @@ async def accept_invitation(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@invitation_router.post(
+    "/accept/new-user",
+    response_model=AcceptInviteAuthResponse,
+    summary="Public: Accept invite — no existing account (creates one)",
+)
+async def accept_invitation_new_user(
+    data: AcceptInviteNewUserRequest,
+    db:   AsyncSession = Depends(get_db),
+):
+    if not data.invite_token and not data.invite_code:
+        raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
+    try:
+        result = await accept_invite_new_user(db, data)
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@invitation_router.post(
+    "/accept/existing-user",
+    response_model=AcceptInviteAuthResponse,
+    summary="Public: Accept invite — existing account found (merges)",
+)
+async def accept_invitation_existing_user(
+    data: AcceptInviteExistingUserRequest,
+    db:   AsyncSession = Depends(get_db),
+):
+    if not data.invite_token and not data.invite_code:
+        raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
+    try:
+        result = await accept_invite_existing_user(db, data)
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@invitation_router.patch(
+    "/me/personal-email",
+    summary="Employee: Add/update personal (primary) email",
+)
+async def update_my_personal_email(
+    data:         AddPersonalEmailRequest,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    try:
+        result = await add_personal_email(db, current_user.user_id, data.personal_email)
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # =============================================================================
 # HR — MANAGE EMPLOYEES
