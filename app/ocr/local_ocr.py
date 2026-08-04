@@ -24,9 +24,13 @@ Public API
 
 Install on the server (once)
 ----------------------------
-    pip install paddlepaddle paddleocr passporteye pymupdf
+    pip install paddlepaddle==2.6.2 paddleocr==2.7.3 passporteye pymupdf
     # passporteye also needs the Tesseract binary:
     #   Ubuntu:  sudo apt-get install -y tesseract-ocr
+
+If OCR ever SIGILLs inside the container, wipe the model cache and rebuild:
+    docker compose exec backend rm -rf /root/.paddleocr
+    docker compose up -d --build backend
 """
 
 from __future__ import annotations
@@ -99,31 +103,85 @@ def to_image_bytes(content: bytes, ext: str) -> tuple[bytes, str]:
 
 _engine = None
 
+# Must be set before paddle / paddleocr are imported. oneDNN + SelfAttentionFusePass
+# use AVX512 paths that SIGILL (and kill the whole uvicorn process) on many CPUs /
+# Docker hosts. PIR executor flags similarly crash on ARM / older paddle builds.
+def _configure_paddle_env() -> None:
+    os.environ.setdefault("FLAGS_use_mkldnn", "0")
+    os.environ.setdefault("FLAGS_enable_pir_api", "0")
+    os.environ.setdefault("FLAGS_enable_pir_in_executor", "0")
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
-def _get_engine():
+
+def _paddleocr_home() -> str:
+    return os.path.expanduser(os.environ.get("PADDLEOCR_HOME", "~/.paddleocr"))
+
+
+def _clear_corrupt_paddle_cache() -> None:
+    """
+    Incomplete downloads leave a dir without the .tar / inference files.
+    PaddleOCR then raises FileNotFoundError, or loads a half-written model and
+    dies with protobuf / SIGILL. Wipe the cache so the next init re-downloads.
+    """
+    import shutil
+
+    home = _paddleocr_home()
+    if os.path.isdir(home):
+        shutil.rmtree(home, ignore_errors=True)
+
+
+def _get_engine(*, _retried: bool = False):
     global _engine
-    if _engine is None:
-        from paddleocr import PaddleOCR  # type: ignore
-        # kwargs differ a lot across PaddleOCR versions (2.x vs 3.x), and newer
-        # versions raise ValueError — not TypeError — on an unknown argument.
-        # Try richest first, fall through to whatever the installed version takes.
-        last_err: Exception | None = None
-        for kwargs in (
-            {"use_angle_cls": True, "lang": "en", "show_log": False},
-            {"use_angle_cls": True, "lang": "en"},
-            {"lang": "en"},
-            {},
-        ):
-            try:
-                _engine = PaddleOCR(**kwargs)
-                break
-            except (TypeError, ValueError) as e:
-                last_err = e
-                continue
-        if _engine is None:
+    if _engine is not None:
+        return _engine
+
+    _configure_paddle_env()
+    from paddleocr import PaddleOCR  # type: ignore
+
+    # kwargs differ a lot across PaddleOCR versions (2.x vs 3.x), and newer
+    # versions raise ValueError — not TypeError — on an unknown argument.
+    # enable_mkldnn=False is required on CPU hosts without AVX512.
+    last_err: Exception | None = None
+    for kwargs in (
+        {
+            "use_angle_cls": True,
+            "lang": "en",
+            "use_gpu": False,
+            "enable_mkldnn": False,
+            "show_log": False,
+        },
+        {
+            "use_angle_cls": True,
+            "lang": "en",
+            "use_gpu": False,
+            "enable_mkldnn": False,
+        },
+        {"use_angle_cls": True, "lang": "en", "enable_mkldnn": False},
+        {"lang": "en", "enable_mkldnn": False},
+        {"lang": "en"},
+        {},
+    ):
+        try:
+            _engine = PaddleOCR(**kwargs)
+            break
+        except (TypeError, ValueError) as e:
+            last_err = e
+            continue
+        except FileNotFoundError as e:
+            # Mid-download / corrupt model cache — wipe once and retry.
+            if not _retried:
+                _engine = None
+                _clear_corrupt_paddle_cache()
+                return _get_engine(_retried=True)
             raise RuntimeError(
-                f"Could not initialise PaddleOCR with any known argument set: {last_err}"
-            )
+                f"PaddleOCR model cache is incomplete ({e}). "
+                f"Delete {_paddleocr_home()} and retry."
+            ) from e
+
+    if _engine is None:
+        raise RuntimeError(
+            f"Could not initialise PaddleOCR with any known argument set: {last_err}"
+        )
     return _engine
 
 

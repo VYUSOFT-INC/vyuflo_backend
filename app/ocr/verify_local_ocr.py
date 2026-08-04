@@ -34,7 +34,7 @@ def _check_deps() -> bool:
     if missing:
         print("Missing required packages:", " ".join(missing))
         print("Install with:")
-        print("    pip install paddlepaddle paddleocr passporteye pymupdf")
+        print("    pip install paddlepaddle==2.6.2 paddleocr==2.7.3 passporteye pymupdf")
         print("passporteye also needs Tesseract:")
         print("    sudo apt-get install -y tesseract-ocr")
         return False

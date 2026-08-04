@@ -39,7 +39,11 @@ twilio
 aioboto3
 
 pymupdf
-passporteye    
-paddleocr 
-paddlepaddle
+passporteye
+# Pinned: unpinned paddle 3.x + latest paddleocr SIGILL/crash on many CPUs
+# (SelfAttentionFusePass / oneDNN). 2.6.2 + 2.7.3 is the stable CPU pair.
+numpy==1.26.4
+paddlepaddle==2.6.2
+paddleocr==2.7.3
+opencv-python-headless==4.10.0.84
 user_agents 
