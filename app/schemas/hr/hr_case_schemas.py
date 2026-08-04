@@ -307,8 +307,32 @@ class GeneratedLetterInfo(BaseModel):
     name:         str
     letter_type:  str    # 'offer' | 'support' | 'employment_verification' | 'lca_posting' | 'other'
     generated_by: str    # attorney full name
-    generated_at: datetime
+    generated_at: datetime 
     status:       str    # 'draft' | 'pending_hr_signature' | 'signed' | 'sent' | 'filed'
     file_url:     Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EmploymentInfo(BaseModel):
+    """H-1B / L-1 / O-1 employment details required for I-129. Case-specific
+    overrides — see Application.job_title etc. and their fallback to
+    EmployerEmployee in hr_case_service._build_case_response."""
+    job_title:        Optional[str]  = None
+    annual_salary:    Optional[str]  = None
+    start_date:       Optional[date] = None
+    department:       Optional[str]  = None
+    worksite_address: Optional[str]  = None 
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DocumentBasic(BaseModel):
+    """Slim document reference — used by the Missing Checklist tab to check
+    off which required_documents already have a matching upload."""
+    id:            uuid.UUID
+    name:          str
+    document_type: Optional[str] = None
+    status:        str
 
     model_config = ConfigDict(from_attributes=True)
