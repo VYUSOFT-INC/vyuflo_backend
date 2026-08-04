@@ -12,7 +12,7 @@ a regex CANNOT invent a value that isn't in the text, and a checksum
 CANNOT pass on a misread digit. That is exactly what you want feeding a
 legal filing.
 
-Public API
+Public API 
 ----------
     detect_document_type(text) -> str
     extract_fields(text, mrz_lines=None, doc_type_hint=None) -> ExtractionResult
