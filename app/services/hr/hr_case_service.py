@@ -28,9 +28,11 @@ from app.models.visamodels import (
     ApplicationGeneratedLetter,
     ApplicationStatusHistory,
     ApplicationTask,
+    AttorneyProfile,
     Document,
     EmployerEmployee,
     EmployerProfile,
+    EmployerFirmConnection,
     AttorneyProfile,
     User,
     UserProfile,
@@ -168,7 +170,42 @@ async def _resolve_employee_link(
         )
     return link
 
+async def _validate_attorney_from_connected_firm(
+    db: AsyncSession,
+    employer_profile_id: uuid.UUID,
+    attorney_user_id: uuid.UUID,
+) -> None:
+    """
+    Raises 403 unless the given attorney belongs to a firm this employer
+    is actually connected to.
+    """
+    attorney = await db.execute(
+        select(AttorneyProfile).where(AttorneyProfile.user_id == attorney_user_id)
+    )
+    attorney = attorney.scalars().first()
+    if not attorney:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Attorney not found.")
+    if not attorney.firm_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This attorney is not part of any firm and cannot be assigned.",
+        )
 
+    connection = await db.execute(
+        select(EmployerFirmConnection).where(
+            EmployerFirmConnection.employer_profile_id == employer_profile_id,
+            EmployerFirmConnection.firm_id             == attorney.firm_id,
+            EmployerFirmConnection.is_active            == True,
+        )
+    )
+    if not connection.scalars().first():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This attorney's firm is not connected to your company. "
+                    "Choose an attorney from a firm you're connected to.",
+        )
+    
 async def _get_user_display_name(db: AsyncSession, user_id: uuid.UUID) -> str:
     """Fetch first+last name for a user_id."""
     user = await db_get_by_id(db, User, user_id)
@@ -383,6 +420,16 @@ async def hr_create_case(
         emp_profile = emp_profile_result.scalars().first()
         if emp_profile:
             sponsor = emp_profile.company_name
+    # ── 4b. Validate attorney belongs to a connected firm ─────────────────────
+    if payload.attorney_user_id:
+        emp_profile_result = await db.execute(
+            select(EmployerProfile).where(EmployerProfile.user_id == hr_user_id)
+        )
+        emp_profile = emp_profile_result.scalars().first()
+        if emp_profile:
+            await _validate_attorney_from_connected_firm(
+                db, emp_profile.id, payload.attorney_user_id
+            )
 
     # ── 5. Pack notes ─────────────────────────────────────────────────────────
     packed_notes = _pack_notes(
@@ -617,7 +664,17 @@ async def hr_update_case(
 
     if payload.target_date is not None:
         update_data["due_date"] = payload.target_date
+    # if payload.attorney_user_id is not None:
+        # update_data["assigned_attorney_id"] = payload.attorney_user_id
     if payload.attorney_user_id is not None:
+        emp_profile_result = await db.execute(
+            select(EmployerProfile).where(EmployerProfile.user_id == hr_user_id)
+        )
+        emp_profile = emp_profile_result.scalars().first()
+        if emp_profile:
+            await _validate_attorney_from_connected_firm(
+                db, emp_profile.id, payload.attorney_user_id
+            )
         update_data["assigned_attorney_id"] = payload.attorney_user_id
     if payload.sponsor_employer is not None:
         update_data["sponsor_employer"] = payload.sponsor_employer

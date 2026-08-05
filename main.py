@@ -89,26 +89,26 @@ async def _ensure_pg_enum_values(enum_name: str, values: tuple[str, ...]) -> Non
             await conn.execute(
                 text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{value}'")
             )
-async def _ensure_users_personal_email_columns() -> None:
-    """
-    create_all does not add new columns to a table that already exists.
-    """
-    from sqlalchemy import text
+    # async def _ensure_users_personal_email_columns() -> None:
+    #     """
+    #     create_all does not add new columns to a table that already exists.
+    #     """
+    #     from sqlalchemy import text
 
-    async with engine.begin() as conn:
-        await conn.execute(text("""
-            ALTER TABLE users
-            ADD COLUMN IF NOT EXISTS personal_email VARCHAR(255)
-        """))
-        await conn.execute(text("""
-            ALTER TABLE users
-            ADD COLUMN IF NOT EXISTS requires_personal_email BOOLEAN NOT NULL DEFAULT FALSE
-        """))
-        await conn.execute(text("""
-            CREATE UNIQUE INDEX IF NOT EXISTS ix_users_personal_email
-            ON users (personal_email)
-            WHERE personal_email IS NOT NULL
-        """))
+    #     async with engine.begin() as conn:
+    #         await conn.execute(text("""
+    #             ALTER TABLE users
+    #             ADD COLUMN IF NOT EXISTS personal_email VARCHAR(255)
+    #         """))
+    #         await conn.execute(text("""
+    #             ALTER TABLE users
+    # EFAULT FALSE
+    #         """))
+    #         await conn.execute(text("""
+    #             CREATE UNIQUE INDEX IF NOT EXISTS ix_users_personal_email
+    #             ON users (personal_email)
+    #             WHERE personal_email IS NOT NULL
+    #         """))
 
 async def _ensure_notif_template_unique_constraint() -> None:
     """
@@ -171,7 +171,7 @@ async def lifespan(app: FastAPI):
     await _ensure_pg_enum_values("visa_category_enum", _VISA_CATEGORY_ENUM_VALUES)
     # 1c. Sync unique constraint needed by notification template seed
     await _ensure_notif_template_unique_constraint()
-    await _ensure_users_personal_email_columns()
+
 
     # 2. Run seed safely
     async with AsyncSessionLocal() as db:

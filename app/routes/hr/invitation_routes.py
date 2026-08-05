@@ -14,15 +14,16 @@ from app.schemas.hr.invitation_schemas import (
     InviteByCodeRequest,
     InviteByLinkRequest,
     AcceptInviteRequest,
-    AcceptInviteNewUserRequest,       # ← NEW
-    AcceptInviteExistingUserRequest,  # ← NEW
-    AddPersonalEmailRequest,          # ← NEW
+    AcceptInviteNewUserRequest,
+    RequestMergeOtpRequest,
+    RequestMergeOtpResponse,
+    AcceptInviteExistingUserRequest,
     ValidateTokenRequest,
     UpdateEmployeeRequest,
     InvitationResponse,
     InvitationListResponse,
     AcceptInviteResponse,
-    AcceptInviteAuthResponse,         # ← NEW
+    AcceptInviteAuthResponse,
     EmployeeListResponse,
     ValidateTokenResponse,
 )
@@ -37,9 +38,9 @@ from app.services.hr.invitation_service import (
     resend_email_invite,
     validate_invite,
     accept_invite,
-    accept_invite_new_user,       # ← NEW
-    accept_invite_existing_user,  # ← NEW
-    add_personal_email,           # ← NEW
+    accept_invite_new_user,
+    request_merge_otp,
+    accept_invite_existing_user,
     get_my_employees,
     update_employee_info,
     deactivate_employee,
@@ -218,8 +219,10 @@ async def resend_invite(
     summary="Public: Validate invite token or code",
 )
 async def validate_invitation(
-    invite_token: Optional[str] = Query(None, description="Token from email/link invite"),
-    invite_code:  Optional[str] = Query(None, description="Short code from HR"),
+    invite_token:     Optional[str] = Query(None, description="Token from email/link invite"),
+    invite_code:      Optional[str] = Query(None, description="Short code from HR"),
+    additional_email: Optional[str] = Query(None, description="Extra email the person typed, if any"),
+    is_primary:       Optional[bool] = Query(None, description="Whether additional_email is their primary"),
     db:           AsyncSession  = Depends(get_db),
 ):
     """
@@ -236,7 +239,7 @@ async def validate_invitation(
             status_code=400,
             detail="Provide either invite_token or invite_code."
         )
-    result = await validate_invite(db, invite_token, invite_code)
+    result = await validate_invite(db, invite_token, invite_code, additional_email, is_primary)
     return result
 
 
@@ -271,6 +274,7 @@ async def accept_invitation(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @invitation_router.post(
     "/accept/new-user",
     response_model=AcceptInviteAuthResponse,
@@ -280,6 +284,12 @@ async def accept_invitation_new_user(
     data: AcceptInviteNewUserRequest,
     db:   AsyncSession = Depends(get_db),
 ):
+    """
+    Use when `GET /hr/validate` returned `account_exists: false`.
+    `data.email` is the person's PERSONAL email — mandatory field on this
+    same form. Creates the account, links it to the employer, and logs
+    the person in.
+    """
     if not data.invite_token and not data.invite_code:
         raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
     try:
@@ -291,14 +301,44 @@ async def accept_invitation_new_user(
 
 
 @invitation_router.post(
+    "/accept/existing-user/request-otp",
+    response_model=RequestMergeOtpResponse,
+    summary="Public: Step 1 of merge — send login code to matched account",
+)
+async def request_merge_otp_route(
+    data: RequestMergeOtpRequest,
+    db:   AsyncSession = Depends(get_db),
+):
+    """
+    Use when `GET /hr/validate` returned `account_exists: true`. Sends a
+    6-digit code to the matched account's personal email. Call
+    `POST /hr/accept/existing-user` next with that code to complete the merge.
+    """
+    if not data.invite_token and not data.invite_code:
+        raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
+    try:
+        result = await request_merge_otp(db, data)
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@invitation_router.post(
     "/accept/existing-user",
     response_model=AcceptInviteAuthResponse,
-    summary="Public: Accept invite — existing account found (merges)",
+    summary="Public: Step 2 of merge — confirm code, merge invite in",
 )
 async def accept_invitation_existing_user(
     data: AcceptInviteExistingUserRequest,
     db:   AsyncSession = Depends(get_db),
 ):
+    """
+    Step 2 after `POST /hr/accept/existing-user/request-otp`. The 6-digit
+    code confirms it's really them — no password involved — then the new
+    employer link is merged into their existing account. All previous
+    cases, documents, and history stay attached to that one account.
+    """
     if not data.invite_token and not data.invite_code:
         raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
     try:
@@ -308,22 +348,6 @@ async def accept_invitation_existing_user(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
-@invitation_router.patch(
-    "/me/personal-email",
-    summary="Employee: Add/update personal (primary) email",
-)
-async def update_my_personal_email(
-    data:         AddPersonalEmailRequest,
-    db:           AsyncSession = Depends(get_db),
-    current_user: User         = Depends(get_current_user),
-):
-    try:
-        result = await add_personal_email(db, current_user.user_id, data.personal_email)
-        await db.commit()
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
 # =============================================================================
 # HR — MANAGE EMPLOYEES
@@ -389,7 +413,6 @@ async def remove_employee(
         return {"message": "Employee removed from company."}
     except (ValueError, PermissionError) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
 
 
 

@@ -159,6 +159,7 @@ class ConsultationBookingOut(ORMBase):
 class CreateConsultationBookingRequest(BaseModel):
     attorney_id:          uuid.UUID
     appointment_type_id:  uuid.UUID
+    application_id:       uuid.UUID
     consultation_format:  str = "virtual"
     slot_id:              uuid.UUID
     employee_notes:       Optional[str] = None

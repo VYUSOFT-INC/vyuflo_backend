@@ -11,7 +11,7 @@ from sqlalchemy import (
     Integer, Enum, Text, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -32,9 +32,9 @@ class User(Base):
     phone        = Column(String(20),  nullable=True)
     country_code = Column(String(10),  nullable=True)
 
-    # ── Personal email (the "true" identity across employers) ────────────────
-    personal_email          = Column(String(255), nullable=True, unique=True, index=True)
-    requires_personal_email = Column(Boolean, default=False, nullable=False)
+    linked_emails = Column(ARRAY(String), nullable=False, default=list, server_default="{}")
+
+    email_is_active = Column(Boolean, default=True, nullable=False)
 
     password_hash    = Column(String(255), nullable=True)
     auth_provider    = Column(
@@ -559,6 +559,10 @@ class Application(Base):
                           nullable=False, index=True)
     visa_type_id = Column(UUID(as_uuid=True), ForeignKey("visa_types.id"),
                           nullable=False)
+    case_origin = Column(
+        Enum("employer_sponsored", "self_petition", name="case_origin_enum"),
+        nullable=False, default="employer_sponsored"
+    )
 
     sponsor_employer = Column(String(200), nullable=True)
 
@@ -2064,6 +2068,8 @@ class AttorneyProfile(Base):
     bar_state          = Column(String(50),  nullable=True)
     years_experience   = Column(Integer,     nullable=True)
     law_firm_name      = Column(String(300), nullable=True)
+    firm_id            = Column(UUID(as_uuid=True), ForeignKey("law_firms.id"),
+                                nullable=True, index=True)      # NEW 
     specialisations    = Column(Text, nullable=True)
     languages          = Column(Text, nullable=True)
     availability_note  = Column(String(300), nullable=True)
@@ -2091,7 +2097,24 @@ class AttorneyProfile(Base):
 
     user = relationship("User", foreign_keys=[user_id],
                         back_populates="attorney_profile")
+    firm = relationship("LawFirm", back_populates="attorneys")
 
+# TABLE 42 a — LawFirm
+
+class LawFirm(Base):
+    __tablename__ = "law_firms"
+
+    id   = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(300), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    created_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    attorneys = relationship("AttorneyProfile", back_populates="firm")
 
 # =============================================================================
 # TABLE 43 — fee_templates
@@ -3011,6 +3034,9 @@ class ConsultationBooking(Base):
     appointment_type_id  = Column(UUID(as_uuid=True), ForeignKey("appointment_types.id"),
                                   nullable=False)
 
+    application_id       = Column(UUID(as_uuid=True), ForeignKey("applications.id"),
+                                  nullable=True, index=True)
+    
     consultation_format  = Column(
         Enum("virtual", "in_person", name="consultation_format_enum"),
         nullable=False, default="virtual"
@@ -3045,6 +3071,7 @@ class ConsultationBooking(Base):
 
     employee         = relationship("User", foreign_keys=[employee_id])
     attorney         = relationship("AttorneyProfile", foreign_keys=[attorney_id])
+    application      = relationship("Application", foreign_keys=[application_id])
     slot             = relationship("ConsultationSlot", back_populates="booking")
     appointment_type = relationship("AppointmentType", back_populates="bookings")
     payment          = relationship("Payment", foreign_keys=[payment_id])
@@ -3768,3 +3795,36 @@ class ApplicationGeneratedLetter(Base):
     application  = relationship("Application", back_populates="generated_letters")
     generated_by = relationship("User", foreign_keys=[generated_by_user_id])
     signed_by    = relationship("User", foreign_keys=[signed_by_user_id])
+
+
+# =============================================================================
+# TABLE — 75 
+# EmployerFirmConnection
+# =============================================================================
+class EmployerFirmConnection(Base):
+    """
+    Represents 'this employer's company has an established relationship
+    with this law firm.' HR can only assign attorneys who belong to a
+    firm listed here.
+    """
+    __tablename__ = "employer_firm_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    employer_profile_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
+                                 nullable=False, index=True)
+    firm_id              = Column(UUID(as_uuid=True), ForeignKey("law_firms.id"),
+                                 nullable=False, index=True)
+
+    is_active    = Column(Boolean, default=True, nullable=False)
+    connected_at = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_by   = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    employer = relationship("EmployerProfile", foreign_keys=[employer_profile_id])
+    firm     = relationship("LawFirm", foreign_keys=[firm_id])
+
+    __table_args__ = (
+        UniqueConstraint("employer_profile_id", "firm_id", name="uq_employer_firm"),
+    )
+
