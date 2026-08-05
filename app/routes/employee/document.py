@@ -15,9 +15,10 @@ from app.core.core_permissions import PermissionChecker
 from app.core.database import get_db
 from app.core.dependencies import CurrentUserData, get_current_user
 from app.models.visamodels import User
-from app.ocr.ocr_service_router import run_extraction
+from app.ocr.ocr_service_router import OCRField, run_extraction
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
 from app.schemas.employee.ocr import OCRFieldResponse, OCRFieldUpdate, SaveOCRFieldsRequest
+from app.services.employee.document_field_config_service import get_document_field_config
 from app.services.employee.document_service import (
     confirm_document_ocr,
     delete_document,
@@ -253,6 +254,22 @@ async def ocr_extract_for_document(
 
     result = await run_extraction(content, ext, expected_slug)
     result.filename = filename
+    if expected_slug:
+        config = await get_document_field_config(db, expected_slug)
+        if config and config.mandatory_fields:
+            existing_names = {f.field_name for f in result.fields}
+            for f in result.fields:
+                f.is_mandatory = f.field_name in config.mandatory_fields
+            for missing_name in config.mandatory_fields:
+                if missing_name in existing_names:
+                    continue
+                result.fields.append(OCRField(
+                    field_name=missing_name,
+                    extracted_value="",
+                    confidence_score=0,
+                    needs_review=True,
+                    is_mandatory=True,
+                ))
     return result
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -33,7 +33,7 @@ class OCRField(BaseModel):
     extracted_value:  str
     confidence_score: int
     needs_review:     bool
-
+    is_mandatory:     bool = False 
 
 class OCRResponse(BaseModel):
     filename:      str

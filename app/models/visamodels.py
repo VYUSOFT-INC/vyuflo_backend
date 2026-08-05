@@ -847,7 +847,7 @@ class Document(Base):
                           nullable=False, default="not_started"
                        )
     ocr_confidence   = Column(Integer, nullable=True)
-
+    expiry_date      = Column(Date, nullable=True)
     is_draft         = Column(Boolean, default=False, nullable=False)
 
     created_by       = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
@@ -865,6 +865,7 @@ class Document(Base):
                                     remote_side="Document.id")
     pages            = relationship("DocumentPage", back_populates="document")
     activity_log     = relationship("DocumentActivity", back_populates="document")
+
 
 
 # =============================================================================
@@ -962,7 +963,54 @@ class DocumentActivity(Base):
 
     document = relationship("Document", back_populates="activity_log")
 
+ 
+class DocumentExpiryReminder(Base):
+    """
+    One row per (document, threshold) reminder that has actually been sent.
+    Existence of a row = "don't send this threshold again" — the daily
+    check queries this table to skip thresholds already fired.
+    """
+    __tablename__ = "document_expiry_reminders"
+    __table_args__ = (
+        UniqueConstraint("document_id", "threshold_days", name="uq_document_reminder_threshold"),
+    )
+ 
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id    = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    threshold_days = Column(Integer, nullable=False)
+    sent_at        = Column(DateTime(timezone=True),
+                             default=lambda: datetime.now(timezone.utc),
+                             nullable=False, index=True)
+ 
+    document = relationship("Document")
 
+class DocumentFieldConfiguration(Base):
+    """
+    Configures, per fixed-format document type (ocr_slug), which OCR
+    fields are mandatory and which field represents the expiry date.
+    Admin-editable via /admin/document-field-configs.
+    """
+    __tablename__ = "document_field_configurations"
+    __table_args__ = (
+        UniqueConstraint("ocr_slug", "field_name", name="uq_field_config_slug_field"),
+    )
+ 
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ocr_slug        = Column(String(50), nullable=False, index=True)
+    field_name      = Column(String(100), nullable=False)
+    is_mandatory    = Column(Boolean, default=True, nullable=False)
+    is_expiry_field = Column(Boolean, default=False, nullable=False)
+    display_order   = Column(Integer, default=0, nullable=False)
+ 
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                          default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                          default=lambda: datetime.now(timezone.utc),
+                          onupdate=lambda: datetime.now(timezone.utc))
+    
 # =============================================================================
 # TABLE 21 — deadlines
 # Merged: includes DeadlineExtensionRequest from the 66-table version.
@@ -2760,11 +2808,10 @@ class SystemSetting(Base):
     )
     setting_group = Column(
         Enum("general", "security", "email", "sms",
-             "notifications", "features", "maintenance",
+             "notifications", "features", "maintenance","documents",
              name="setting_group_enum"),
         nullable=False
     )
-
     label         = Column(String(255), nullable=False)
     description   = Column(Text, nullable=True)
     is_public     = Column(Boolean, default=False, nullable=False)

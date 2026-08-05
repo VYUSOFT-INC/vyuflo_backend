@@ -1,6 +1,7 @@
 """
 VisaFlow FastAPI Application Entry Point
 """
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -18,7 +19,8 @@ from app.routes.employee import auth, onboarding
 from app.routes.employee.document import document_router
 from app.routes.employee.message import message_router
 from app.routes.employee.application import application_router,application_task_router,application_history_router
-from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_notification_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types
+from app.services.employee.expiry_reminder_service import check_and_send_expiry_reminders
+from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_notification_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types,seed_document_field_configurations
 from app.routes.employee.visa_types import visa_type_router
 from app.routes.employee.dashboard import dashboard_router
 from app.routes.employee.user_profile import user_profile_router
@@ -39,6 +41,7 @@ from app.routes.admin.subscription import subscription_router
 from app.routes.admin.revenue_dashboard import revenue_dashboard_router
 from app.routes.admin.system_audit import system_audit_router
 from app.routes.admin.workspace import workspace_router
+from app.routes.admin.document_field_config import document_field_config_router
 from app.routes.admin.admin_support import admin_support_router
 from app.routes.attorney.intake import intake_router
 from app.routes.attorney.analytics import analytics_router
@@ -89,6 +92,18 @@ async def _ensure_pg_enum_values(enum_name: str, values: tuple[str, ...]) -> Non
                 text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{value}'")
             )
 
+async def _expiry_reminder_loop():
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                sent = await check_and_send_expiry_reminders(db)
+                if sent:
+                    print(f"✅ Sent {sent} document expiry reminder(s)")
+        except Exception as e:
+            print(f"⚠️  Expiry reminder check failed: {type(e).__name__}: {e}")
+        await asyncio.sleep(24 * 60 * 60)
+ 
+        
 
 async def _ensure_notif_template_unique_constraint() -> None:
     """
@@ -162,7 +177,9 @@ async def lifespan(app: FastAPI):
         await seed_system_settings(db)       # system_settings
         await seed_support_articles(db)      # support_articles
         await seed_notification_templates(db)
+        await seed_document_field_configurations(db)
         
+    asyncio.create_task(_expiry_reminder_loop())             
     yield
     print("🛑 Shutting down...")
     await engine.dispose()
@@ -228,6 +245,8 @@ app.include_router(notification_router, prefix="/api/v1", tags=["notifications"]
 app.include_router(attorney_router, prefix="/api/v1", tags=["attorneys"])
 # app.include_router(roles_router,       prefix="/api/v1")
 # app.include_router(user_roles_router,  prefix="/api/v1", tags=["User Roles"])
+
+app.include_router(document_field_config_router, prefix="/api/v1",tags=["Admin — Document Field Config"])
 app.include_router(custom_roles_router,prefix="/api/v1",tags=["Custom Roles"])
 app.include_router(system_settings_router, prefix="/api/v1",tags=["System Settings"])
 app.include_router(notification_templates_router, prefix="/api/v1",tags=["Notification Templates"])
