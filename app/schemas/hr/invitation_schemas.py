@@ -46,34 +46,45 @@ class ValidateTokenRequest(BaseModel):
     invite_token: Optional[str] = None
     invite_code:  Optional[str] = None
 
+
 class AcceptInviteNewUserRequest(BaseModel):
-    """Public — used when NO existing account matches the invited email."""
+    """
+    Public — used when NO existing account matches the resolved primary
+    email. `email` is whichever email the classification step determined
+    should be primary — mandatory. `other_email` is optional (invited email
+    or the extra one they typed), stored as a linked email.
+    """
     invite_token:     Optional[str] = None
     invite_code:      Optional[str] = None
     first_name:       str
     last_name:        str
+    email:            EmailStr
+    other_email:      Optional[EmailStr] = None
     password:         str = Field(..., min_length=8)
     terms_accepted:   bool
 
 
+class RequestMergeOtpRequest(BaseModel):
+    """
+    Public — step 1 of the merge flow. Sends a one-time login code to the
+    matched account's personal email, to confirm it's really them before
+    merging the invite in.
+    """
+    invite_token: Optional[str] = None
+    invite_code:  Optional[str] = None
+    login_email:  EmailStr
+
+
 class AcceptInviteExistingUserRequest(BaseModel):
     """
-    Public — used when an existing account WAS found matching the invited
-    email. Provide EITHER `password` OR `reset_token_id` (from the forgot-
-    password OTP flow). `new_password` is optional, only used with
-    `reset_token_id`.
+    Public — step 2 of the merge flow. `other_email`, if given, gets added
+    to the matched account's linked emails once identity is confirmed.
     """
-    invite_token:   Optional[str] = None
-    invite_code:    Optional[str] = None
-    login_email:    EmailStr
-    password:       Optional[str] = None
-    reset_token_id: Optional[str] = None
-    new_password:   Optional[str] = Field(None, min_length=8)
-
-
-class AddPersonalEmailRequest(BaseModel):
-    """Authenticated — sets/updates the personal (primary) email on file."""
-    personal_email: EmailStr
+    invite_token: Optional[str] = None
+    invite_code:  Optional[str] = None
+    login_email:  EmailStr
+    otp_code:     str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+    other_email:  Optional[EmailStr] = None
 
 
 class UpdateEmployeeRequest(BaseModel):
@@ -163,33 +174,44 @@ class EmployeeResponse(BaseModel):
         from_attributes = True
 
 
-# class ValidateTokenResponse(BaseModel):
-    # valid:        bool
-    # company_name: Optional[str] = None
-    # hr_name:      Optional[str] = None
-    # invite_method: Optional[str] = None
-    # message:      str
-    "Valid invite from TechCorp" or "This invite has expired"
-# 
 class ValidateTokenResponse(BaseModel):
     valid:         bool
     company_name:  Optional[str] = None
     hr_name:       Optional[str] = None
     invite_method: Optional[str] = None
     message:       str
-    account_exists: bool = False   # ← NEW
+    # "Valid invite from TechCorp" or "This invite has expired"
+
+    # Tells the frontend which screen to show next —
+    # True  → "Welcome back! Log in to link this invite to your account."
+    # False → "Create your account to get started."
+    account_exists: bool = False
+
+    # Only present once the frontend has answered the "another email?" /
+    # "is it primary?" questions and re-called this endpoint with them.
+    resolved_primary_email: Optional[str] = None
+    resolved_other_email:   Optional[str] = None
 
 
 class AcceptInviteAuthResponse(BaseModel):
-    """Returned by both the new-user and existing-user accept endpoints."""
-    access_token:            str
-    refresh_token:           str
-    roles:                   list[str]
-    company_name:            str
-    employer_id:             uuid.UUID
-    requires_personal_email: bool
-    message:                 str
-    
+    """
+    Returned by both the new-user and existing-user accept endpoints.
+    Mirrors the token shape used by signup/login so the frontend can log
+    the person straight in after accepting.
+    """
+    access_token:  str
+    refresh_token: str
+    roles:         list[str]
+    company_name:  str
+    employer_id:   uuid.UUID
+    linked_email:  Optional[str] = None
+    message:       str
+
+
+class RequestMergeOtpResponse(BaseModel):
+    message: str
+
+
 class InvitationListResponse(BaseModel):
     items: list[InvitationResponse]
     total: int

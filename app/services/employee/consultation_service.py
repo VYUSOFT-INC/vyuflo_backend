@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.visamodels import (
     User,
+    Application,
     AttorneyProfile,
     AppointmentType,
     AttorneyAvailability,
@@ -368,6 +369,18 @@ async def create_booking(
     appt_type = await db_get_by_id(db, AppointmentType, data.appointment_type_id)
     if not appt_type or not appt_type.is_active:
         raise ValueError("Appointment type not found or inactive.")
+
+    # ── Validate case — marketplace gating ───────────────────────────────────
+    application = await db_get_by_id(db, Application, data.application_id)
+    if not application:
+        raise ValueError("Case not found.")
+    if application.user_id != employee_id:
+        raise ValueError("You can only book a consultation for your own case.")
+    if application.case_origin != "self_petition":
+        raise ValueError(
+            "The attorney marketplace is only available for self-petition cases. "
+            "Employer-sponsored cases already have an assigned attorney."
+        )
 
     # ── Create booking ───────────────────────────────────────────────────────
     booking = ConsultationBooking(
