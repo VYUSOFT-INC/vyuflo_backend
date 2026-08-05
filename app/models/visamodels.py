@@ -11,8 +11,8 @@ from sqlalchemy import (
     Integer, Enum, Text, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import  relationship
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.orm import declarative_base, relationship
 
 from app.core.database import Base
 
@@ -32,6 +32,10 @@ class User(Base):
     phone        = Column(String(20),  nullable=True)
     country_code = Column(String(10),  nullable=True)
 
+    linked_emails = Column(ARRAY(String), nullable=False, default=list, server_default="{}")
+
+    email_is_active = Column(Boolean, default=True, nullable=False)
+
     password_hash    = Column(String(255), nullable=True)
     auth_provider    = Column(
         Enum("email", "google", "microsoft", "apple",
@@ -48,7 +52,7 @@ class User(Base):
     marketing_opt_in  = Column(Boolean,  default=False, nullable=False)
     newsletter_opt_in = Column(Boolean,  default=False, nullable=False)
     referral_source   = Column(String(100), nullable=True)
-    token_version = Column(Integer, default=0, nullable=False)
+
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at    = Column(DateTime(timezone=True),
                            default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -355,10 +359,7 @@ class UserProfile(Base):
     onboarding_step      = Column(Integer, default=1,     nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
     theme_color = Column(String(7), nullable=True, default="#4f46e5")
-    tour_employee_seen   = Column(Boolean, default=False, nullable=False)
-    tour_hr_seen         = Column(Boolean, default=False, nullable=False)
-    tour_attorney_seen   = Column(Boolean, default=False, nullable=False)
-    tour_admin_seen      = Column(Boolean, default=False, nullable=False)
+
     # ── Employer Link (set when employee accepts HR invitation) ───────────────
     employer_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
                          nullable=True, index=True)
@@ -558,6 +559,10 @@ class Application(Base):
                           nullable=False, index=True)
     visa_type_id = Column(UUID(as_uuid=True), ForeignKey("visa_types.id"),
                           nullable=False)
+    case_origin = Column(
+        Enum("employer_sponsored", "self_petition", name="case_origin_enum"),
+        nullable=False, default="employer_sponsored"
+    )
 
     sponsor_employer = Column(String(200), nullable=True)
 
@@ -611,6 +616,27 @@ class Application(Base):
     hr_notes       = Column(Text, nullable=True)
     hr_approved_at = Column(DateTime(timezone=True), nullable=True)
     hr_approved_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    intake_accepted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    intake_accepted_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+ 
+    # ── Filing pipeline (client-facing case lifecycle) ───────────────────────
+    # Deliberately separate from `current_stage` above, which tracks the
+    # attorney's internal prep workflow (profile_eligibility → ... →
+    # uscis_submission). This field is the Intake → Filed → RFE → Decision
+    # timeline your colleague described — set to 'intake' the moment
+    # intake_accepted_at is populated, then advanced by the attorney as the
+    # case actually moves (filing, RFE, decision).
+    case_pipeline_stage = Column(
+        Enum("intake", "filed", "rfe", "decision",
+             name="case_pipeline_stage_enum"),
+        nullable=True   # NULL until intake is accepted — not yet a "case"
+    )
+ 
+    # ── Filed-case identifiers — shown front-and-center once populated ───────
+    receipt_number = Column(String(50), nullable=True, index=True)   # e.g. "WAC-24-123-45678"
+    priority_date  = Column(Date, nullable=True)
+
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -788,7 +814,7 @@ class DocumentType(Base):
     accepted_formats = Column(String(100), nullable=True, default="PDF,JPG,PNG")
     max_file_size_mb = Column(Integer, default=10, nullable=False)
     is_active        = Column(Boolean, default=True, nullable=False)
-    ocr_slug    = Column(String(50), nullable=True, index=True)
+
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -2090,6 +2116,8 @@ class AttorneyProfile(Base):
     bar_state          = Column(String(50),  nullable=True)
     years_experience   = Column(Integer,     nullable=True)
     law_firm_name      = Column(String(300), nullable=True)
+    firm_id            = Column(UUID(as_uuid=True), ForeignKey("law_firms.id"),
+                                nullable=True, index=True)      # NEW 
     specialisations    = Column(Text, nullable=True)
     languages          = Column(Text, nullable=True)
     availability_note  = Column(String(300), nullable=True)
@@ -2117,7 +2145,24 @@ class AttorneyProfile(Base):
 
     user = relationship("User", foreign_keys=[user_id],
                         back_populates="attorney_profile")
+    firm = relationship("LawFirm", back_populates="attorneys")
 
+# TABLE 42 a — LawFirm
+
+class LawFirm(Base):
+    __tablename__ = "law_firms"
+
+    id   = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(300), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    created_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    attorneys = relationship("AttorneyProfile", back_populates="firm")
 
 # =============================================================================
 # TABLE 43 — fee_templates
@@ -3036,6 +3081,9 @@ class ConsultationBooking(Base):
     appointment_type_id  = Column(UUID(as_uuid=True), ForeignKey("appointment_types.id"),
                                   nullable=False)
 
+    application_id       = Column(UUID(as_uuid=True), ForeignKey("applications.id"),
+                                  nullable=True, index=True)
+    
     consultation_format  = Column(
         Enum("virtual", "in_person", name="consultation_format_enum"),
         nullable=False, default="virtual"
@@ -3070,6 +3118,7 @@ class ConsultationBooking(Base):
 
     employee         = relationship("User", foreign_keys=[employee_id])
     attorney         = relationship("AttorneyProfile", foreign_keys=[attorney_id])
+    application      = relationship("Application", foreign_keys=[application_id])
     slot             = relationship("ConsultationSlot", back_populates="booking")
     appointment_type = relationship("AppointmentType", back_populates="bookings")
     payment          = relationship("Payment", foreign_keys=[payment_id])
@@ -3282,6 +3331,19 @@ class ClientIntakeSession(Base):
     last_saved_at = Column(DateTime(timezone=True), nullable=True)
     is_submitted  = Column(Boolean, default=False, nullable=False)
     submitted_at  = Column(DateTime(timezone=True), nullable=True)
+
+    # ── Attorney Review Fields (mirrors Application.hr_approval_status) ──────
+    review_status = Column(
+        Enum("not_submitted", "pending_review", "changes_requested", "accepted",
+             name="intake_review_status_enum"),
+        nullable=False, default="not_submitted"
+    )
+    review_note   = Column(Text, nullable=True)   # whole-form correction note or acceptance note
+    reviewed_by   = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    reviewed_at   = Column(DateTime(timezone=True), nullable=True)
+    # Bumped every time employee is sent back for corrections and resubmits —
+    # lets the attorney/UI show "resubmission #2" instead of losing that history.
+    revision_count = Column(Integer, default=0, nullable=False)
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -3780,3 +3842,36 @@ class ApplicationGeneratedLetter(Base):
     application  = relationship("Application", back_populates="generated_letters")
     generated_by = relationship("User", foreign_keys=[generated_by_user_id])
     signed_by    = relationship("User", foreign_keys=[signed_by_user_id])
+
+
+# =============================================================================
+# TABLE — 75 
+# EmployerFirmConnection
+# =============================================================================
+class EmployerFirmConnection(Base):
+    """
+    Represents 'this employer's company has an established relationship
+    with this law firm.' HR can only assign attorneys who belong to a
+    firm listed here.
+    """
+    __tablename__ = "employer_firm_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    employer_profile_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
+                                 nullable=False, index=True)
+    firm_id              = Column(UUID(as_uuid=True), ForeignKey("law_firms.id"),
+                                 nullable=False, index=True)
+
+    is_active    = Column(Boolean, default=True, nullable=False)
+    connected_at = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_by   = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    employer = relationship("EmployerProfile", foreign_keys=[employer_profile_id])
+    firm     = relationship("LawFirm", foreign_keys=[firm_id])
+
+    __table_args__ = (
+        UniqueConstraint("employer_profile_id", "firm_id", name="uq_employer_firm"),
+    )
+

@@ -376,7 +376,7 @@ async def upload_document_for_client(db, actor_id, application_id, document_type
     if is_attorney_originated:
         # Notify HR — a document is waiting for their release decision.
         if application.assigned_hr_id:
-            await db_create(db, Notification(
+            _notif = await db_create(db, Notification(
                 user_id=application.assigned_hr_id,
                 notification_type="document_needs_hr_release",
                 category="case_update",
@@ -388,9 +388,11 @@ async def upload_document_for_client(db, actor_id, application_id, document_type
                 actor_id=actor_id,
                 created_by=actor_id,
             ))
+            from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
+            await fan_out_notification_to_admins(db, _notif)
     else:
         # HR/admin upload — employee is told immediately, as before.
-        await db_create(db, Notification(
+        _notif = await db_create(db, Notification(
             user_id=application.user_id,
             notification_type="document_uploaded_by_staff",
             category="case_update",
@@ -402,6 +404,8 @@ async def upload_document_for_client(db, actor_id, application_id, document_type
             actor_id=actor_id,
             created_by=actor_id,
         ))
+        from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
+        await fan_out_notification_to_admins(db, _notif)
 
     return doc_response
 
@@ -443,7 +447,7 @@ async def hr_review_uploaded_document(
         await db_update(db, Document, document_id, {
             "status": "uploaded", "modified_by": hr_user_id,
         })
-        await db_create(db, Notification(
+        _notif = await db_create(db, Notification(
             user_id=application.user_id,
             notification_type="document_uploaded_by_staff",
             category="case_update",
@@ -455,14 +459,16 @@ async def hr_review_uploaded_document(
             actor_id=hr_user_id,
             created_by=hr_user_id,
         ))
-    else:
+        from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
+        await fan_out_notification_to_admins(db, _notif)
+    else: 
         await db_update(db, Document, document_id, {
             "status": "rejected", "rejection_reason": reason,
             "verified_by": hr_user_id, "verified_at": datetime.now(timezone.utc),
             "modified_by": hr_user_id,
         })
         # Employee never knew about it — only tell the attorney who uploaded it.
-        await db_create(db, Notification(
+        _notif = await db_create(db, Notification(
             user_id=doc.created_by,
             notification_type="document_release_declined",
             category="case_update",
@@ -474,6 +480,8 @@ async def hr_review_uploaded_document(
             actor_id=hr_user_id,
             created_by=hr_user_id,
         ))
+        from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
+        await fan_out_notification_to_admins(db, _notif)
 
     result = await db.execute(
         select(Document).options(joinedload(Document.document_type)).where(Document.id == document_id)
