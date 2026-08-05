@@ -1,8 +1,3 @@
-# # # =============================================================================
-# # # RBAC SEED DATA
-# # # Run once at DB init / Alembic seed migration.
-# # # Defines: the 4 roles + the 21 permissions + which role gets which.
-# # # =============================================================================
 
 # # ROLES_SEED = [
 # #     {"name":"app_admin","description": "Full system administrator. Can manage users, roles, visa types, content, and support.","is_active":True,"is_system":True,},
@@ -2349,9 +2344,6 @@
 # ]
  
 import json
-# from app.models.seeds import NOTIFICATION_TEMPLATES_SEED
-
-
 
 # =============================================================================
 # 1. ROLES — 4 roles, seeded once, never changed
@@ -3474,6 +3466,50 @@ DOCUMENT_TYPES_SEED = [
 ]
 
 
+
+
+
+DOCUMENT_FIELD_CONFIG_SEED = [
+    # ── Passport ──────────────────────────────────────────────────────────────
+    {"ocr_slug": "passport", "field_name": "passport_number", "is_mandatory": True,  "is_expiry_field": False, "display_order": 0},
+    {"ocr_slug": "passport", "field_name": "surname",         "is_mandatory": True,  "is_expiry_field": False, "display_order": 1},
+    {"ocr_slug": "passport", "field_name": "given_names",     "is_mandatory": True,  "is_expiry_field": False, "display_order": 2},
+    {"ocr_slug": "passport", "field_name": "nationality",     "is_mandatory": True,  "is_expiry_field": False, "display_order": 3},
+    {"ocr_slug": "passport", "field_name": "date_of_birth",   "is_mandatory": True,  "is_expiry_field": False, "display_order": 4},
+    {"ocr_slug": "passport", "field_name": "sexsai",             "is_mandatory": True,  "is_expiry_field": False, "display_order": 5},
+    {"ocr_slug": "passport", "field_name": "expiry_date",     "is_mandatory": True,  "is_expiry_field": True,  "display_order": 6},
+    
+ 
+    # ── I-797 ─────────────────────────────────────────────────────────────────
+    {"ocr_slug": "i797", "field_name": "receipt_number", "is_mandatory": True,  "is_expiry_field": False, "display_order": 0},
+    {"ocr_slug": "i797", "field_name": "notice_type",    "is_mandatory": True,  "is_expiry_field": False, "display_order": 1},
+    {"ocr_slug": "i797", "field_name": "case_type",      "is_mandatory": True,  "is_expiry_field": False, "display_order": 2},
+    {"ocr_slug": "i797", "field_name": "valid_from",     "is_mandatory": True,  "is_expiry_field": False, "display_order": 3},
+    {"ocr_slug": "i797", "field_name": "valid_to",       "is_mandatory": True,  "is_expiry_field": True,  "display_order": 4},
+ 
+    # ── I-94 ──────────────────────────────────────────────────────────────────
+    {"ocr_slug": "i94", "field_name": "i94_number",         "is_mandatory": True,  "is_expiry_field": False, "display_order": 0},
+    {"ocr_slug": "i94", "field_name": "class_of_admission", "is_mandatory": True,  "is_expiry_field": False, "display_order": 1},
+    {"ocr_slug": "i94", "field_name": "admit_until",        "is_mandatory": True,  "is_expiry_field": True,  "display_order": 2},
+ 
+    # ── EAD ───────────────────────────────────────────────────────────────────
+    {"ocr_slug": "ead", "field_name": "uscis_number",   "is_mandatory": True,  "is_expiry_field": False, "display_order": 0},
+    {"ocr_slug": "ead", "field_name": "category_code",  "is_mandatory": True,  "is_expiry_field": False, "display_order": 1},
+    {"ocr_slug": "ead", "field_name": "card_number",    "is_mandatory": True,  "is_expiry_field": False, "display_order": 2},
+    {"ocr_slug": "ead", "field_name": "card_expires",   "is_mandatory": True,  "is_expiry_field": True,  "display_order": 3},
+ 
+    # ── LCA — no expiry field extracted yet (TODO) ───────────────────────────
+    {"ocr_slug": "lca", "field_name": "case_number",    "is_mandatory": True,  "is_expiry_field": False, "display_order": 0},
+    {"ocr_slug": "lca", "field_name": "employer_name",  "is_mandatory": True,  "is_expiry_field": False, "display_order": 1},
+    {"ocr_slug": "lca", "field_name": "soc_code",       "is_mandatory": True,  "is_expiry_field": False, "display_order": 2},
+ 
+    # ── Aadhaar — no expiry concept ───────────────────────────────────────────
+    {"ocr_slug": "aadhaar", "field_name": "aadhaar_number", "is_mandatory": True, "is_expiry_field": False, "display_order": 0},
+ 
+    # ── PAN — no expiry concept ───────────────────────────────────────────────
+    {"ocr_slug": "pan", "field_name": "pan_number", "is_mandatory": True, "is_expiry_field": False, "display_order": 0},
+]
+
 # =============================================================================
 # 6. SUBSCRIPTION_PLANS — 4 SaaS plans for admin billing dashboard
 # All amounts in US CENTS to avoid float rounding.
@@ -3924,7 +3960,33 @@ SYSTEM_SETTINGS_SEED = [
         "is_readonly": False,
         "display_order": 3,
     },
-
+    # ── Documents ─────────────────────────────────────────────────────────────
+    {
+        "key": "documents.expiry_reminder_thresholds",
+        "value": "90,60,30,14,7,1",
+        "value_type": "string",
+        "setting_group": "documents",
+        "label": "Expiry Reminder Thresholds (days)",
+        "description": "Comma-separated list of days-before-expiry to send document expiry reminders (e.g. passport, visa, EAD renewal alerts).",
+        "is_public": False,
+        "is_readonly": False,
+        "display_order": 0,
+    },
+    # ── Documents ─────────────────────────────────────────────────────────────
+    {
+        "key": "documents.expiry_reminder_thresholds",
+        "value": "90,60,30,14,7,1",
+        "value_type": "string",
+        "setting_group": "documents",
+        "label": "Expiry Reminder Thresholds (days)",
+        "description": (
+            "Comma-separated list of days-before-expiry to send document "
+            "expiry reminders (e.g. passport, visa, EAD renewal alerts)."
+        ),
+        "is_public": False,
+        "is_readonly": False,
+        "display_order": 0,
+    },
     # ── Maintenance ───────────────────────────────────────────────────────────
     {
         "key": "maintenance.enabled",
@@ -3948,6 +4010,7 @@ SYSTEM_SETTINGS_SEED = [
         "is_readonly": False,
         "display_order": 1,
     },
+ 
 ]
 
 

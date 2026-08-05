@@ -1399,3 +1399,54 @@ async def fire_unusual_activity(
     except Exception:
         logger.exception("fire_unusual_activity failed for user %s", user_id)
         await db.rollback()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADD TO notification_service.py, alongside the other fire_* functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def fire_document_expiring(
+    db: AsyncSession, *,
+    user_id: uuid.UUID,
+    document_id: uuid.UUID,
+    document_name: str,
+    expiry_date_str: str,
+    days_remaining: int,
+    application_id: Optional[uuid.UUID] = None,
+) -> None:
+    try:
+        doc_url  = f"/documents/{document_id}"
+        priority = "urgent" if days_remaining <= 14 else "high" if days_remaining <= 30 else "medium"
+ 
+        title = f"{document_name} expires in {days_remaining} day{'s' if days_remaining != 1 else ''}"
+        body  = (
+            f"Your document \"{document_name}\" expires on {expiry_date_str}. "
+            f"Please upload a renewed version before it expires."
+        )
+ 
+        notif = await _create_notification(
+            db, user_id=user_id, notification_type="document_expiring",
+            category="document", priority=priority, title=title, body=body,
+            application_id=application_id, document_id=document_id,
+            cta_primary_label="View Document", cta_primary_url=doc_url,
+        )
+        await dispatch_notification(
+            db, notif_id=notif.id, user_id=user_id,
+            subject=f"VyuFlo — {title}",
+            body_text=(
+                f"Hi,\n\n{body}\n\n"
+                f"View it at: {settings.FRONTEND_URL}{doc_url}\n\nVyuFlo Team"
+            ),
+            category_pref_field="notify_document_updates",
+            cta_label="View Document", cta_url=doc_url,
+            event_key="document_expiring",
+            template_context={
+                "document_name":   document_name,
+                "expiry_date":     expiry_date_str,
+                "days_remaining":  str(days_remaining),
+                "action_url":      f"{settings.FRONTEND_URL}{doc_url}",
+            },
+        )
+    except Exception:
+        logger.exception("fire_document_expiring failed for document %s", document_id)
+        await db.rollback()
