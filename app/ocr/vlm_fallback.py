@@ -16,7 +16,7 @@ Enable it with env:
     VLM_BASE_URL=http://localhost:11434/v1     # Ollama's OpenAI-compatible API
     VLM_MODEL=qwen2.5vl:7b
 
-Serve the model first:
+Serve the model first: 
     ollama pull qwen2.5vl:7b
     ollama serve            # exposes http://localhost:11434
 

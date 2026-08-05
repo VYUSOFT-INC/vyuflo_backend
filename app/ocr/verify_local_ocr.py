@@ -16,7 +16,7 @@ If the extracted fields look right here, the /ocr/extract endpoint will too —
 it runs this exact pipeline.
 """
 
-import sys
+import sys 
 
 
 def _check_deps() -> bool:

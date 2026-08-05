@@ -16,7 +16,7 @@
 # When it all looks good, delete this file and add the router to your real
 # main.py instead (one line — see the message).
 
-from fastapi import FastAPI
+from fastapi import FastAPI 
 
 from app.ocr.ocr_service_router import ocr_router
 

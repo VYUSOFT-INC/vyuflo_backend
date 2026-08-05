@@ -53,7 +53,7 @@ async def api_list_documents(
     application_id: Optional[uuid.UUID] = Query(None),
     db:             AsyncSession         = Depends(get_db),
     current_user                         = Depends(get_current_user),
-) -> DocumentListResponse:
+) -> DocumentListResponse: 
     return await list_documents(db, current_user.user_id, application_id)
 
 

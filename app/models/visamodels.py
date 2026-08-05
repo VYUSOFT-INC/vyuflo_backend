@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import declarative_base, relationship
 
-Base = declarative_base()
+from app.core.database import Base
 
 
 # =============================================================================

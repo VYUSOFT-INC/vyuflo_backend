@@ -733,7 +733,7 @@ async def hr_update_case(
 
         case_name, _, _ = _unpack_notes(app.notes)
 
-        # Fetch visa type code for the thread title / message
+        # Fetch visa type code for the thread title / message 
         vt = getattr(app, "visa_type", None)
         if vt is None and app.visa_type_id:
             vt = await db_get_by_id(db, VisaType, app.visa_type_id)
