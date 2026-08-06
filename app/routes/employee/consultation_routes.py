@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -116,7 +116,7 @@ async def api_create_appointment_type(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
-    return await create_appointment_type(db, body, created_by=current_user.id)
+    return await create_appointment_type(db, body, created_by=current_user.user_id)
 
 
 # =============================================================================
@@ -245,15 +245,35 @@ async def api_create_booking(
     - Marks slot as booked (atomic within same transaction)
     """
     try:
-        booking = await create_booking(db, body, employee_id=current_user.id)
+        booking = await create_booking(db, body, employee_id=current_user.user_id)
         await db.commit()
+
+        # NEW — build the fields the Confirmation screen needs to show real date/time
+        start_dt = datetime.combine(booking.slot.slot_date, booking.slot.slot_time)
+        confirmation_no = "VYU-" + str(booking.id)[:6].upper()
+
         return CreateConsultationBookingResponse(
             id=booking.id,
             status=booking.status,
-            message="Booking confirmed. The attorney will send a meeting link shortly.",
+            confirmation_no=confirmation_no,
+            scheduled_start_iso=start_dt,
+            duration_minutes=booking.appointment_type.duration_minutes,
+            zoho_meeting_id=None,
+            zoho_join_url=None,
+            message="Booking confirmed. Meeting link will be sent by email.",
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    # try:
+        # booking = await create_booking(db, body, employee_id=current_user.user_id)
+        # await db.commit()
+        # return CreateConsultationBookingResponse(
+            # id=booking.id,
+            # status=booking.status,
+            # message="Booking confirmed. The attorney will send a meeting link shortly.",
+        # )
+    # except ValueError as e:
+        # raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @consultation_router.get(
@@ -265,7 +285,7 @@ async def api_list_my_bookings(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
-    return await list_bookings_for_employee(db, current_user.id)
+    return await list_bookings_for_employee(db, current_user.user_id)
 
 
 @consultation_router.get(
@@ -292,7 +312,7 @@ async def api_get_booking(
         .where(
             and_(
                 ConsultationBooking.id == booking_id,
-                ConsultationBooking.employee_id == current_user.id,
+                ConsultationBooking.employee_id == current_user.user_id,
             )
         )
     )
@@ -320,7 +340,7 @@ async def api_cancel_booking(
     try:
         booking = await cancel_booking(
             db, booking_id,
-            cancelled_by=current_user.id,
+            cancelled_by=current_user.user_id,
             reason=body.reason,
         )
         await db.commit()

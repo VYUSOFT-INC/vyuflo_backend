@@ -34,6 +34,8 @@ from app.schemas.employee.consultation_schemas import (
     ConsultationSlotOut,
 )
 from app.services.employee.services import db_create, db_get_by_id, db_update
+from app.core.email import send_email
+from app.models.visamodels import Notification
 
 
 def _now() -> datetime:
@@ -321,6 +323,8 @@ async def get_book_page_data(
             is_booked=s.is_booked,
             is_blocked=s.is_blocked,
             availability=avail,
+            display_date=s.slot_date.isoformat(),                          # NEW — 
+            display_time=s.slot_time.strftime("%I:%M %p").lstrip("0"),
         )
         slot_outs.append(out)
 
@@ -346,6 +350,7 @@ async def create_booking(
     3. Validate appointment type exists
     4. Create booking
     5. Mark slot as booked
+    6. Send confirmation email + in-app notification to both parties
     """
     # ── Validate slot ────────────────────────────────────────────────────────
     slot = await db_get_by_id(db, ConsultationSlot, data.slot_id)
@@ -370,17 +375,20 @@ async def create_booking(
     if not appt_type or not appt_type.is_active:
         raise ValueError("Appointment type not found or inactive.")
 
-    # ── Validate case — marketplace gating ───────────────────────────────────
-    application = await db_get_by_id(db, Application, data.application_id)
-    if not application:
-        raise ValueError("Case not found.")
-    if application.user_id != employee_id:
-        raise ValueError("You can only book a consultation for your own case.")
-    if application.case_origin != "self_petition":
-        raise ValueError(
-            "The attorney marketplace is only available for self-petition cases. "
-            "Employer-sponsored cases already have an assigned attorney."
-        )
+    # ── Validate case — marketplace gating (now optional) ────────────────────
+    # CHANGED: only run this block if the frontend actually sent an application_id.
+    # No application_id yet = self-petition flow isn't live = skip the check.
+    if data.application_id:
+        application = await db_get_by_id(db, Application, data.application_id)
+        if not application:
+            raise ValueError("Case not found.")
+        if application.user_id != employee_id:
+            raise ValueError("You can only book a consultation for your own case.")
+        if application.case_origin != "self_petition":
+            raise ValueError(
+                "The attorney marketplace is only available for self-petition cases. "
+                "Employer-sponsored cases already have an assigned attorney."
+            )
 
     # ── Create booking ───────────────────────────────────────────────────────
     booking = ConsultationBooking(
@@ -390,7 +398,7 @@ async def create_booking(
         slot_id=data.slot_id,
         appointment_type_id=data.appointment_type_id,
         consultation_format=data.consultation_format,
-        status="pending",
+        status="confirmed",   # CHANGED from "pending" — no manual review step exists
         amount_usd=appt_type.price_usd,
         employee_notes=data.employee_notes,
         created_by=employee_id,
@@ -400,6 +408,81 @@ async def create_booking(
 
     # ── Mark slot as booked ──────────────────────────────────────────────────
     await db_update(db, ConsultationSlot, slot.id, {"is_booked": True})
+
+    # ── NEW: send confirmation email + in-app notification ───────────────────
+    # Wrapped in try/except so a broken email server never blocks the booking itself.
+    try:
+        employee = await db_get_by_id(db, User, employee_id)
+        start_dt = datetime.combine(slot.slot_date, slot.slot_time)
+        confirmation_no = f"VYU-{str(booking.id)[:6].upper()}"
+        join_url = booking.meeting_link or ""   # empty until Zoho is wired up
+
+        when_text = f"{start_dt.strftime('%b %d, %Y')} at {start_dt.strftime('%I:%M %p')}"
+
+        # -- Email to the employee --
+        await send_email(
+            to=employee.email,
+            subject=f"Your consultation with {attorney.user.first_name} is confirmed",
+            body=(
+                f"Hi {employee.first_name},\n\n"
+                f"Your {appt_type.title} with {attorney.user.first_name} {attorney.user.last_name} "
+                f"is confirmed for {when_text}.\n"
+                f"Confirmation #: {confirmation_no}\n"
+                f"{'Join link: ' + join_url if join_url else 'Meeting link will be shared before the call.'}\n\n"
+                f"Thanks,\nVyuflo Team"
+            ),
+        )
+
+        # -- Email to the attorney --
+        await send_email(
+            to=attorney.user.email,
+            subject=f"New consultation booked — {employee.first_name} {employee.last_name}",
+            body=(
+                f"Hi {attorney.user.first_name},\n\n"
+                f"{employee.first_name} {employee.last_name} ({employee.email}) booked a "
+                f"{appt_type.title} with you for {when_text}.\n"
+                f"Confirmation #: {confirmation_no}\n"
+                f"{'Join link: ' + join_url if join_url else 'Meeting link will be shared before the call.'}\n\n"
+                f"Thanks,\nVyuflo Team"
+            ),
+        )
+
+        # -- In-app notification for the employee --
+        db.add(Notification(
+            id=uuid.uuid4(),
+            user_id=employee.id,
+            notification_type="calendar_event_reminder",
+            category="case_update",
+            priority="medium",
+            title=f"Consultation booked with {attorney.user.first_name} {attorney.user.last_name}",
+            body=f"{appt_type.title} on {when_text}. Meeting link has been emailed to you.",
+            case_reference=confirmation_no,
+            actor_id=attorney.user_id,
+            actor_label=f"{attorney.user.first_name} {attorney.user.last_name}",
+            cta_primary_label="View booking",
+            cta_primary_url=join_url or None,
+            is_read=False,
+            created_by=employee.id,
+        ))
+
+        # -- In-app notification for the attorney --
+        db.add(Notification(
+            id=uuid.uuid4(),
+            user_id=attorney.user_id,
+            notification_type="calendar_event_reminder",
+            category="case_update",
+            priority="medium",
+            title=f"New consultation with {employee.first_name} {employee.last_name}",
+            body=f"Scheduled for {when_text}. Client email: {employee.email}",
+            case_reference=confirmation_no,
+            actor_id=employee.id,
+            actor_label=f"{employee.first_name} {employee.last_name}",
+            is_read=False,
+            created_by=employee.id,
+        ))
+    except Exception as e:
+        # Booking still succeeds even if email/notification fails — just log it.
+        print(f"[create_booking] email/notification failed: {e}")
 
     # Reload with relationships
     result = await db.execute(
@@ -412,7 +495,6 @@ async def create_booking(
         .where(ConsultationBooking.id == booking.id)
     )
     return result.scalar_one()
-
 
 async def list_bookings_for_employee(
     db: AsyncSession,

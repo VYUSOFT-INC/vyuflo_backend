@@ -285,6 +285,7 @@ async def _build_case_summary(
         visa_type=visa_code,
         visa_label=visa_label,
         case_number=getattr(app, "receipt_number", None),
+        priority_date=_iso(app.priority_date) if app.priority_date else None,  # NEW
         filed_date=_iso(app.created_at) if app.created_at else None,
         current_stage=current_key,
         stages=stages,

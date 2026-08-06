@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, time, datetime
 from typing import Optional, List
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, Field
 
 
 class ORMBase(BaseModel):
@@ -109,6 +109,8 @@ class AttorneyAvailabilityCreateRequest(BaseModel):
 # =============================================================================
 
 class ConsultationSlotOut(ORMBase):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
     id:         uuid.UUID
     attorney_id: uuid.UUID
     slot_date:  date
@@ -119,6 +121,10 @@ class ConsultationSlotOut(ORMBase):
 
     # Virtual field for the frontend — computed in service
     availability: str = "high"   # "high" | "limited" | "none"
+
+     # NEW —
+    display_date: str = Field(default="", alias="date")
+    display_time: str = Field(default="", alias="time")
 
 
 class SlotGenerateRequest(BaseModel):
@@ -157,9 +163,11 @@ class ConsultationBookingOut(ORMBase):
 
 
 class CreateConsultationBookingRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")   # NEW — silently drops fields we don't use
+
     attorney_id:          uuid.UUID
     appointment_type_id:  uuid.UUID
-    application_id:       uuid.UUID
+    application_id: Optional[uuid.UUID] = None  # TODO: required once self-petition flow ships    consultation_format:  str = "virtual"
     consultation_format:  str = "virtual"
     slot_id:              uuid.UUID
     employee_notes:       Optional[str] = None
@@ -175,6 +183,11 @@ class CreateConsultationBookingRequest(BaseModel):
 class CreateConsultationBookingResponse(BaseModel):
     id:      uuid.UUID
     status:  str
+    confirmation_no:      Optional[str] = None
+    scheduled_start_iso:  Optional[datetime] = None
+    duration_minutes:     Optional[int] = None
+    zoho_meeting_id:      Optional[str] = None   # stays null until Zoho is wired up
+    zoho_join_url:        Optional[str] = None   # stays null until Zoho is wired up
     message: Optional[str] = None
 
 

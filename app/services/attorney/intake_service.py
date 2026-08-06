@@ -1335,6 +1335,8 @@ async def get_client_profile(
             progress_percent = active_app.progress_percent,
             current_stage    = active_app.current_stage,
             due_date         = active_app.due_date,
+            receipt_number   = active_app.receipt_number,   # NEW
+            priority_date    = active_app.priority_date,     # NEW
         )
 
     # ── 5. Next deadline (handles both datetime and date types) ───────────────
