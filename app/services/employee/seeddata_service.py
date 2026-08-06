@@ -153,6 +153,7 @@
 # All functions are idempotent — safe to run on an already-seeded DB.
 # =============================================================================
 
+from asyncio.log import logger
 import uuid
 import json
 
@@ -160,6 +161,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.visamodels import (
+    DocumentFieldConfiguration,
     NotificationTemplate,
     Role,
     Permission,
@@ -174,6 +176,7 @@ from app.models.visamodels import (
 )
 
 from app.models.seeds import (
+    DOCUMENT_FIELD_CONFIG_SEED,
     NOTIFICATION_TEMPLATES_SEED,
     ROLES_SEED,
     PERMISSIONS_SEED,
@@ -458,11 +461,14 @@ async def seed_system_settings(db: AsyncSession):
 async def seed_support_articles(db: AsyncSession):
     for article_data in SUPPORT_ARTICLES_SEED:
         result = await db.execute(
-            select(SupportArticle).where(
-                SupportArticle.title == article_data["title"]
-            )
+            select(SupportArticle)
+            .where(SupportArticle.title == article_data["title"])
+            .limit(1)
         )
-        if result.scalar_one_or_none():
+        # scalars().first() just checks "does at least one exist?" and never
+        # raises, even if duplicates are already in the table (unlike
+        # scalar_one_or_none(), which crashes the whole app startup on 2+ rows).
+        if result.scalars().first():
             continue
 
         db.add(SupportArticle(
@@ -487,18 +493,77 @@ async def seed_support_articles(db: AsyncSession):
     await db.commit()
     print("✅ Support articles seeded")
 
-async def seed_notification_templates(db: AsyncSession) -> None:
-    """
-    Idempotent — uses Postgres ON CONFLICT DO NOTHING so it's safe even if
-    called concurrently (e.g. by an overlapping uvicorn --reload restart).
-    """
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-    for item in NOTIFICATION_TEMPLATES_SEED:
-        stmt = pg_insert(NotificationTemplate).values(**item)
-        stmt = stmt.on_conflict_do_nothing(
-            constraint="uq_notif_template_event_channel"
+# async def seed_notification_templates(db: AsyncSession) -> None:
+#     """
+#     Idempotent — skips already-seeded event_keys.
+#     Safe to run on every startup or migration.
+#     """
+#     for item in NOTIFICATION_TEMPLATES_SEED:
+#         exists = (await db.execute(
+#             select(NotificationTemplate).where(
+#                 NotificationTemplate.event_key == item["event_key"]
+#             )
+#         )).scalar_one_or_none()
+#         if not exists:
+#             db.add(NotificationTemplate(**item))
+#     await db.commit()
+#     print("✅ NotificationTemplate seeded")
+
+
+from sqlalchemy.dialects.postgresql import insert
+
+
+async def seed_notification_templates(db: AsyncSession) -> None:
+    try:
+        if not NOTIFICATION_TEMPLATES_SEED:
+            return
+
+        stmt = insert(NotificationTemplate).values(
+            NOTIFICATION_TEMPLATES_SEED
         )
-        await db.execute(stmt)
+
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=[
+                NotificationTemplate.event_key,
+                NotificationTemplate.channel,
+            ]
+        )
+
+        result = await db.execute(stmt)
+        await db.commit()
+
+        logger.info(
+            "Notification templates seeded; inserted %s row(s)",
+            result.rowcount,
+        )
+
+    except Exception:
+        await db.rollback()
+        logger.exception("Failed to seed notification templates")
+        raise
+
+
+
+async def seed_document_field_configurations(db: AsyncSession) -> None:
+    """Idempotent — skips any (ocr_slug, field_name) pair that already exists."""
+    for row in DOCUMENT_FIELD_CONFIG_SEED:
+        result = await db.execute(
+            select(DocumentFieldConfiguration).where(
+                DocumentFieldConfiguration.ocr_slug == row["ocr_slug"],
+                DocumentFieldConfiguration.field_name == row["field_name"],
+            ).limit(1)
+        )
+        if result.scalars().first():
+            continue
+ 
+        db.add(DocumentFieldConfiguration(
+            ocr_slug=row["ocr_slug"],
+            field_name=row["field_name"],
+            is_mandatory=row["is_mandatory"],
+            is_expiry_field=row["is_expiry_field"],
+            display_order=row["display_order"],
+        ))
+ 
     await db.commit()
-    print("✅ NotificationTemplate seeded")
+    print("✅ Document field configurations seeded")

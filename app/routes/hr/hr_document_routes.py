@@ -12,7 +12,7 @@ from typing import Optional
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import joinedload
@@ -23,10 +23,12 @@ from app.models.visamodels import (
     Document, DocumentType, Application, DocumentActivity,
 )
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
+from app.services.employee import storage
 from app.services.employee.document_service import (
     get_document_file_url, upload_document,
 )
 from app.services.employee.services import db_create, db_update
+from app.services.hr.hr_document_request_service import hr_create_document_request
 
 
 hr_document_router = APIRouter()
@@ -127,6 +129,38 @@ async def hr_upload_document(
     )
 
 
+# ── POST /hr/cases/:applicationId/documents/upload ────────────────────────────
+# Case-scoped upload — matches the /cases/{application_id}/... convention used
+# by hr_task_routes.py and the GET /cases/{application_id}/documents route
+# above. Same underlying upload_document() call as hr_upload_document(); this
+# just makes application_id a required path param instead of an optional form
+# field, for the Documents & Checklist screen's dropzone.
+
+@hr_document_router.post(
+    "/cases/{application_id}/documents/upload",
+    response_model=DocumentResponse,
+    status_code=201,
+)
+async def hr_upload_document_for_case(
+    application_id: uuid.UUID,
+    file:           UploadFile  = File(...),
+    document_type:  str         = Form(...),
+    category:       str         = Form(...),
+    db:             AsyncSession = Depends(get_db),
+    current_user                = Depends(get_current_user),
+):
+    app_result = await db.execute(select(Application).where(Application.id == application_id))
+    application = app_result.scalars().first()
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found.")
+    _assert_hr_access(application, current_user.user_id)
+
+    # Upload as the employee (not the HR user) — same as hr_upload_document()
+    return await upload_document(
+        db, application.user_id, application_id, document_type, category, file
+    )
+
+
 # ── GET /hr/documents/:documentId ─────────────────────────────────────────────
 
 @hr_document_router.get(
@@ -162,23 +196,26 @@ async def hr_view_document(
     db:           AsyncSession = Depends(get_db),
     current_user              = Depends(get_current_user),
 ):
-    doc_info  = await get_document_file_url(db, document_id, current_user.user_id)
-    file_path = f"./{doc_info['file_path']}"
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk.")
+    doc_info = await get_document_file_url(db, document_id, current_user.user_id)
+
     fmt = doc_info["file_format"].lower()
     media_types = {
-        "jpg": "image/jpeg", "jpeg": "image/jpeg",
-        "png": "image/png",  "pdf":  "application/pdf",
+        "jpg":  "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png":  "image/png",
+        "gif":  "image/gif",
+        "pdf":  "application/pdf",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
-    return FileResponse(
-        path       = file_path,
-        media_type = media_types.get(fmt, "application/octet-stream"),
-        filename   = doc_info["file_name"],
-        headers    = {"Content-Disposition": "inline"},
-    )
+    media_type = media_types.get(fmt, "application/octet-stream")
 
+    content, _ = await storage.get_file_bytes(doc_info["file_path"])
+
+    return StreamingResponse(
+        iter([content]),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{doc_info["file_name"]}"'},
+    )
 
 # ── PATCH /hr/documents/:documentId/verify ────────────────────────────────────
 # HR marks a document as verified.
@@ -263,7 +300,11 @@ async def hr_reject_document(
 
 
 # ── POST /hr/documents/:documentId/request ────────────────────────────────────
-# Sends a notification to the employee to re-upload a document.
+# Re-request an EXISTING document (e.g. ask for a re-upload after rejection).
+# For a brand-new request with no document yet, use
+# POST /hr/cases/{application_id}/documents/requests (hr_document_request_routes.py)
+# instead — both routes converge on hr_document_request_service so there's one
+# real implementation (a DocumentRequest row + a Notification) behind each.
 
 @hr_document_router.post("/documents/{document_id}/request")
 async def hr_request_document(
@@ -272,18 +313,44 @@ async def hr_request_document(
     db:           AsyncSession = Depends(get_db),
     current_user              = Depends(get_current_user),
 ):
-    # TODO: create a notification / application task for the employee
-    # For now, log the activity
+    result = await db.execute(
+        select(Document).options(joinedload(Document.document_type)).where(Document.id == document_id)
+    )
+    doc = result.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not doc.application_id:
+        raise HTTPException(status_code=422, detail="Document is not attached to a case.")
+
+    doc_name = doc.document_type.name if doc.document_type else "Document"
+
+    request = await hr_create_document_request(
+        db=db,
+        application_id=doc.application_id,
+        hr_user_id=current_user.user_id,
+        payload=DocumentRequestCreate(
+            document_name=doc_name,
+            details=payload.get("message") or f"Please re-upload {doc_name}.",
+            priority=DocumentRequestPriority.normal,
+        ),
+        document_id=document_id,
+    )
+
+    # Log alongside the existing DocumentActivity trail for this document
+    # (DocumentActivity.document_id is NOT NULL, so this route — which always
+    # has an existing document — keeps logging it; the brand-new-request path
+    # in hr_document_request_routes.py has no document yet and can't).
     activity = DocumentActivity(
         document_id = document_id,
-        action      = "status_changed",
+        action      = "document_requested",
         actor_id    = current_user.user_id,
         actor_type  = "hr_admin",
-        note        = f"HR requested re-upload. {payload.get('message', '')}".strip(),
+        note        = request.details,
         created_by  = current_user.user_id,
     )
     await db_create(db, activity)
-    return {"success": True, "message": "Employee has been notified."}
+
+    return {"success": True, "message": "Employee has been notified.", "request_id": str(request.id)}
 
 
 # ── DELETE /hr/documents/:documentId ─────────────────────────────────────────

@@ -1,6 +1,7 @@
 """
 VisaFlow FastAPI Application Entry Point
 """
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -18,7 +19,8 @@ from app.routes.employee import auth, onboarding
 from app.routes.employee.document import document_router
 from app.routes.employee.message import message_router
 from app.routes.employee.application import application_router,application_task_router,application_history_router
-from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_notification_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types
+from app.services.employee.expiry_reminder_service import check_and_send_expiry_reminders
+from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_notification_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types,seed_document_field_configurations
 from app.routes.employee.visa_types import visa_type_router
 from app.routes.employee.dashboard import dashboard_router
 from app.routes.employee.user_profile import user_profile_router
@@ -32,7 +34,8 @@ from app.routes.employee.consultation_routes import consultation_router
 from app.routes.employee.notification_routes import notification_router
 from app.routes.admin.roles import roles_router
 from app.routes.admin.custom_roles import custom_roles_router
-# from app.routes.user_management import user_management_router
+from app.routes.admin.user_management import user_management_router
+from app.routes.admin.notifications_reminders import admin_notifications_router
 from app.routes.admin.system_settings import system_settings_router
 from app.routes.admin.notification_templates import notification_templates_router
 from app.routes.admin.admin_visa_types_router import admin_visa_types_router
@@ -40,6 +43,7 @@ from app.routes.admin.subscription import subscription_router
 from app.routes.admin.revenue_dashboard import revenue_dashboard_router
 from app.routes.admin.system_audit import system_audit_router
 from app.routes.admin.workspace import workspace_router
+from app.routes.admin.document_field_config import document_field_config_router
 from app.routes.admin.admin_support import admin_support_router
 from app.routes.attorney.intake import intake_router
 from app.routes.attorney.analytics import analytics_router
@@ -61,8 +65,10 @@ from app.routes.hr.hr_task_routes import hr_task_router
 from app.routes.hr.hr_document_routes import hr_document_router
 from app.routes.hr.hr_deadline_routes  import hr_deadline_router
 from app.routes.hr.hr_approval_routes  import hr_approval_router
-
-
+from app.routes.employee.security import employee_security_router
+from app.routes.hr.hr_document_request_routes import hr_document_request_router
+from app.routes.hr.hr_case_overview_routes import hr_case_overview_router
+from app.routes.hr.hr_case_letters_routes import hr_case_letters_router
 
 
 from fastapi.staticfiles import StaticFiles
@@ -72,6 +78,103 @@ from fastapi.staticfiles import StaticFiles
 # Lifespan (startup / shutdown)
 # ─────────────────────────────────────────────
 
+# create_all does not alter existing Postgres enums — add new values explicitly
+_VISA_CATEGORY_ENUM_VALUES = ("dependent", "family_based")
+
+
+async def _ensure_pg_enum_values(enum_name: str, values: tuple[str, ...]) -> None:
+    """Idempotently add values to an existing Postgres enum (autocommit; PG < 12 safe)."""
+    from sqlalchemy import text
+
+    async with engine.connect() as conn:
+        conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
+        for value in values:
+            await conn.execute(
+                text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{value}'")
+            )
+
+async def _expiry_reminder_loop():
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                sent = await check_and_send_expiry_reminders(db)
+                if sent:
+                    print(f"✅ Sent {sent} document expiry reminder(s)")
+        except Exception as e:
+            print(f"⚠️  Expiry reminder check failed: {type(e).__name__}: {e}")
+        await asyncio.sleep(24 * 60 * 60)
+ 
+        
+    # async def _ensure_users_personal_email_columns() -> None:
+    #     """
+    #     create_all does not add new columns to a table that already exists.
+    #     """
+    #     from sqlalchemy import text
+
+    #     async with engine.begin() as conn:
+    #         await conn.execute(text("""
+    #             ALTER TABLE users
+    #             ADD COLUMN IF NOT EXISTS personal_email VARCHAR(255)
+    #         """))
+    #         await conn.execute(text("""
+    #             ALTER TABLE users
+    # EFAULT FALSE
+    #         """))
+    #         await conn.execute(text("""
+    #             CREATE UNIQUE INDEX IF NOT EXISTS ix_users_personal_email
+    #             ON users (personal_email)
+    #             WHERE personal_email IS NOT NULL
+    #         """))
+
+async def _ensure_notif_template_unique_constraint() -> None:
+    """
+    create_all does not alter indexes on existing tables.
+
+    Seed data has one row per (event_key, channel). Older DBs may still have a
+    unique index on event_key alone (ix_notification_templates_event_key), which
+    blocks multi-channel templates. Drop that unique index and ensure the
+    composite unique constraint exists.
+    """
+    from sqlalchemy import text
+
+    async with engine.begin() as conn:
+        # Drop leftover unique-on-event_key index if present (unique or not —
+        # model only needs a non-unique index, which create_all / Index below cover)
+        await conn.execute(text("""
+            DROP INDEX IF EXISTS ix_notification_templates_event_key;
+        """))
+
+        # Recreate as a non-unique index (matches Column(..., index=True))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_notification_templates_event_key
+            ON notification_templates (event_key);
+        """))
+
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'uq_notif_template_event_channel'
+                ) THEN
+                    -- Drop duplicate (event_key, channel) rows, keep oldest
+                    DELETE FROM notification_templates
+                    WHERE id NOT IN (
+                        SELECT id FROM (
+                            SELECT DISTINCT ON (event_key, channel) id
+                            FROM notification_templates
+                            ORDER BY event_key, channel, created_at ASC NULLS LAST, id ASC
+                        ) keepers
+                    );
+
+                    ALTER TABLE notification_templates
+                        ADD CONSTRAINT uq_notif_template_event_channel
+                        UNIQUE (event_key, channel);
+                END IF;
+            END $$;
+        """))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Starting application...")
@@ -79,6 +182,12 @@ async def lifespan(app: FastAPI):
     # 1. Create tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # 1b. Sync enum values added to the model after the DB was first created
+    await _ensure_pg_enum_values("visa_category_enum", _VISA_CATEGORY_ENUM_VALUES)
+    # 1c. Sync unique constraint needed by notification template seed
+    await _ensure_notif_template_unique_constraint()
+
 
     # 2. Run seed safely
     async with AsyncSessionLocal() as db:
@@ -90,7 +199,9 @@ async def lifespan(app: FastAPI):
         await seed_system_settings(db)       # system_settings
         await seed_support_articles(db)      # support_articles
         await seed_notification_templates(db)
+        await seed_document_field_configurations(db)
         
+    asyncio.create_task(_expiry_reminder_loop())             
     yield
     print("🛑 Shutting down...")
     await engine.dispose()
@@ -156,6 +267,10 @@ app.include_router(notification_router, prefix="/api/v1", tags=["notifications"]
 app.include_router(attorney_router, prefix="/api/v1", tags=["attorneys"])
 # app.include_router(roles_router,       prefix="/api/v1")
 # app.include_router(user_roles_router,  prefix="/api/v1", tags=["User Roles"])
+
+app.include_router(document_field_config_router, prefix="/api/v1",tags=["Admin — Document Field Config"])
+app.include_router(user_management_router, prefix="/api/v1",tags=["User Management"])
+app.include_router(admin_notifications_router, prefix="/api/v1")
 app.include_router(custom_roles_router,prefix="/api/v1",tags=["Custom Roles"])
 app.include_router(system_settings_router, prefix="/api/v1",tags=["System Settings"])
 app.include_router(notification_templates_router, prefix="/api/v1",tags=["Notification Templates"])
@@ -185,7 +300,10 @@ app.include_router(hr_task_router, prefix="/api/v1/hr", tags=["HR Tasks"])
 app.include_router(hr_document_router, prefix="/api/v1/hr", tags=["HR Documents"])
 app.include_router(hr_deadline_router, prefix="/api/v1/hr", tags=["HR Deadlines"])
 app.include_router(hr_approval_router, prefix="/api/v1/hr", tags=["HR Approvals"])
-
+app.include_router(employee_security_router,prefix="/api/v1/hr", tags=["Login_History"] )
+app.include_router(hr_case_overview_router,prefix="/api/v1/hr", tags=["Case Overview"] )
+app.include_router(hr_document_request_router, prefix="/api/v1/hr", tags=["HR Document Request"])
+app.include_router(hr_case_letters_router,prefix="/api/v1/hr", tags=["Case Generated Letters"] )
 
 
 

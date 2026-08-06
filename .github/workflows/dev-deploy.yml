@@ -1,0 +1,29 @@
+name: Deploy Backend to Dev
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Dev Server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+                  cd /opt/vyuflo-dev/backend
+
+                  git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/VYUSOFT-INC/vyuflo_backend.git
+
+                  git fetch origin
+                  git checkout dev
+                  git pull origin dev
+
+                  cd /opt/vyuflo-dev
+                  docker compose -f docker-compose.dev.yml up -d --build backend
