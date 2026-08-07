@@ -1,13 +1,16 @@
 """
 VisaFlow FastAPI Application Entry Point
 """
-from dotenv import load_dotenv
-load_dotenv()
+
 import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from zoneinfo import ZoneInfo
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, engine, Base, get_db
@@ -95,39 +98,6 @@ async def _ensure_pg_enum_values(enum_name: str, values: tuple[str, ...]) -> Non
                 text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{value}'")
             )
 
-async def _expiry_reminder_loop():
-    while True:
-        try:
-            async with AsyncSessionLocal() as db:
-                sent = await check_and_send_expiry_reminders(db)
-                if sent:
-                    print(f"✅ Sent {sent} document expiry reminder(s)")
-        except Exception as e:
-            print(f"⚠️  Expiry reminder check failed: {type(e).__name__}: {e}")
-        await asyncio.sleep(24 * 60 * 60)
- 
-        
-    # async def _ensure_users_personal_email_columns() -> None:
-    #     """
-    #     create_all does not add new columns to a table that already exists.
-    #     """
-    #     from sqlalchemy import text
-
-    #     async with engine.begin() as conn:
-    #         await conn.execute(text("""
-    #             ALTER TABLE users
-    #             ADD COLUMN IF NOT EXISTS personal_email VARCHAR(255)
-    #         """))
-    #         await conn.execute(text("""
-    #             ALTER TABLE users
-    # EFAULT FALSE
-    #         """))
-    #         await conn.execute(text("""
-    #             CREATE UNIQUE INDEX IF NOT EXISTS ix_users_personal_email
-    #             ON users (personal_email)
-    #             WHERE personal_email IS NOT NULL
-    #         """))
-
 async def _ensure_notif_template_unique_constraint() -> None:
     """
     create_all does not alter indexes on existing tables.
@@ -177,6 +147,24 @@ async def _ensure_notif_template_unique_constraint() -> None:
         """))
 
 
+async def _run_expiry_reminder_check():
+    """
+    The actual job APScheduler calls. Creates its own DB session since
+    scheduled jobs run outside any request context — same pattern as the
+    old asyncio loop, just triggered by the scheduler now instead of a
+    manual sleep().
+    """
+    print("cron job is working ")
+    try:
+        async with AsyncSessionLocal() as db:
+            sent = await check_and_send_expiry_reminders(db)
+            if sent:
+                print(f"✅ Sent {sent} document expiry reminder(s)")
+    except Exception as e:
+        print(f"⚠️  Expiry reminder check failed: {type(e).__name__}: {e}")
+
+scheduler = AsyncIOScheduler()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Starting application...")
@@ -202,10 +190,18 @@ async def lifespan(app: FastAPI):
         await seed_support_articles(db)      # support_articles
         await seed_notification_templates(db)
         await seed_document_field_configurations(db)
-        
-    asyncio.create_task(_expiry_reminder_loop())             
+    job = scheduler.add_job(
+        _run_expiry_reminder_check,
+        trigger=CronTrigger(hour=12, minute=10, timezone=ZoneInfo("Asia/Kolkata")),
+        id="expiry_reminder_check",
+        misfire_grace_time=3600,
+        replace_existing=True,
+    )
+    scheduler.start()
+    print(f"⏰ Scheduler started — expiry_reminder_check next run at: {job.next_run_time}")
     yield
     print("🛑 Shutting down...")
+    scheduler.shutdown(wait=False)
     await engine.dispose()
 
 # ─────────────────────────────────────────────
