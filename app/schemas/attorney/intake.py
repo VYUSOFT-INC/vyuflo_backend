@@ -222,6 +222,8 @@ class ActiveCaseSnapshot(BaseModel):
     progress_percent: int                   # application.progress_percent
     current_stage:    Optional[str]         # application.current_stage
     due_date:         Optional[date]        # application.due_date
+    receipt_number:   Optional[str] = None  # NEW — USCIS receipt #, e.g. "WAC-24-123-45678"
+    priority_date:    Optional[date] = None # NEW — set once the case is actually filed
 
 
 class BillingSummarySnapshot(BaseModel):

@@ -565,7 +565,10 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
+from datetime import time  # ADD — needed for the 9am–5pm default hours below
 from app.models.visamodels import (
+    AttorneyAvailability,   # ADD
+    AttorneyProfile,   
     PasswordResetToken,
     Role,
     User,
@@ -587,6 +590,8 @@ from app.services.employee.services import (
     get_user_role,
     utc_now,
 )
+from app.schemas.employee.consultation_schemas import SlotGenerateRequest  # NEW
+from app.services.employee.consultation_service import generate_slots      # NEW
 from app.core.config import settings
 
 
@@ -669,6 +674,40 @@ async def service_signup(
         created_by  = user.id,
         modified_by = user.id,
     ))
+
+    # ── 4b. NEW — if this signup is an attorney, set them up to be bookable ──
+    if role == "attorney":
+        attorney_profile = AttorneyProfile(
+            user_id            = user.id,
+            is_accepting_cases = True,
+            is_verified        = False,
+            is_active          = True,
+            created_by         = user.id,
+            modified_by        = user.id,
+        )
+        await db_create(db, attorney_profile)
+
+        # Default hours: Mon–Fri, 9am–5pm, 30-min slots, Pacific time.
+        # dow: 0=Monday ... 4=Friday
+        for dow in range(0, 5):
+            await db_create(db, AttorneyAvailability(
+                attorney_id           = attorney_profile.id,
+                day_of_week            = dow,
+                start_time             = time(9, 0),
+                end_time               = time(17, 0),
+                slot_duration_minutes  = 30,
+                timezone               = "America/Los_Angeles",
+                is_active              = True,
+            ))
+
+        # Generate real bookable slots for the next 60 days right now,
+        # so the attorney shows up with open slots immediately — no manual step.
+        today = utc_now().date()
+        await generate_slots(db, SlotGenerateRequest(
+            attorney_id = attorney_profile.id,
+            from_date   = today,
+            to_date     = today + timedelta(days=60),
+        ))
  
     # ── 5. Send email verification OTP ─────────────────────────────────────
     await send_email_verification_otp(db, user)

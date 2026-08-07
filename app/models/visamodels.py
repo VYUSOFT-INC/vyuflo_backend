@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import declarative_base, relationship
 
-from app.core.database import Base
+Base = declarative_base()
 
 
 # =============================================================================
@@ -560,7 +560,7 @@ class Application(Base):
     visa_type_id = Column(UUID(as_uuid=True), ForeignKey("visa_types.id"),
                           nullable=False)
     case_origin = Column(
-        Enum("employer_sponsored", "self_petition", name="case_origin_enum"),
+        Enum("employer_sponsored", "self_petition","lawyer_initiated", name="case_origin_enum"),
         nullable=False, default="employer_sponsored"
     )
 

@@ -33,6 +33,7 @@ from app.routes.employee.roles import roles_router
 from app.routes.employee.payment_routes import payment_router
 from app.routes.attorney.attorney_routes import attorney_router
 from app.routes.employee.consultation_routes import consultation_router
+from app.routes.attorney.new_case_routes import new_case_router   # NEW
 from app.routes.employee.notification_routes import notification_router
 from app.routes.admin.roles import roles_router
 from app.routes.admin.custom_roles import custom_roles_router
@@ -266,6 +267,7 @@ app.include_router(payment_router,             prefix="/api/v1", tags=["Payments
 app.include_router(consultation_router, prefix="/api/v1", tags=["consultations"])
 app.include_router(notification_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(attorney_router, prefix="/api/v1", tags=["attorneys"])
+app.include_router(new_case_router, prefix="/api/v1", tags=["Lawyer Cases"])   # NEW
 # app.include_router(roles_router,       prefix="/api/v1")
 # app.include_router(user_roles_router,  prefix="/api/v1", tags=["User Roles"])
 
