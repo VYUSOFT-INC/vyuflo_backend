@@ -1,6 +1,8 @@
 """
 VisaFlow FastAPI Application Entry Point
 """
+from dotenv import load_dotenv
+load_dotenv()
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -72,7 +74,6 @@ from app.routes.hr.hr_case_letters_routes import hr_case_letters_router
 
 
 from fastapi.staticfiles import StaticFiles
-
 
 # ─────────────────────────────────────────────
 # Lifespan (startup / shutdown)

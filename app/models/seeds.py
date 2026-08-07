@@ -3476,7 +3476,7 @@ DOCUMENT_FIELD_CONFIG_SEED = [
     {"ocr_slug": "passport", "field_name": "given_names",     "is_mandatory": True,  "is_expiry_field": False, "display_order": 2},
     {"ocr_slug": "passport", "field_name": "nationality",     "is_mandatory": True,  "is_expiry_field": False, "display_order": 3},
     {"ocr_slug": "passport", "field_name": "date_of_birth",   "is_mandatory": True,  "is_expiry_field": False, "display_order": 4},
-    {"ocr_slug": "passport", "field_name": "sexsai",             "is_mandatory": True,  "is_expiry_field": False, "display_order": 5},
+    {"ocr_slug": "passport", "field_name": "sex",             "is_mandatory": True,  "is_expiry_field": False, "display_order": 5},
     {"ocr_slug": "passport", "field_name": "expiry_date",     "is_mandatory": True,  "is_expiry_field": True,  "display_order": 6},
     
  
