@@ -550,19 +550,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import OTP_EXPIRE_SECONDS
+from jose import JWTError, jwt
 from app.core.exceptions import (
     BadRequestException,
     ConflictException,
     NotFoundException,
     UnauthorizedException,
 )
-from app.core.redis import redis_delete, redis_get, redis_set
+from app.core.redis import redis_delete, redis_delete_many, redis_get, redis_scan_keys, redis_set
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    decode_token,
     generate_otp,
     hash_otp,
     hash_password,
+    new_session_id,
     verify_password,
 )
 from datetime import time  # ADD — needed for the 9am–5pm default hours below
@@ -714,10 +717,12 @@ async def service_signup(
 
     # ── 6. Generate tokens ─────────────────────────────────────────────────
     roles         = [role_obj.name]
-    access_token = create_access_token(str(user.id),roles,user.email,user.first_name or "",user.last_name or "")
-    refresh_token = create_refresh_token(str(user.id))
+    session_id = new_session_id()
 
-    await _store_refresh_token(str(user.id), refresh_token)
+    access_token = create_access_token(str(user.id),roles,user.email,user.first_name or "",user.last_name or "", token_version=user.token_version)
+    refresh_token = create_refresh_token(str(user.id), session_id)
+
+    await _store_refresh_token(str(user.id), session_id, refresh_token)
     
     profile_picture = getattr(profile, "profile_picture_url", None)
     theme_color = getattr(profile, "theme_color", None)
@@ -790,9 +795,11 @@ async def service_login(
     ))
 
     # ── Tokens ────────────────────────────────────────────────────────────
-    access_token = create_access_token(str(user.id),roles,user.email,user.first_name or "",user.last_name or "",)
-    refresh_token = create_refresh_token(str(user.id))
-    await _store_refresh_token(str(user.id), refresh_token)
+    session_id = new_session_id()
+    access_token = create_access_token(str(user.id),roles,user.email,user.first_name or "",user.last_name or "",token_version=user.token_version)
+    refresh_token = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id), session_id, refresh_token)
+    
     return {
         "access_token":    access_token,
         "refresh_token":   refresh_token,
@@ -902,10 +909,10 @@ async def service_verify_login_otp(
     ))
 
     # ── Tokens ────────────────────────────────────────────────────────────
-    access_token  = create_access_token(str(user.id), roles, user.email, user.first_name or "", user.last_name or "")
-    refresh_token = create_refresh_token(str(user.id))
-    await _store_refresh_token(str(user.id), refresh_token)
-
+    session_id = new_session_id()
+    access_token  = create_access_token(str(user.id), roles, user.email, user.first_name or "", user.last_name or "", token_version=user.token_version)
+    refresh_token = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id),session_id, refresh_token)
     return {
         "access_token":    access_token,
         "refresh_token":   refresh_token,
@@ -993,9 +1000,10 @@ async def service_sso_login(
     roles        = await get_user_role(db, user.id)
     user_profile = await get_user_profile(db, user.id)
 
-    access_token = create_access_token(str(user.id),roles,user.email,user.first_name,user.last_name,)
-    refresh_token = create_refresh_token(str(user.id))
-    await _store_refresh_token(str(user.id), refresh_token)
+    session_id = new_session_id()
+    access_token = create_access_token(str(user.id),roles,user.email,user.first_name,user.last_name,token_version=user.token_version)
+    refresh_token = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id),session_id, refresh_token)
 
     return {
         "access_token":    access_token,
@@ -1017,23 +1025,18 @@ async def service_sso_login(
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
 async def service_refresh_token(db: AsyncSession, *, refresh_token: str) -> dict:
-    """
-    Exchange a valid refresh token for a new access + refresh token pair.
-    Raises UnauthorizedException if invalid or revoked.
-    """
-    from app.core.security import decode_token
-    from jose import JWTError
-
+    ...
     try:
-        payload  = decode_token(refresh_token)
-        user_id  = payload.get("sub")
-        tok_type = payload.get("type")
-        if not user_id or tok_type != "refresh":
+        payload    = decode_token(refresh_token)
+        user_id    = payload.get("sub")
+        tok_type   = payload.get("type")
+        session_id = payload.get("session_id")   # NEW — same device's session, not a new one
+        if not user_id or tok_type != "refresh" or not session_id:
             raise UnauthorizedException("Invalid refresh token")
     except JWTError:
         raise UnauthorizedException("Invalid or expired refresh token")
 
-    stored = await redis_get(f"refresh:{user_id}")
+    stored = await redis_get(f"refresh:{user_id}:{session_id}")
     if stored != refresh_token:
         raise UnauthorizedException("Refresh token has been revoked")
 
@@ -1043,12 +1046,11 @@ async def service_refresh_token(db: AsyncSession, *, refresh_token: str) -> dict
 
     roles = await get_user_role(db, user.id)
 
-    new_access  =  create_access_token(str(user.id),roles,user.email,user.first_name,user.last_name,)
-    new_refresh = create_refresh_token(str(user.id))
-    await _store_refresh_token(str(user.id), new_refresh)
+    new_access  = create_access_token(str(user.id), roles, user.email, user.first_name, user.last_name, token_version=user.token_version)
+    new_refresh = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id), session_id, new_refresh)
 
     return {"access_token": new_access, "refresh_token": new_refresh}
-
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                       LOGOUT                                             ║
@@ -1058,6 +1060,13 @@ async def service_logout(user_id: uuid.UUID) -> None:
     """Invalidate the user's refresh token in Redis."""
     await redis_delete(f"refresh:{user_id}")
 
+async def service_sign_out_all_devices(db: AsyncSession, user_id: uuid.UUID) -> int:
+    keys = await redis_scan_keys(f"refresh:{user_id}:*")
+    await redis_delete_many(keys)
+    user = await db_get_by_id(db, User, user_id)
+    if user:
+        await db_update(db, User, user.id, {"token_version": user.token_version + 1})
+    return len(keys)
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                       PASSWORD RESET                                     ║

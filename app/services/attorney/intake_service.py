@@ -31,6 +31,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings          # NEW
+from app.core.email import send_email  
+
 from app.services.employee.services import db_create, db_get_by_id, db_update
 from app.models.visamodels import (
     Application,
@@ -952,6 +955,7 @@ async def generate_client_link(
     db: AsyncSession,
     session_id: uuid.UUID,
     current_user_id: uuid.UUID,
+    note: Optional[str] = None,                                              # NEW
 ) -> GenerateLinkResponse:
     await _verify_session_access(db, session_id, current_user_id)
 
@@ -965,6 +969,44 @@ async def generate_client_link(
         "token_generated_at": datetime.now(timezone.utc),
         "modified_by":        current_user_id,
     })
+
+    # NEW — everything below this line is new, nothing here existed before
+    session = await _get_session_or_404(db, session_id)
+    application = await _load_application_or_404(db, session.application_id)
+
+    if application.user_id:
+        await db_create(db, Notification(
+            user_id           = application.user_id,
+            notification_type = "case_status_updated",
+            category          = "case_update",
+            priority           = "high",
+            title              = "Your attorney requested your intake details",
+            body               = note or "Please complete your intake form so your attorney can move forward with your case.",
+            application_id     = application.id,
+            actor_id           = current_user_id,
+        ))
+
+        try:
+            client_user = await db_get_by_id(db, User, application.user_id)
+            attorney    = await db_get_by_id(db, User, current_user_id)
+            if client_user and client_user.email:
+                attorney_name = f"{attorney.first_name} {attorney.last_name}" if attorney else "Your attorney"
+                intake_url    = f"{settings.FRONTEND_URL}/intake/{session_id}"
+                await send_email(
+                    to=client_user.email,
+                    subject="Your attorney has requested your intake details",
+                    body=(
+                        f"Hi {client_user.first_name or 'there'},\n\n"
+                        f"{attorney_name} has requested that you complete your intake form "
+                        f"so they can move forward with your case.\n\n"
+                        + (f"Note from your attorney: {note}\n\n" if note else "")
+                        + f"Complete it here: {intake_url}\n\n"
+                        f"Thanks,\nVyuflo Team"
+                    ),
+                )
+        except Exception as e:
+            print(f"[generate_client_link] email failed for session {session_id}: {e}")
+    # NEW — end of new code
 
     return GenerateLinkResponse(
         token            = token,
@@ -1158,16 +1200,16 @@ async def accept_intake(
     })
  
     if application.user_id:
-        await db_create(db, Notification, {
-            "user_id":           application.user_id,
-            "notification_type": "case_status_updated",
-            "category":          "case_update",
-            "priority":          "medium",
-            "title":             "Your intake was accepted",
-            "body":              "Your attorney has accepted your intake. Your case is now active and moving into the filing pipeline.",
-            "application_id":    application.id,
-            "actor_id":          current_user_id,
-        })
+        await db_create(db, Notification() (
+            user_id =     application.user_id,
+            notification_type = "case_status_updated",
+            category =         "case_update",
+            priority =          "medium",
+            title =             "Your intake was accepted",
+            body =               "Your attorney has accepted your intake. Your case is now active and moving into the filing pipeline.",
+            application_id =    application.id,
+            actor_id =           current_user_id,
+        ))
  
     return IntakeReviewDecisionResponse(
         detail               = "Intake accepted. Application has been converted into an active case.",
@@ -1236,16 +1278,36 @@ async def request_intake_changes(
  
     application = await _load_application_or_404(db, session.application_id)
     if application.user_id:
-        await db_create(db, Notification, {
-            "user_id":           application.user_id,
-            "notification_type": "case_status_updated",
-            "category":          "case_update",
-            "priority":          "high",
-            "title":             "Your intake needs corrections",
-            "body":              payload.correction_note,
-            "application_id":    application.id,
-            "actor_id":          current_user_id,
-        })
+        await db_create(db, Notification (
+            user_id =           application.user_id,
+            notification_type = "case_status_updated",
+            category =          "case_update",
+            priority =           "high",
+            title =            "Your intake needs corrections",
+            body =               payload.correction_note,
+            application_id =     application.id,
+            actor_id =          current_user_id,
+        ))
+                # NEW — sends an email to the employee, in addition to the notification above
+        try:
+            client_user = await db_get_by_id(db, User, application.user_id)
+            attorney    = await db_get_by_id(db, User, current_user_id)
+            if client_user and client_user.email:
+                attorney_name = f"{attorney.first_name} {attorney.last_name}" if attorney else "Your attorney"
+                intake_url    = f"{settings.FRONTEND_URL}/intake/{session.id}"
+                await send_email(
+                    to=client_user.email,
+                    subject="Your intake needs corrections",
+                    body=(
+                        f"Hi {client_user.first_name or 'there'},\n\n"
+                        f"{attorney_name} has reviewed your intake and requested corrections:\n\n"
+                        f"{payload.correction_note}\n\n"
+                        f"Update it here: {intake_url}\n\n"
+                        f"Thanks,\nVyuflo Team"
+                    ),
+                )
+        except Exception as e:
+            print(f"[request_intake_changes] email failed for session {session.id}: {e}")
  
     return IntakeReviewDecisionResponse(
         detail          = "Changes requested. The employee has been notified and the form has been reopened.",

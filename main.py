@@ -31,7 +31,7 @@ from app.routes.employee.dashboard import dashboard_router
 from app.routes.employee.user_profile import user_profile_router
 from app.routes.employee.login_history import login_history_router
 from app.routes.admin.admin_dashboard import admin_dashboard_router
-from app.routes.employee.ocr_service import ocr_router
+from app.ocr.ocr_service_router import ocr_router
 from app.routes.employee.roles import roles_router
 from app.routes.employee.payment_routes import payment_router
 from app.routes.attorney.attorney_routes import attorney_router
