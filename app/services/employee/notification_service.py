@@ -209,6 +209,8 @@ async def _create_notification(
     )
     db.add(notif)
     await db.flush()
+    from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
+    await fan_out_notification_to_admins(db, notif)
     return notif
 
 

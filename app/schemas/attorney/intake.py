@@ -96,6 +96,7 @@ class IntakeDataResponse(BaseModel):
 
 class IntakeSessionCreate(BaseModel):
     application_id: uuid.UUID
+
     generate_link:  bool = Field(
         default=False,
         description="Set true to also generate the client link token immediately",
@@ -122,6 +123,11 @@ class IntakeSessionResponse(BaseModel):
     created_at:       datetime
     updated_at:       datetime
     intake_data:      Optional[IntakeDataResponse] = None
+    review_status:  Literal["not_submitted", "pending_review", "changes_requested", "accepted"]
+    review_note:    Optional[str] = None
+    reviewed_by:    Optional[uuid.UUID] = None
+    reviewed_at:    Optional[datetime] = None
+    revision_count: int = 0
 
 
 # ===========================================================================
@@ -153,6 +159,42 @@ class SubmitIntakeResponse(BaseModel):
     submitted_at: datetime
     session_id:   uuid.UUID
 
+# ===========================================================================
+# ATTORNEY REVIEW — accept / request changes  (NEW)
+# ===========================================================================
+ 
+class AcceptIntakeRequest(BaseModel):
+    """POST /intake/sessions/{session_id}/accept"""
+    note: Optional[str] = Field(
+        default=None, max_length=1000,
+        description="Optional internal note attached to the acceptance."
+    )
+ 
+ 
+class RequestIntakeChangesRequest(BaseModel):
+    """POST /intake/sessions/{session_id}/request-changes"""
+    correction_note: str = Field(
+        ..., min_length=1, max_length=2000,
+        description="Whole-form note telling the employee what to fix. "
+                     "Required — this is what the employee sees when the "
+                     "session is reopened."
+    )
+ 
+ 
+class IntakeReviewDecisionResponse(BaseModel):
+    """Returned by both /accept and /request-changes."""
+    detail:              str
+    session_id:          uuid.UUID
+    application_id:       uuid.UUID
+    review_status:       Literal["changes_requested", "accepted"]
+    reviewed_at:          datetime
+    revision_count:       int
+ 
+    # Populated only on acceptance — tells the frontend this row has
+    # graduated into the main Cases section.
+    intake_accepted_at:   Optional[datetime] = None
+    case_pipeline_stage:  Optional[Literal["intake", "filed", "rfe", "decision"]] = None
+
 
 # ===========================================================================
 # VISA STATUS OPTIONS — dropdown
@@ -180,6 +222,8 @@ class ActiveCaseSnapshot(BaseModel):
     progress_percent: int                   # application.progress_percent
     current_stage:    Optional[str]         # application.current_stage
     due_date:         Optional[date]        # application.due_date
+    receipt_number:   Optional[str] = None  # NEW — USCIS receipt #, e.g. "WAC-24-123-45678"
+    priority_date:    Optional[date] = None # NEW — set once the case is actually filed
 
 
 class BillingSummarySnapshot(BaseModel):
