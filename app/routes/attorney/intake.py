@@ -258,9 +258,11 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter ,Body, Depends, Query, status
 from fastapi.responses import Response
+from pydantic import BaseModel, Field                                 # NEW
 from sqlalchemy.ext.asyncio import AsyncSession
+
 
 from app.core.core_permissions import get_current_user, get_db
 from app.models.visamodels import User
@@ -386,6 +388,8 @@ async def get_session(
     """Returns session + embedded intake_data (null if not yet saved)."""
     return await intake_service.get_session(db, session_id, current_user.user_id)
 
+class GenerateLinkRequest(BaseModel):                                        # NEW
+    note: Optional[str] = Field(default=None, max_length=2000)     
 
 @intake_router.post(
     "/intake/sessions/{session_id}/generate-link",
@@ -394,6 +398,8 @@ async def get_session(
 )
 async def generate_client_link(
     session_id: uuid.UUID,
+    payload: GenerateLinkRequest = Body(default=GenerateLinkRequest()),      # NEW
+
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -401,7 +407,7 @@ async def generate_client_link(
     Rotates token each call. Token valid 7 days.
     Returns full client URL for emailing.
     """
-    return await intake_service.generate_client_link(db, session_id, current_user.user_id)
+    return await intake_service.generate_client_link(db, session_id, current_user.user_id, note=payload.note,)
 
 
 @intake_router.post(
