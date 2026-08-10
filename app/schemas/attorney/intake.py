@@ -52,6 +52,14 @@ class IntakeDataSave(BaseModel):
     passport_number:      Optional[str]      = Field(None, max_length=50)
     passport_expiry_date: Optional[date]     = None
     email:                Optional[EmailStr] = None
+    phone:                 Optional[str]  = Field(None, max_length=30)    # new
+
+    # Step 2 — Employment (new)
+    is_student:            Optional[bool] = None
+    company_name:          Optional[str]  = Field(None, max_length=200)
+    job_title:             Optional[str]  = Field(None, max_length=200)
+    start_date:            Optional[date] = None
+    annual_salary:         Optional[str]  = Field(None, max_length=30)
 
     # Step 3 — Immigration History (Screen 03)
     current_visa_status:  Optional[str]  = Field(None, max_length=50)
@@ -60,6 +68,9 @@ class IntakeDataSave(BaseModel):
     visa_denial_details:  Optional[str]  = None
     has_overstay:         Optional[bool] = None
     previous_visas:       Optional[List[PreviousVisaItem]] = None
+
+    # Step 4 — Case Type 
+    visa_type_code:        Optional[str] = Field(None, max_length=30)   
 
 
 class IntakeDataResponse(BaseModel):

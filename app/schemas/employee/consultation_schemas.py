@@ -21,9 +21,9 @@ class ORMBase(BaseModel):
 
 class UserBriefOut(ORMBase):
     id:         uuid.UUID
-    first_name: str
-    last_name:  str
-    email:      str
+    first_name: Optional[str] = None   # new — was required, 500'd on NULL
+    last_name:  Optional[str] = None   # new — was required, 500'd on NULL
+    email:      Optional[str] = None   # new 
     phone:      Optional[str]
 
 
