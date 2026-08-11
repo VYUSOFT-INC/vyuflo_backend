@@ -37,6 +37,7 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     hash_password,
+    new_session_id,  
 )
 from app.services.employee.message_service import get_or_create_thread_for_participants
 from app.services.employee.otp_service import send_login_otp
@@ -688,8 +689,9 @@ async def accept_invite_existing_user(
     roles = [r for (r,) in role_result.all()] or ["employee"]
 
     access_token  = create_access_token(str(user.id), roles, user.email, user.first_name or "", user.last_name or "")
-    refresh_token = create_refresh_token(str(user.id))
-    await _store_refresh_token(str(user.id), refresh_token)
+    session_id    = new_session_id()                                    # new
+    refresh_token = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id),session_id, refresh_token)
 
     return {
         "access_token":  access_token,
@@ -777,8 +779,9 @@ async def accept_invite_new_user(
     )
 
     access_token  = create_access_token(str(user.id), ["employee"], user.email, user.first_name, user.last_name)
-    refresh_token = create_refresh_token(str(user.id))
-    await _store_refresh_token(str(user.id), refresh_token)
+    session_id    = new_session_id()                                    # new
+    refresh_token = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id),session_id, refresh_token)
 
     return {
         "access_token":  access_token,
