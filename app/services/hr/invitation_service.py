@@ -26,6 +26,13 @@ from app.schemas.hr.invitation_schemas import (
     AcceptInviteRequest,
     UpdateEmployeeRequest,
 )
+from app.core.exceptions import ConflictException, UnauthorizedException
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    hash_password,
+    new_session_id,  
+)
 from app.services.employee.message_service import get_or_create_thread_for_participants
 from app.services.employee.services import db_create, db_get_by_id, db_update
 
@@ -483,6 +490,158 @@ async def accept_invite(
         and invite.invited_email
         and employee_user.email.lower().strip() == invite.invited_email.lower().strip()
     )
+    # Generic message either way — don't reveal whether the account exists.
+    if user and user.is_active:
+        await send_login_otp(db, user, "email")
+
+    return {"message": "If an account exists for that email, a login code has been sent."}
+
+
+async def accept_invite_existing_user(
+    db:   AsyncSession,
+    data: AcceptInviteExistingUserRequest,
+) -> dict:
+    """
+    Scenario 1 — employee already has an account. Confirms identity via the
+    OTP sent in request_merge_otp, then attaches the new employer link to
+    their EXISTING account. `data.other_email`, if given, gets added to
+    their linked_emails. Old data (documents, applications, previous cases)
+    stays exactly where it is.
+    """
+    invite = await _resolve_invitation(db, data.invite_token, data.invite_code)
+    await _validate_invite_object(invite)
+
+    employer = await db_get_by_id(db, EmployerProfile, invite.employer_profile_id)
+    if not employer:
+        raise ValueError("Company not found.")
+
+    login_email = data.login_email.lower().strip()
+    user = await _find_existing_user_for_email(db, login_email)
+    if not user:
+        raise UnauthorizedException("Invalid or expired code")
+
+    await _verify_merge_otp(db, user, data.otp_code)
+
+    existing_link = await db.execute(
+        select(EmployerEmployee).where(
+            EmployerEmployee.employee_id         == user.id,
+            EmployerEmployee.employer_profile_id == invite.employer_profile_id,
+            EmployerEmployee.is_active           == True,
+        )
+    )
+    if existing_link.scalars().first():
+        raise ValueError("You are already linked to this company.")
+
+    await _add_linked_email(db, user, data.other_email)
+
+    await _link_employee_to_employer(
+        db,
+        invite      = invite,
+        employer    = employer,
+        employee_id = user.id,
+        work_email  = invite.invited_email,
+    )
+
+    role_result = await db.execute(
+        select(Role.name).join(UserRole, UserRole.role_id == Role.id)
+        .where(UserRole.user_id == user.id)
+    )
+    roles = [r for (r,) in role_result.all()] or ["employee"]
+
+    access_token  = create_access_token(str(user.id), roles, user.email, user.first_name or "", user.last_name or "")
+    session_id    = new_session_id()                                    # new
+    refresh_token = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id),session_id, refresh_token)
+
+    return {
+        "access_token":  access_token,
+        "refresh_token": refresh_token,
+        "roles":         roles,
+        "company_name":  employer.company_name,
+        "employer_id":   invite.employer_profile_id,
+        "linked_email":  invite.invited_email,
+        "message":       f"Welcome back! Your account is now linked to {employer.company_name}.",
+    }
+
+
+async def accept_invite_new_user(
+    db:   AsyncSession,
+    data: AcceptInviteNewUserRequest,
+) -> dict:
+    """
+    Scenario 2 — no existing account for the resolved primary email.
+    `data.email` is mandatory and becomes User.email (primary). If
+    `data.other_email` was also given, it's stored in linked_emails.
+    """
+    invite = await _resolve_invitation(db, data.invite_token, data.invite_code)
+    await _validate_invite_object(invite)
+
+    employer = await db_get_by_id(db, EmployerProfile, invite.employer_profile_id)
+    if not employer:
+        raise ValueError("Company not found.")
+
+    primary_email = data.email.lower().strip()
+
+    # Guard against a race: someone may have signed up with this exact email
+    # between validate_invite() and this call.
+    existing = await _find_existing_user_for_email(db, primary_email)
+    if existing:
+        raise ConflictException(
+            "An account already exists for this email. Please log in instead."
+        )
+
+    linked = []
+    if data.other_email:
+        other = data.other_email.lower().strip()
+        if other != primary_email:
+            linked.append(other)
+
+    user = User(
+        first_name        = data.first_name,
+        last_name         = data.last_name,
+        email             = primary_email,
+        linked_emails     = linked,
+        password_hash     = hash_password(data.password),
+        auth_provider     = "email",
+        is_active         = True,
+        is_verified       = True,   # employer already vouched for this invite
+        terms_accepted    = data.terms_accepted,
+        terms_accepted_at = datetime.now(timezone.utc) if data.terms_accepted else None,
+    )
+    user = await db_create(db, user)
+
+    profile = UserProfile(
+        user_id         = user.id,
+        onboarding_step = 1,
+        full_legal_name = f"{data.first_name} {data.last_name}",
+        created_by      = user.id,
+        modified_by     = user.id,
+    )
+    await db_create(db, profile)
+
+    role_obj = await db.scalar(select(Role).where(Role.name == "employee"))
+    if not role_obj:
+        raise Exception("RBAC not seeded. Run seed migration first.")
+    await db_create(db, UserRole(
+        user_id     = user.id,
+        role_id     = role_obj.id,
+        assigned_by = user.id,
+        created_by  = user.id,
+        modified_by = user.id,
+    ))
+
+    await _link_employee_to_employer(
+        db,
+        invite      = invite,
+        employer    = employer,
+        employee_id = user.id,
+        work_email  = invite.invited_email,
+    )
+
+    access_token  = create_access_token(str(user.id), ["employee"], user.email, user.first_name, user.last_name)
+    session_id    = new_session_id()                                    # new
+    refresh_token = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id),session_id, refresh_token)
 
     return {
         "message":              f"Successfully linked to {employer.company_name}",

@@ -34,6 +34,7 @@ from app.models.visamodels import (
     EmployerProfile,
     EmployerFirmConnection,
     AttorneyProfile,
+    LawFirm,
     User,
     UserProfile,
     VisaType,

@@ -32,6 +32,7 @@ from app.core.security import (
     generate_otp,
     hash_otp,
     hash_password,
+    new_session_id,
     verify_password,
 )
 from app.models.visamodels import (
@@ -456,7 +457,6 @@ async def service_refresh_token(db: AsyncSession, *, refresh_token: str) -> dict
 
     return {"access_token": new_access, "refresh_token": new_refresh}
 
-
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                       LOGOUT                                             ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
@@ -481,6 +481,13 @@ async def service_sign_out_all_devices(db: AsyncSession, user_id: uuid.UUID) -> 
 
     return len(keys)
 
+async def service_sign_out_all_devices(db: AsyncSession, user_id: uuid.UUID) -> int:
+    keys = await redis_scan_keys(f"refresh:{user_id}:*")
+    await redis_delete_many(keys)
+    user = await db_get_by_id(db, User, user_id)
+    if user:
+        await db_update(db, User, user.id, {"token_version": user.token_version + 1})
+    return len(keys)
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                  PERSONAL EMAIL — ADD + VERIFY                          ║
