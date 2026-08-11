@@ -879,6 +879,7 @@ async def hr_list_case_history(
         .order_by(ApplicationStatusHistory.created_at.asc())
     )
     rows = result.scalars().all()
+    return [HRCaseStatusHistoryResponse.model_validate(r) for r in rows]
 
 
 async def hr_connect_firm(   # new
