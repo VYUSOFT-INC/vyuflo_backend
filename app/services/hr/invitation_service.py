@@ -1,4 +1,5 @@
 # app/services/invitation_service.py
+import hashlib
 import uuid
 import secrets
 import string
@@ -14,10 +15,7 @@ from app.models.visamodels import (
     EmployerEmployee,
     EmployerProfile,
     UserProfile,
-    UserOTP,
     User,
-    UserRole,
-    Role,
     Application,
     VisaType,
 )
@@ -25,29 +23,16 @@ from app.models.visamodels import (
 from app.schemas.hr.invitation_schemas import (
     InviteByEmailRequest,
     InviteByCodeRequest,
-    InviteByLinkRequest,
     AcceptInviteRequest,
-    AcceptInviteNewUserRequest,
-    RequestMergeOtpRequest,
-    AcceptInviteExistingUserRequest,
     UpdateEmployeeRequest,
 )
-from app.core.exceptions import ConflictException, UnauthorizedException
-from app.core.security import (
-    create_access_token,
-    create_refresh_token,
-    hash_password,
-)
 from app.services.employee.message_service import get_or_create_thread_for_participants
-from app.services.employee.otp_service import send_login_otp
-from app.services.hr.email_recovery_service import flag_email_inactive_if_org_owned
-from app.services.employee.services import (
-    _store_refresh_token,
-    db_create,
-    db_get_by_id,
-    db_update,
-    get_user_role,
-)
+from app.services.employee.services import db_create, db_get_by_id, db_update
+
+# Grace period given to a departing employee before their org-issued
+# work_email stops being able to log in. Chosen to give enough time to
+# add + verify a personal email after HR initiates removal.
+OFFBOARDING_GRACE_PERIOD_DAYS = 30
 
 
 # =============================================================================
@@ -67,6 +52,16 @@ def _generate_invite_token() -> str:
     return secrets.token_urlsafe(48)
 
 
+def _hash_passport(passport_number: str) -> str:
+    """
+    Normalizes and hashes a passport number for storage/comparison.
+    Never store the plaintext — this hash can only be used to verify
+    a later submission matches, never to recover the original number.
+    """
+    normalized = passport_number.strip().upper().replace(" ", "").replace("-", "")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 async def _get_employer_profile(
     db: AsyncSession,
     hr_user_id: uuid.UUID,
@@ -76,202 +71,6 @@ async def _get_employer_profile(
         select(EmployerProfile).where(EmployerProfile.user_id == hr_user_id)
     )
     return result.scalars().first()
-
-
-async def _find_existing_user_for_email(
-    db: AsyncSession,
-    email: str,
-) -> Optional[User]:
-    """
-    Used to answer "does this person already have an account?" for a given
-    email. Matches on EITHER:
-    - User.email          (the mandatory primary identity), OR
-    - User.linked_emails  (the array of extra emails accumulated over time)
-
-    Not scoped to a single employer — the whole point is to catch the same
-    person coming back under a DIFFERENT employer.
-    """
-    email = email.lower().strip()
-    result = await db.execute(
-        select(User).where(
-            (User.email == email) | (User.linked_emails.any(email))
-        )
-    )
-    return result.scalars().first()
-
-
-def _resolve_primary_and_other(
-    invited_email: Optional[str],
-    additional_email: Optional[str],
-    is_primary: Optional[bool],
-) -> tuple[Optional[str], Optional[str]]:
-    """
-    The classification step: given what HR invited via, and whatever extra
-    email (if any) the person typed in + whether they said it's primary,
-    work out which email should end up as PRIMARY and which (if any) should
-    end up as a LINKED (extra) email.
-
-    - No additional email given            -> invited_email is primary
-    - additional email given, is_primary    -> additional is primary,
-                                                invited_email becomes linked
-    - additional email given, NOT is_primary -> invited_email stays primary,
-                                                additional becomes linked
-    """
-    invited_email = invited_email.lower().strip() if invited_email else None
-    additional_email = additional_email.lower().strip() if additional_email else None
-
-    if not additional_email:
-        return invited_email, None
-
-    if is_primary:
-        return additional_email, invited_email
-    else:
-        return invited_email, additional_email
-
-
-async def _verify_merge_otp(
-    db:   AsyncSession,
-    user: User,
-    otp_code: str,
-) -> None:
-    """
-    Self-contained OTP check for the merge flow — deliberately NOT wired
-    into the general login system (login stays password-based as normal).
-    Reuses the same UserOTP table / otp_type as send_login_otp() so the
-    code the person receives is verified the same way everywhere it's used.
-    """
-    stmt = (
-        select(UserOTP)
-        .where(
-            UserOTP.user_id  == user.id,
-            UserOTP.otp_type == "two_factor_auth",
-            UserOTP.is_used  == False,
-        )
-        .order_by(UserOTP.created_at.desc())
-    )
-    otp_row = await db.scalar(stmt)
-
-    if not otp_row or otp_row.otp_code != otp_code:
-        raise UnauthorizedException("Invalid or expired code")
-
-    if otp_row.expires_at < datetime.now(timezone.utc):
-        raise UnauthorizedException("Invalid or expired code")
-
-    await db_update(db, UserOTP, otp_row.id, {"is_used": True})
-
-
-async def _add_linked_email(
-    db:   AsyncSession,
-    user: User,
-    email: Optional[str],
-) -> None:
-    """Appends `email` to user.linked_emails if given, not already present,
-    and not the same as their current primary."""
-    if not email:
-        return
-    email = email.lower().strip()
-    if email == user.email:
-        return
-    current = list(user.linked_emails or [])
-    if email in current:
-        return
-    current.append(email)
-    await db_update(db, User, user.id, {"linked_emails": current})
-
-
-async def _link_employee_to_employer(
-    db: AsyncSession,
-    *,
-    invite: EmployerInvitation,
-    employer: EmployerProfile,
-    employee_id: uuid.UUID,
-    work_email: Optional[str],
-) -> None:
-    """
-    Shared "attach this employee to this employer" logic — used by:
-    - accept_invite            (already-logged-in employee, code/link invite)
-    - accept_invite_new_user   (brand new account created from a company invite)
-    - accept_invite_existing_user (merge into a pre-existing account)
-    """
-    now = datetime.now(timezone.utc)
-
-    # ── Create employer_employees record ──────────────────────────────────
-    link = EmployerEmployee(
-        employer_id         = invite.created_by,
-        employee_id         = employee_id,
-        employer_profile_id = invite.employer_profile_id,
-        invitation_id        = invite.id,
-        is_active            = True,
-        work_email           = work_email,
-        created_by           = employee_id,
-    )
-    await db_create(db, link)
-
-    # ── Update user_profiles.employer_id ───────────────────────────────────
-    profile_result = await db.execute(
-        select(UserProfile).where(UserProfile.user_id == employee_id)
-    )
-    profile = profile_result.scalars().first()
-    if profile:
-        await db_update(db, UserProfile, profile.id, {
-            "employer_id": invite.employer_profile_id,
-            "invited_by":  invite.created_by,
-        })
-
-    # ── Update invite status ────────────────────────────────────────────────
-    if invite.max_uses and invite.max_uses == 1:
-        await db_update(db, EmployerInvitation, invite.id, {
-            "status":      "accepted",
-            "accepted_by": employee_id,
-            "accepted_at": now,
-            "used_count":  invite.used_count + 1,
-        })
-    else:
-        await db_update(db, EmployerInvitation, invite.id, {
-            "used_count":  invite.used_count + 1,
-            "accepted_by": employee_id,
-            "accepted_at": now,
-        })
-
-    # ── Auto-assign HR to existing applications ────────────────────────────
-    await db.execute(
-        Application.__table__.update()
-        .where(
-            Application.user_id        == employee_id,
-            Application.assigned_hr_id == None,
-        )
-        .values(assigned_hr_id=invite.created_by)
-    )
-
-    # ── Auto-create direct HR ↔ employee conversation ──────────────────────
-    hr_user = await db_get_by_id(db, User, invite.created_by)
-    hr_name = (
-        f"{hr_user.first_name} {hr_user.last_name}".strip()
-        if hr_user else "HR"
-    )
-    await get_or_create_thread_for_participants(
-        db              = db,
-        actor_id        = invite.created_by,
-        participant_ids = [employee_id],
-        thread_type     = "direct",
-        initial_message = (
-            f"Hi! I'm {hr_name} from {employer.company_name}. "
-            "Welcome to Vyuflo — I'll be your HR contact for your immigration case. "
-            "Feel free to reach out here with any questions."
-        ),
-    )
-
-
-async def _validate_invite_object(invite: Optional[EmployerInvitation]) -> None:
-    """Raises ValueError with a user-facing message if the invite can't be used."""
-    if not invite:
-        raise ValueError("Invalid invite code or link.")
-    if invite.status == "revoked":
-        raise ValueError("This invitation has been revoked.")
-    if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
-        raise ValueError("This invitation has expired.")
-    if invite.max_uses and invite.used_count >= invite.max_uses:
-        raise ValueError("This invite has reached its maximum uses.")
 
 
 async def _resolve_invitation(
@@ -309,6 +108,9 @@ async def create_email_invite(
     """
     HR invites a specific employee by email.
     System sends an email with a unique token link.
+    passport_number is mandatory on this request (enforced by the Pydantic
+    schema) — it's always hashed and stored so the employee must correctly
+    re-enter it before their acceptance is allowed to go through.
     """
     employer = await _get_employer_profile(db, hr_user_id)
     if not employer:
@@ -329,15 +131,19 @@ async def create_email_invite(
     expires_at = datetime.now(timezone.utc) + timedelta(days=data.expires_days)
 
     invite = EmployerInvitation(
-        created_by          = hr_user_id,
-        employer_profile_id = employer.id,
-        invite_method       = "email",
-        invited_email       = data.email.lower().strip(),
-        invite_token        = token,
-        max_uses            = 1,   # email invite = single use
-        status              = "pending",
-        expires_at          = expires_at,
-        personal_message    = data.personal_message,
+        created_by             = hr_user_id,
+        employer_profile_id    = employer.id,
+        invite_method          = "email",
+        invited_email          = data.email.lower().strip(),
+        invite_token           = token,
+        max_uses               = 1,   # email invite = single use
+        status                 = "pending",
+        expires_at             = expires_at,
+        personal_message       = data.personal_message,
+        # Mandatory field — the Pydantic validator on InviteByEmailRequest
+        # already guarantees this is present and well-formed, so we hash
+        # unconditionally here. Never store the plaintext.
+        invited_passport_hash  = _hash_passport(data.passport_number),
     )
     return await db_create(db, invite)
 
@@ -351,6 +157,7 @@ async def create_code_invite(
     HR generates a reusable company code.
     HR shares this code offline (offer letter, WhatsApp, Slack).
     Employee enters code on Vyuflo to connect.
+    No passport verification — a shared code can't be tied to one identity.
     """
     employer = await _get_employer_profile(db, hr_user_id)
     if not employer:
@@ -382,37 +189,6 @@ async def create_code_invite(
     return await db_create(db, invite)
 
 
-async def create_link_invite(
-    db:         AsyncSession,
-    hr_user_id: uuid.UUID,
-    data:       InviteByLinkRequest,
-) -> EmployerInvitation:
-    """
-    HR generates a shareable link.
-    Anyone with the link can join (up to max_uses).
-    """
-    employer = await _get_employer_profile(db, hr_user_id)
-    if not employer:
-        raise ValueError("Employer profile not found.")
-
-    token = _generate_invite_token()
-    expires_at = None
-    if data.expires_days:
-        expires_at = datetime.now(timezone.utc) + timedelta(days=data.expires_days)
-
-    invite = EmployerInvitation(
-        created_by          = hr_user_id,
-        employer_profile_id = employer.id,
-        invite_method       = "link",
-        invite_token        = token,
-        max_uses            = data.max_uses,
-        status              = "pending",
-        expires_at          = expires_at,
-        personal_message    = data.personal_message,
-    )
-    return await db_create(db, invite)
-
-
 # =============================================================================
 # HR — MANAGE INVITATIONS
 # =============================================================================
@@ -433,11 +209,13 @@ async def get_my_invitations(
     if status:
         filters.append(EmployerInvitation.status == status)
 
+    # Total count
     count_result = await db.execute(
         select(func.count()).select_from(EmployerInvitation).where(*filters)
     )
     total = count_result.scalar() or 0
 
+    # Items
     result = await db.execute(
         select(EmployerInvitation)
         .where(*filters)
@@ -475,7 +253,8 @@ async def resend_email_invite(
 ) -> EmployerInvitation:
     """
     HR resends an email invite — generates a fresh token,
-    resets expiry to 7 days from now.
+    resets expiry to 7 days from now. The original invited_passport_hash
+    is left untouched — resending doesn't change who's allowed to accept.
     """
     invite = await db_get_by_id(db, EmployerInvitation, invitation_id)
     if not invite:
@@ -507,10 +286,19 @@ async def validate_invite(
     is_primary:       Optional[bool] = None,
 ) -> dict:
     """
-    Public endpoint — employee checks if token/code is valid BEFORE showing
-    the accept page, and again after answering "do you have another email? /
-    is it primary?" to resolve which email should be primary and check
-    whether an account already exists for it.
+    Public endpoint — employee checks if token/code is valid
+    BEFORE showing the accept page.
+    Returns company name + HR name so employee can confirm.
+
+    FIXED: this previously only accepted 3 params (db, invite_token,
+    invite_code), but invitation_routes.py's /hr/validate route calls it
+    with 5 (also passing additional_email, is_primary for the planned
+    merge-account flow). That mismatch caused a TypeError on every single
+    call to this endpoint. additional_email/is_primary are accepted here
+    now to stop the crash; the actual merge-account classification logic
+    that would USE them isn't implemented yet (accept_invite_new_user /
+    request_merge_otp / accept_invite_existing_user are still commented
+    out in invitation_routes.py) — that's a separate feature to build.
     """
     invite = await _resolve_invitation(db, invite_token, invite_code)
 
@@ -524,6 +312,7 @@ async def validate_invite(
         return {"valid": False, "message": "This invitation has expired."}
 
     if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
+        # Auto-expire
         await db_update(db, EmployerInvitation, invite.id, {"status": "expired"})
         return {"valid": False, "message": "This invitation has expired."}
 
@@ -533,29 +322,20 @@ async def validate_invite(
     if invite.status not in ("pending",):
         return {"valid": False, "message": "This invitation is no longer valid."}
 
+    # Get company + HR info
     employer = await db_get_by_id(db, EmployerProfile, invite.employer_profile_id)
     hr_user  = await db_get_by_id(db, User, invite.created_by)
     hr_name  = f"{hr_user.first_name} {hr_user.last_name}".strip() if hr_user else "HR Team"
 
-    # ── Classification step ─────────────────────────────────────────────────
-    primary_email, other_email = _resolve_primary_and_other(
-        invite.invited_email, additional_email, is_primary
-    )
-
-    account_exists = False
-    if primary_email:
-        existing = await _find_existing_user_for_email(db, primary_email)
-        account_exists = existing is not None
-
     return {
-        "valid":                  True,
-        "company_name":           employer.company_name if employer else "Unknown Company",
-        "hr_name":                hr_name,
-        "invite_method":          invite.invite_method,
-        "message":                f"Valid invite from {employer.company_name if employer else 'a company'}",
-        "account_exists":         account_exists,
-        "resolved_primary_email": primary_email,
-        "resolved_other_email":   other_email,
+        "valid":                          True,
+        "company_name":                   employer.company_name if employer else "Unknown Company",
+        "hr_name":                        hr_name,
+        "invite_method":                  invite.invite_method,
+        "message":                        f"Valid invite from {employer.company_name if employer else 'a company'}",
+        # Tells the frontend to render the (blank) passport input. Always
+        # true for email invites now that passport_number is mandatory.
+        "requires_passport_verification": bool(invite.invited_passport_hash),
     }
 
 
@@ -565,14 +345,28 @@ async def accept_invite(
     data:        AcceptInviteRequest,
 ) -> dict:
     """
-    Employee accepts an invitation while ALREADY logged in (code/link invite,
-    not the email-targeted new/existing-user flows below).
+    Employee accepts an invitation.
+    This is the KEY action that links the employee to the employer.
+
+    What happens:
+    1. Validate the invite
+    2. Verify passport number, if this invite requires one
+    3. Create employer_employees row
+    4. Update user_profiles.employer_id
+    5. Mark invite as accepted / increment used_count
+    6. Auto-set assigned_hr_id on any existing applications
+    7. Auto-create HR <-> employee conversation
+    8. Flag whether this employee should be prompted to add a personal
+       email — true when the account they signed up with IS the org's
+       invited email, meaning they have no login path that survives
+       being offboarded later.
     """
     invite = await _resolve_invitation(db, data.invite_token, data.invite_code)
 
     if not invite:
         raise ValueError("Invalid invite code or link.")
 
+    # Validate
     if invite.status == "revoked":
         raise ValueError("This invitation has been revoked.")
     if invite.expires_at and invite.expires_at < datetime.now(timezone.utc):
@@ -581,6 +375,21 @@ async def accept_invite(
     if invite.max_uses and invite.used_count >= invite.max_uses:
         raise ValueError("This invite has reached its maximum uses.")
 
+    # ── Identity verification — passport number ────────────────────────────
+    # invited_passport_hash is always set for email invites now (mandatory
+    # on creation), and always NULL for code/link invites (never collected).
+    # The employee's screen never shows the number back to them — they
+    # must know and type it themselves, which is the whole point.
+    if invite.invited_passport_hash:
+        if not data.passport_number or not data.passport_number.strip():
+            raise ValueError("Please enter your passport number to accept this invitation.")
+        if _hash_passport(data.passport_number) != invite.invited_passport_hash:
+            raise ValueError(
+                "The passport number you entered doesn't match our records. "
+                "Please check and try again, or contact your HR team."
+            )
+
+    # Check employee not already linked to this company
     existing_link = await db.execute(
         select(EmployerEmployee).where(
             EmployerEmployee.employee_id         == employee_id,
@@ -595,199 +404,91 @@ async def accept_invite(
     if not employer:
         raise ValueError("Company not found.")
 
-    await _link_employee_to_employer(
-        db,
-        invite       = invite,
-        employer     = employer,
-        employee_id  = employee_id,
-        work_email   = invite.invited_email,
+    now = datetime.now(timezone.utc)
+
+    # ── Step 1: Create employer_employees record ──────────────────────────────
+    link = EmployerEmployee(
+        employer_id         = invite.created_by,         # HR user's user.id
+        employee_id         = employee_id,
+        employer_profile_id = invite.employer_profile_id,
+        invitation_id       = invite.id,
+        is_active           = True,
+        work_email          = invite.invited_email,
+        created_by          = employee_id,
     )
+    await db_create(db, link)
 
-    return {
-        "message":      f"Successfully linked to {employer.company_name}",
-        "company_name": employer.company_name,
-        "employer_id":  invite.employer_profile_id,
-    }
+    # ── Step 2: Update user_profiles.employer_id ──────────────────────────────
+    profile_result = await db.execute(
+        select(UserProfile).where(UserProfile.user_id == employee_id)
+    )
+    profile = profile_result.scalars().first()
+    if profile:
+        await db_update(db, UserProfile, profile.id, {
+            "employer_id": invite.employer_profile_id,
+            "invited_by":  invite.created_by,
+        })
 
+    # ── Step 3: Update invite status ─────────────────────────────────────────
+    if invite.max_uses and invite.max_uses == 1:
+        # Single-use invite (email method) — mark fully accepted
+        await db_update(db, EmployerInvitation, invite.id, {
+            "status":      "accepted",
+            "accepted_by": employee_id,
+            "accepted_at": now,
+            "used_count":  invite.used_count + 1,
+        })
+    else:
+        # Multi-use invite (code/link) — just increment count
+        await db_update(db, EmployerInvitation, invite.id, {
+            "used_count":  invite.used_count + 1,
+            "accepted_by": employee_id,   # last accepted_by
+            "accepted_at": now,
+        })
 
-# =============================================================================
-# EMPLOYEE — ACCEPT INVITE (PUBLIC, NOT-YET-AUTHENTICATED FLOWS)
-# =============================================================================
-
-async def request_merge_otp(
-    db:   AsyncSession,
-    data: RequestMergeOtpRequest,
-) -> dict:
-    """
-    Step 1 of the merge flow. Sends a one-time code to the matched account's
-    email. Login stays password-based everywhere else — this OTP path is
-    scoped ONLY to confirming identity before a merge.
-    """
-    invite = await _resolve_invitation(db, data.invite_token, data.invite_code)
-    await _validate_invite_object(invite)
-
-    login_email = data.login_email.lower().strip()
-    user = await _find_existing_user_for_email(db, login_email)
-
-    # Generic message either way — don't reveal whether the account exists.
-    if user and user.is_active:
-        await send_login_otp(db, user, "email")
-
-    return {"message": "If an account exists for that email, a login code has been sent."}
-
-
-async def accept_invite_existing_user(
-    db:   AsyncSession,
-    data: AcceptInviteExistingUserRequest,
-) -> dict:
-    """
-    Scenario 1 — employee already has an account. Confirms identity via the
-    OTP sent in request_merge_otp, then attaches the new employer link to
-    their EXISTING account. `data.other_email`, if given, gets added to
-    their linked_emails. Old data (documents, applications, previous cases)
-    stays exactly where it is.
-    """
-    invite = await _resolve_invitation(db, data.invite_token, data.invite_code)
-    await _validate_invite_object(invite)
-
-    employer = await db_get_by_id(db, EmployerProfile, invite.employer_profile_id)
-    if not employer:
-        raise ValueError("Company not found.")
-
-    login_email = data.login_email.lower().strip()
-    user = await _find_existing_user_for_email(db, login_email)
-    if not user:
-        raise UnauthorizedException("Invalid or expired code")
-
-    await _verify_merge_otp(db, user, data.otp_code)
-
-    existing_link = await db.execute(
-        select(EmployerEmployee).where(
-            EmployerEmployee.employee_id         == user.id,
-            EmployerEmployee.employer_profile_id == invite.employer_profile_id,
-            EmployerEmployee.is_active           == True,
+    # ── Step 4: Auto-assign HR to existing applications ───────────────────────
+    # Any applications this employee has without an HR assigned
+    await db.execute(
+        Application.__table__.update()
+        .where(
+            Application.user_id        == employee_id,
+            Application.assigned_hr_id == None,
         )
+        .values(assigned_hr_id=invite.created_by)
     )
-    if existing_link.scalars().first():
-        raise ValueError("You are already linked to this company.")
-
-    await _add_linked_email(db, user, data.other_email)
-
-    await _link_employee_to_employer(
-        db,
-        invite      = invite,
-        employer    = employer,
-        employee_id = user.id,
-        work_email  = invite.invited_email,
+    # ── Step 5: Auto-create direct HR ↔ employee conversation ────────────────
+    hr_user = await db_get_by_id(db, User, invite.created_by)
+    hr_name = (
+        f"{hr_user.first_name} {hr_user.last_name}".strip()
+        if hr_user else "HR"
+    )
+    await get_or_create_thread_for_participants(
+        db              = db,
+        actor_id        = invite.created_by,          # HR is the "sender"
+        participant_ids = [employee_id],
+        thread_type     = "direct",
+        initial_message = (
+            f"Hi! I'm {hr_name} from {employer.company_name}. "
+            "Welcome to Vyuflo — I'll be your HR contact for your immigration case. "
+            "Feel free to reach out here with any questions."
+        ),
     )
 
-    role_result = await db.execute(
-        select(Role.name).join(UserRole, UserRole.role_id == Role.id)
-        .where(UserRole.user_id == user.id)
+    # ── Step 6: Flag if this employee has no login path independent of the
+    #            org email (i.e. they signed up USING the invited email).
+    #            Frontend uses this to show the "add a personal email" prompt.
+    employee_user = await db_get_by_id(db, User, employee_id)
+    needs_personal_email = bool(
+        employee_user
+        and invite.invited_email
+        and employee_user.email.lower().strip() == invite.invited_email.lower().strip()
     )
-    roles = [r for (r,) in role_result.all()] or ["employee"]
-
-    access_token  = create_access_token(str(user.id), roles, user.email, user.first_name or "", user.last_name or "")
-    refresh_token = create_refresh_token(str(user.id))
-    await _store_refresh_token(str(user.id), refresh_token)
 
     return {
-        "access_token":  access_token,
-        "refresh_token": refresh_token,
-        "roles":         roles,
-        "company_name":  employer.company_name,
-        "employer_id":   invite.employer_profile_id,
-        "linked_email":  invite.invited_email,
-        "message":       f"Welcome back! Your account is now linked to {employer.company_name}.",
-    }
-
-
-async def accept_invite_new_user(
-    db:   AsyncSession,
-    data: AcceptInviteNewUserRequest,
-) -> dict:
-    """
-    Scenario 2 — no existing account for the resolved primary email.
-    `data.email` is mandatory and becomes User.email (primary). If
-    `data.other_email` was also given, it's stored in linked_emails.
-    """
-    invite = await _resolve_invitation(db, data.invite_token, data.invite_code)
-    await _validate_invite_object(invite)
-
-    employer = await db_get_by_id(db, EmployerProfile, invite.employer_profile_id)
-    if not employer:
-        raise ValueError("Company not found.")
-
-    primary_email = data.email.lower().strip()
-
-    # Guard against a race: someone may have signed up with this exact email
-    # between validate_invite() and this call.
-    existing = await _find_existing_user_for_email(db, primary_email)
-    if existing:
-        raise ConflictException(
-            "An account already exists for this email. Please log in instead."
-        )
-
-    linked = []
-    if data.other_email:
-        other = data.other_email.lower().strip()
-        if other != primary_email:
-            linked.append(other)
-
-    user = User(
-        first_name        = data.first_name,
-        last_name         = data.last_name,
-        email             = primary_email,
-        linked_emails     = linked,
-        password_hash     = hash_password(data.password),
-        auth_provider     = "email",
-        is_active         = True,
-        is_verified       = True,   # employer already vouched for this invite
-        terms_accepted    = data.terms_accepted,
-        terms_accepted_at = datetime.now(timezone.utc) if data.terms_accepted else None,
-    )
-    user = await db_create(db, user)
-
-    profile = UserProfile(
-        user_id         = user.id,
-        onboarding_step = 1,
-        full_legal_name = f"{data.first_name} {data.last_name}",
-        created_by      = user.id,
-        modified_by     = user.id,
-    )
-    await db_create(db, profile)
-
-    role_obj = await db.scalar(select(Role).where(Role.name == "employee"))
-    if not role_obj:
-        raise Exception("RBAC not seeded. Run seed migration first.")
-    await db_create(db, UserRole(
-        user_id     = user.id,
-        role_id     = role_obj.id,
-        assigned_by = user.id,
-        created_by  = user.id,
-        modified_by = user.id,
-    ))
-
-    await _link_employee_to_employer(
-        db,
-        invite      = invite,
-        employer    = employer,
-        employee_id = user.id,
-        work_email  = invite.invited_email,
-    )
-
-    access_token  = create_access_token(str(user.id), ["employee"], user.email, user.first_name, user.last_name)
-    refresh_token = create_refresh_token(str(user.id))
-    await _store_refresh_token(str(user.id), refresh_token)
-
-    return {
-        "access_token":  access_token,
-        "refresh_token": refresh_token,
-        "roles":         ["employee"],
-        "company_name":  employer.company_name,
-        "employer_id":   invite.employer_profile_id,
-        "linked_email":  invite.invited_email,
-        "message":       f"Account created and linked to {employer.company_name}.",
+        "message":              f"Successfully linked to {employer.company_name}",
+        "company_name":         employer.company_name,
+        "employer_id":          invite.employer_profile_id,
+        "needs_personal_email": needs_personal_email,
     }
 
 
@@ -827,6 +528,7 @@ async def get_my_employees(
     )
     employee_links = result.scalars().all()
 
+    # Build response with employee info
     employees = []
     for link in employee_links:
         emp_user = await db_get_by_id(db, User, link.employee_id)
@@ -835,6 +537,7 @@ async def get_my_employees(
         )
         emp_profile = emp_profile_result.scalars().first()
 
+        # Count active applications
         app_count_result = await db.execute(
             select(func.count()).select_from(Application).where(
                 Application.user_id        == link.employee_id,
@@ -860,8 +563,9 @@ async def get_my_employees(
                 "work_email":          link.work_email,
                 "start_date":          str(link.start_date) if link.start_date else None,
                 "is_active":           link.is_active,
+                "access_revoked_at":   link.access_revoked_at.isoformat() if link.access_revoked_at else None,
                 "active_applications": active_apps,
-                "pending_documents":   0,
+                "pending_documents":   0,  # can be extended
                 "linked_at":           link.created_at,
             })
 
@@ -893,27 +597,46 @@ async def deactivate_employee(
     hr_user_id:       uuid.UUID,
     employee_link_id: uuid.UUID,
 ) -> EmployerEmployee:
-    """HR deactivates (removes) an employee from their company."""
+    """
+    HR removes an employee from their company.
+
+    Instead of an instant cutoff, this starts a grace period:
+      - end_date is set immediately (reporting/records purposes).
+      - is_active stays True for now — access_revoked_at marks the moment
+        the work_email login should actually stop working.
+      - A background job (APScheduler, same pattern as document expiry
+        reminders) should flip is_active=False once access_revoked_at
+        has passed, and _find_user_by_login_identifier already treats
+        a future access_revoked_at as "still allowed to log in".
+
+    This is what gives the employee time to add + verify a personal email
+    (see service_add_personal_email) before their org login disappears,
+    without touching any Document rows — those stay tied to employee_id
+    regardless of what happens here.
+    """
     link = await db_get_by_id(db, EmployerEmployee, employee_link_id)
     if not link:
         raise ValueError("Employee link not found.")
     if link.employer_id != hr_user_id:
         raise PermissionError("You can only remove your own employees.")
 
-    result = await db_update(db, EmployerEmployee, employee_link_id, {
-        "is_active": False,
-        "end_date":  datetime.now(timezone.utc).date(),
+    now = datetime.now(timezone.utc)
+    grace_end = now + timedelta(days=OFFBOARDING_GRACE_PERIOD_DAYS)
+
+    updated = await db_update(db, EmployerEmployee, employee_link_id, {
+        "end_date":          now.date(),
+        "access_revoked_at": grace_end,
+        # is_active is intentionally left True here — the scheduled job
+        # flips it once access_revoked_at has passed. Keeping it True
+        # during the grace window is what lets work_email logins still
+        # work while the employee has a chance to add a personal email.
     })
 
-    # If their primary email IS the org email they're losing, flip the flag
-    # so the frontend shows a banner prompting them to update it — see
-    # email_recovery_service.py. They can still log in normally; nothing
-    # about their password or account access changes.
-    user = await db_get_by_id(db, User, link.employee_id)
-    if user:
-        await flag_email_inactive_if_org_owned(db, user)
+    # TODO: fire a notification here (reuse notification_service pattern)
+    # prompting the employee to add/verify a personal email before
+    # `grace_end`, e.g. fire_offboarding_grace_period_started(...).
 
-    return result
+    return updated
 
 
 async def get_employee_detail(
@@ -923,47 +646,57 @@ async def get_employee_detail(
 ) -> dict:
     """
     Returns the full payload for Screen 21 (HR Employee Profile Detail).
+    Aggregates:
+      - profile info from employer_employees + user + user_profiles
+      - stats (active/total cases, documents, next deadline)
+      - active case (most recent in_progress/action_needed application)
+      - all cases (full list)
+      - documents (most recent 12)
+      - activity (most recent 10 from application_status_history + document_activity)
     """
+    # ── 1. Fetch the employee link ────────────────────────────────────────────
     link = await db_get_by_id(db, EmployerEmployee, employee_link_id)
     if not link:
         raise ValueError("Employee link not found.")
     if link.employer_id != hr_user_id:
         raise PermissionError("You can only view your own employees.")
-
+ 
     emp_user    = await db_get_by_id(db, User, link.employee_id)
     emp_profile_result = await db.execute(
         select(UserProfile).where(UserProfile.user_id == link.employee_id)
     )
     emp_profile = emp_profile_result.scalars().first()
-
+ 
     employer   = await _get_employer_profile(db, hr_user_id)
-
+ 
     full_name = (emp_profile.full_legal_name
                  if emp_profile and emp_profile.full_legal_name
                  else f"{emp_user.first_name} {emp_user.last_name}".strip()
                  if emp_user else "Unknown")
-
+ 
+    # ── 2. All applications ───────────────────────────────────────────────────
     apps_result = await db.execute(
         select(Application)
         .where(Application.user_id == link.employee_id)
         .order_by(Application.created_at.desc())
     )
     all_apps = apps_result.scalars().all()
-
+ 
     active_statuses = {"in_progress", "action_needed", "rfe_response", "submitted"}
     active_apps  = [a for a in all_apps if a.status in active_statuses]
     primary_case = active_apps[0] if active_apps else None
-
+ 
     async def _build_app_summary(app: Application) -> dict:
         vt_result = await db.execute(
             select(VisaType).where(VisaType.id == app.visa_type_id)
         )
         vt = vt_result.scalars().first()
-
+ 
         attorney = None
         if app.assigned_attorney_id:
             attorney = await db_get_by_id(db, User, app.assigned_attorney_id)
-
+ 
+        # Get most recent status_history entry for next_milestone
         history_result = await db.execute(
             select(ApplicationStatusHistory)
             .where(ApplicationStatusHistory.application_id == app.id)
@@ -971,7 +704,7 @@ async def get_employee_detail(
             .limit(1)
         )
         latest_history = history_result.scalars().first()
-
+ 
         return {
             "id":                      str(app.id),
             "application_number":      app.application_number,
@@ -986,13 +719,14 @@ async def get_employee_detail(
             "assigned_attorney_name":  f"{attorney.first_name} {attorney.last_name}".strip() if attorney else None,
             "assigned_attorney_avatar": None,
         }
-
+ 
     all_cases_summary = [await _build_app_summary(a) for a in all_apps]
     active_case_summary = await _build_app_summary(primary_case) if primary_case else None
-
+ 
+    # ── 3. Documents ──────────────────────────────────────────────────────────
     from app.models.visamodels import Document, DocumentType
     from sqlalchemy.orm import joinedload
-
+ 
     docs_result = await db.execute(
         select(Document)
         .options(joinedload(Document.document_type))
@@ -1001,7 +735,7 @@ async def get_employee_detail(
         .limit(12)
     )
     docs = docs_result.unique().scalars().all()
-
+ 
     documents_summary = []
     for doc in docs:
         doc_name = (doc.document_type.name
@@ -1013,11 +747,13 @@ async def get_employee_detail(
             "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
             "file_format": doc.file_format,
         })
-
+ 
+    # ── 4. Stats ──────────────────────────────────────────────────────────────
     from app.models.visamodels import Deadline
-
+ 
     verified_docs = sum(1 for d in docs if d.status == "verified")
-
+ 
+    # Next deadline
     deadline_result = await db.execute(
         select(Deadline)
         .where(
@@ -1034,7 +770,7 @@ async def get_employee_detail(
     if next_deadline:
         delta = next_deadline.due_date - datetime.now(timezone.utc)
         next_deadline_days = max(0, delta.days)
-
+ 
     stats = {
         "active_cases":       len(active_apps),
         "total_cases":        len(all_apps),
@@ -1042,7 +778,8 @@ async def get_employee_detail(
         "documents_verified": verified_docs,
         "next_deadline_days": next_deadline_days,
     }
-
+ 
+    # ── 5. Activity (last 10 status changes + doc events) ─────────────────────
     history_result = await db.execute(
         select(ApplicationStatusHistory)
         .where(ApplicationStatusHistory.application_id.in_([a.id for a in all_apps]))
@@ -1050,7 +787,7 @@ async def get_employee_detail(
         .limit(10)
     )
     history_items = history_result.scalars().all()
-
+ 
     activity = []
     dot_map = {
         "approved": "green", "submitted": "blue",
@@ -1059,6 +796,7 @@ async def get_employee_detail(
         "rejected": "gray", "withdrawn": "gray",
     }
     for h in history_items:
+        # Resolve actor name
         actor_user = await db_get_by_id(db, User, h.changed_by) if h.changed_by else None
         actor_label = (f"{actor_user.first_name} {actor_user.last_name}".strip()
                        if actor_user else "System")
@@ -1069,7 +807,8 @@ async def get_employee_detail(
             "occurred_at": h.created_at.isoformat(),
             "dot_color":   dot_map.get(h.status, "gray"),
         })
-
+ 
+    # ── 6. Visa info from most recent app ─────────────────────────────────────
     visa_code = None
     if all_apps:
         latest_vt_result = await db.execute(
@@ -1078,7 +817,8 @@ async def get_employee_detail(
         latest_vt = latest_vt_result.scalars().first()
         if latest_vt:
             visa_code = latest_vt.code
-
+ 
+    # ── 7. Assemble response ──────────────────────────────────────────────────
     return {
         "profile": {
             "employee_link_id":    str(link.id),

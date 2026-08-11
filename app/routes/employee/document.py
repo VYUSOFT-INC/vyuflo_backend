@@ -203,7 +203,6 @@ from app.services.employee import storage
 )
 async def api_view_document(
     document_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
     current_user: Annotated[
         CurrentUserData,
         Depends(PermissionChecker(
@@ -215,7 +214,8 @@ async def api_view_document(
             ],
             require_all=False,   # holding ANY one of these passes the gate
         )),
-    ] = None,
+    ],
+    db: AsyncSession = Depends(get_db),
 ):
     # ── Layer 1 (PermissionChecker above): user holds SOME document-view capability ──
     # ── Layer 2 (inside get_document_file_url): is THIS document in scope for them? ──

@@ -91,6 +91,7 @@
 #                 detail=f"Permission denied. Required permission: '{permission_code}'",
 #             )
 #     return _check
+
 """
 Reusable FastAPI dependency injectors.
 """
