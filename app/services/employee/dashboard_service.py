@@ -8,13 +8,14 @@
 import uuid
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_ 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.models.visamodels import (
     Application,
     ApplicationStatusHistory,
+    ClientIntakeSession,
     Document,
     DocumentActivity,
     User,
@@ -300,6 +301,7 @@ async def _build_case_summary(
 def _build_action_items(
     documents: list,
     app: "Application | None",
+    pending_intake_sessions: list | None = None,   # new
 ) -> list[ActionItem]:
     """
     Generate actionable tasks the employee should complete.
@@ -376,6 +378,24 @@ def _build_action_items(
                 completed=False,
             ))
 
+    # 4. Pending intake sessions — surface as an urgent action item        # new
+    for s in (pending_intake_sessions or []):                              # new
+        is_correction = s.review_status == "changes_requested"             # new
+        counter += 1                                                       # new
+        items.append(ActionItem(                                           # new
+            id=f"act_intake_{s.id}",                                       # new
+            title=("Corrections needed on your intake" if is_correction    # new
+                   else "Complete your intake"),                           # new
+            description=(s.review_note or                                  # new
+                         "Your attorney has requested your intake details."),  # new
+            category="form",                                               # new
+            priority="urgent",                                             # new
+            due_date=None,                                                 # new
+            days_left=None,                                                # new
+            route=f"/my-intake/{s.id}",                                    # new
+            completed=False,                                               # new
+        ))                                                                 # new
+
     return items
 
 
@@ -439,7 +459,23 @@ def _build_deadlines(
             owner="attorney" if key in ("lca_filing", "petition_prep", "uscis_filing") else "employee",
             description=f"Estimated target for {label.lower()} stage.",
         ))
-
+    # ── NEW — real deadline from the case's actual due_date, if set ─────────
+    # Unlike the stage estimates above (which guess from the filing date),
+    # this uses a genuine date stored on the case, so it can land anywhere
+    # from 90+ days out down to single digits as the real date approaches —
+    # not clustered near "today" the way the guessed ones can be.
+    if app.due_date:
+        due_dt = datetime.combine(app.due_date, datetime.min.time(), tzinfo=timezone.utc)
+        real_days_left = _days_between(due_dt)
+        deadlines.append(Deadline(
+            id="dl_real_due_date",
+            title="Case due date",
+            date=_iso(due_dt),
+            days_left=real_days_left,
+            urgency=_deadline_urgency(real_days_left),
+            owner="attorney",
+            description="The actual target date on file for this case.",
+        ))
     # Sort by days_left ascending
     deadlines.sort(key=lambda d: d.days_left)
     return deadlines
@@ -675,7 +711,21 @@ async def service_get_dashboard(
         case_summary = await _build_case_summary(db, latest_app, visa_type)
 
     # ── 6. Action items ───────────────────────────────────────────────────────
-    action_items = _build_action_items(all_docs, latest_app)
+    pending_intake_result = await db.execute(                               # new
+        select(ClientIntakeSession)                                        # new
+        .join(Application, Application.id == ClientIntakeSession.application_id)  # new
+        .where(                                                            # new
+            Application.user_id == user_id,                                # new
+            or_(                                                           # new
+                ClientIntakeSession.review_status == "changes_requested",  # new
+                and_(ClientIntakeSession.token.isnot(None),                # new
+                     ClientIntakeSession.is_submitted == False),           # new
+            ),                                                             # new
+        )                                                                  # new
+    )                                                                      # new
+    pending_intake_sessions = pending_intake_result.scalars().all()        # new
+
+    action_items = _build_action_items(all_docs, latest_app, pending_intake_sessions)   
 
     # ── 7. Deadlines ──────────────────────────────────────────────────────────
     deadlines = _build_deadlines(latest_app, action_items)

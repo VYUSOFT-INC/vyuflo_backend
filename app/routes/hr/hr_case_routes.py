@@ -37,6 +37,8 @@ from app.schemas.hr.hr_case_schemas import (
     HRCaseStatusHistoryResponse,
     HRCaseStatusUpdate,
     HRCaseUpdate,
+    HRFirmConnectRequest,    # new
+    HRFirmConnectResponse, 
 )
 from app.services.hr.hr_case_service import (
     hr_create_case,
@@ -46,6 +48,8 @@ from app.services.hr.hr_case_service import (
     hr_update_approval,
     hr_update_case,
     hr_update_case_status,
+    hr_connect_firm,   # new
+
 )
 
 hr_case_router = APIRouter()
@@ -245,3 +249,21 @@ async def get_hr_case_history(
     current_user:   User         = Depends(get_current_user),
 ) -> List[HRCaseStatusHistoryResponse]:
     return await hr_list_case_history(db, application_id, current_user.user_id)
+
+
+# =============================================================================
+# CONNECT TO A LAW FIRM   — new
+# =============================================================================
+
+@hr_case_router.post(
+    "/firm-connections",
+    response_model=HRFirmConnectResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="HR: Connect our company to a law firm",
+)
+async def connect_hr_firm(
+    payload:      HRFirmConnectRequest,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+) -> HRFirmConnectResponse:
+    return await hr_connect_firm(db, current_user.user_id, payload.firm_name)   
