@@ -153,3 +153,9 @@ class ResetTokenStatus(str, enum.Enum):
     EXPIRED = "expired"
     LOCKED = "locked"
     CANCELLED = "cancelled"
+
+class AddPersonalEmailRequest(BaseModel):
+    personal_email: EmailStr
+
+class VerifyPersonalEmailRequest(BaseModel):
+    token: str

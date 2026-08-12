@@ -31,7 +31,6 @@ from app.routes.employee.dashboard import dashboard_router
 from app.routes.employee.user_profile import user_profile_router
 from app.routes.employee.login_history import login_history_router
 from app.routes.admin.admin_dashboard import admin_dashboard_router
-from app.ocr.ocr_service_router import ocr_router
 from app.routes.employee.roles import roles_router
 from app.routes.employee.payment_routes import payment_router
 from app.routes.attorney.attorney_routes import attorney_router
@@ -76,7 +75,7 @@ from app.routes.hr.hr_document_request_routes import hr_document_request_router
 from app.routes.hr.hr_case_overview_routes import hr_case_overview_router
 from app.routes.hr.hr_case_letters_routes import hr_case_letters_router
 
-
+from app.ocr.ocr_service_router import ocr_router
 from fastapi.staticfiles import StaticFiles
 
 # ─────────────────────────────────────────────
@@ -244,7 +243,7 @@ register_exception_handlers(app)
 # ─────────────────────────────────────────────
 # Routers
 # ─────────────────────────────────────────────
-app.mount("/static", StaticFiles(directory="uploads"), name="static")
+app.include_router(ocr_router,prefix="/api/v1", tags=["Ocr"]) 
 app.include_router(auth.router,                prefix="/api/v1/auth",       tags=["Authentication"])
 app.include_router(onboarding.router,          prefix="/api/v1/onboarding", tags=["Onboarding"])
 app.include_router(document_extra_router, prefix="/api/v1", tags=["Attroney-Documents"])
@@ -258,7 +257,6 @@ app.include_router(user_profile_router,        prefix="/api/v1", tags=["User Pro
 app.include_router(login_history_router,       prefix="/api/v1", tags=["Login History"])
 app.include_router(admin_dashboard_router,     prefix="/api/v1", tags=["Admin cards"])
 app.include_router(roles_router,               prefix="/api/v1", tags=["Roles"])
-app.include_router(ocr_router,                 prefix="/api/v1", tags=["Ocr"])
 app.include_router(payment_router,             prefix="/api/v1", tags=["Payments "])
 app.include_router(consultation_router, prefix="/api/v1", tags=["consultations"])
 app.include_router(notification_router, prefix="/api/v1", tags=["notifications"])

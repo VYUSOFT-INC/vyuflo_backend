@@ -1,8 +1,9 @@
 # app/schemas/invitation_schemas.py
+import re
 import uuid
 from datetime import datetime
 from typing import Optional, Literal
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # =============================================================================
@@ -11,34 +12,43 @@ from pydantic import BaseModel, EmailStr, Field
 
 class InviteByEmailRequest(BaseModel):
     """HR invites a specific employee by email."""
-    email:            EmailStr
-    personal_message: Optional[str] = Field(None, max_length=500)
-    expires_days:     int            = Field(7, ge=1, le=30)
+    email:             EmailStr
+    passport_number:   str = Field(..., min_length=6, max_length=20)
+    personal_message:  Optional[str] = Field(None, max_length=500)
+    expires_days:      int            = Field(7, ge=1, le=30)
     # How many days until the invite expires (default 7)
+
+    @field_validator("passport_number")
+    @classmethod
+    def validate_passport_number(cls, v: str) -> str:
+        cleaned = v.strip().upper().replace(" ", "").replace("-", "")
+        if not cleaned:
+            raise ValueError("Passport number is required.")
+        if not re.match(r"^[A-Z0-9]{6,20}$", cleaned):
+            raise ValueError("Passport number must be 6–20 alphanumeric characters.")
+        return cleaned
 
 
 class InviteByCodeRequest(BaseModel):
     """HR generates a reusable company code to share offline."""
     max_uses:         Optional[int]  = Field(None, ge=1, le=500)
-    # NULL = unlimited — good for large companies
     personal_message: Optional[str]  = Field(None, max_length=500)
-
-
-class InviteByLinkRequest(BaseModel):
-    """HR generates a shareable link."""
-    max_uses:         Optional[int]  = Field(None, ge=1, le=500)
-    personal_message: Optional[str]  = Field(None, max_length=500)
-    expires_days:     Optional[int]  = Field(30, ge=1, le=365)
 
 
 class AcceptInviteRequest(BaseModel):
     """
     Employee accepts an invite.
     Works for all 3 methods — frontend sends whichever token/code they have.
+
+    passport_number is optional AT THE SCHEMA LEVEL because code/link
+    invites never collect one. For email invites it is effectively
+    mandatory — the service layer enforces this by checking whether the
+    resolved invitation has an invited_passport_hash set, and rejects
+    acceptance if it's missing or doesn't match.
     """
-    invite_token: Optional[str] = None   # link method
-    invite_code:  Optional[str] = None   # code method
-    # email method uses invite_token from the email link
+    invite_token:     Optional[str] = None   # link method
+    invite_code:      Optional[str] = None   # code method
+    passport_number:  Optional[str] = None   # required only for email-method invites
 
 
 class ValidateTokenRequest(BaseModel):
@@ -141,10 +151,11 @@ class InvitationWithCompany(InvitationResponse):
 
 
 class AcceptInviteResponse(BaseModel):
-    message:      str
-    company_name: str
-    employer_id:  uuid.UUID
+    message:               str
+    company_name:          str
+    employer_id:           uuid.UUID
     # employer_profiles.id — now stored in user_profiles.employer_id
+    needs_personal_email:  bool = False
 
 
 class EmployeeResponse(BaseModel):
@@ -163,6 +174,7 @@ class EmployeeResponse(BaseModel):
     work_email:  Optional[str]
     start_date:  Optional[str]
     is_active:   bool
+    access_revoked_at: Optional[str] = None
 
     # Application stats
     active_applications: int = 0
@@ -181,6 +193,11 @@ class ValidateTokenResponse(BaseModel):
     invite_method: Optional[str] = None
     message:       str
     # "Valid invite from TechCorp" or "This invite has expired"
+
+    # True → the accept screen must show a blank passport number field and
+    # block acceptance until it's correctly filled in. Always true for
+    # email-method invites now that passport_number is mandatory on creation.
+    requires_passport_verification: bool = False
 
     # Tells the frontend which screen to show next —
     # True  → "Welcome back! Log in to link this invite to your account."
