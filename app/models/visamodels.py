@@ -819,7 +819,8 @@ class DocumentType(Base):
     accepted_formats = Column(String(100), nullable=True, default="PDF,JPG,PNG")
     max_file_size_mb = Column(Integer, default=10, nullable=False)
     is_active        = Column(Boolean, default=True, nullable=False)
-    ocr_slug = Column(String(50), nullable=True, index=True)   
+    ocr_slug = Column(String(50), nullable=True, index=True)   # new
+
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
