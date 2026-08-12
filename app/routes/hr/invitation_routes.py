@@ -12,7 +12,7 @@ from app.models.visamodels import User
 from app.schemas.hr.invitation_schemas import (
     InviteByEmailRequest,
     InviteByCodeRequest,
-    InviteByLinkRequest,
+    # InviteByLinkRequest,
     AcceptInviteRequest,
     AcceptInviteNewUserRequest,
     RequestMergeOtpRequest,
@@ -31,16 +31,16 @@ from app.services.hr.invitation_service import (
     _get_employer_profile,
     create_email_invite,
     create_code_invite,
-    create_link_invite,
+    # create_link_invite,
     get_employee_detail,
     get_my_invitations,
     revoke_invitation,
     resend_email_invite,
     validate_invite,
     accept_invite,
-    accept_invite_new_user,
-    request_merge_otp,
-    accept_invite_existing_user,
+    # accept_invite_new_user,
+    # request_merge_otp,
+    # accept_invite_existing_user,
     get_my_employees,
     update_employee_info,
     deactivate_employee,
@@ -112,27 +112,27 @@ async def invite_by_code(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@invitation_router.post(
-    "/link",
-    response_model=InvitationResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="HR: Generate shareable invite link",
-)
-async def invite_by_link(
-    data:         InviteByLinkRequest,
-    db:           AsyncSession   = Depends(get_db),
-    current_user: User           = Depends(get_current_user),
-):
-    """
-    HR generates a shareable link.
-    Anyone with the link can join (up to max_uses limit).
-    """
-    try:
-        invite = await create_link_invite(db, current_user.user_id, data)
-        await db.commit()
-        return invite
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# @invitation_router.post(
+#     "/link",
+#     response_model=InvitationResponse,
+#     status_code=status.HTTP_201_CREATED,
+#     summary="HR: Generate shareable invite link",
+# )
+# async def invite_by_link(
+#     data:         InviteByLinkRequest,
+#     db:           AsyncSession   = Depends(get_db),
+#     current_user: User           = Depends(get_current_user),
+# ):
+#     """
+#     HR generates a shareable link.
+#     Anyone with the link can join (up to max_uses limit).
+#     """
+#     try:
+#         invite = await create_link_invite(db, current_user.user_id, data)
+#         await db.commit()
+#         return invite
+#     except ValueError as e:
+#         raise HTTPException(status_code=400, detail=str(e))
 
 
 # =============================================================================
@@ -275,78 +275,78 @@ async def accept_invitation(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@invitation_router.post(
-    "/accept/new-user",
-    response_model=AcceptInviteAuthResponse,
-    summary="Public: Accept invite — no existing account (creates one)",
-)
-async def accept_invitation_new_user(
-    data: AcceptInviteNewUserRequest,
-    db:   AsyncSession = Depends(get_db),
-):
-    """
-    Use when `GET /hr/validate` returned `account_exists: false`.
-    `data.email` is the person's PERSONAL email — mandatory field on this
-    same form. Creates the account, links it to the employer, and logs
-    the person in.
-    """
-    if not data.invite_token and not data.invite_code:
-        raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
-    try:
-        result = await accept_invite_new_user(db, data)
-        await db.commit()
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# @invitation_router.post(
+#     "/accept/new-user",
+#     response_model=AcceptInviteAuthResponse,
+#     summary="Public: Accept invite — no existing account (creates one)",
+# )
+# async def accept_invitation_new_user(
+#     data: AcceptInviteNewUserRequest,
+#     db:   AsyncSession = Depends(get_db),
+# ):
+#     """
+#     Use when `GET /hr/validate` returned `account_exists: false`.
+#     `data.email` is the person's PERSONAL email — mandatory field on this
+#     same form. Creates the account, links it to the employer, and logs
+#     the person in.
+#     """
+#     if not data.invite_token and not data.invite_code:
+#         raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
+#     try:
+#         result = await accept_invite_new_user(db, data)
+#         await db.commit()
+#         return result
+#     except ValueError as e:
+#         raise HTTPException(status_code=400, detail=str(e))
 
 
-@invitation_router.post(
-    "/accept/existing-user/request-otp",
-    response_model=RequestMergeOtpResponse,
-    summary="Public: Step 1 of merge — send login code to matched account",
-)
-async def request_merge_otp_route(
-    data: RequestMergeOtpRequest,
-    db:   AsyncSession = Depends(get_db),
-):
-    """
-    Use when `GET /hr/validate` returned `account_exists: true`. Sends a
-    6-digit code to the matched account's personal email. Call
-    `POST /hr/accept/existing-user` next with that code to complete the merge.
-    """
-    if not data.invite_token and not data.invite_code:
-        raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
-    try:
-        result = await request_merge_otp(db, data)
-        await db.commit()
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# @invitation_router.post(
+#     "/accept/existing-user/request-otp",
+#     response_model=RequestMergeOtpResponse,
+#     summary="Public: Step 1 of merge — send login code to matched account",
+# )
+# async def request_merge_otp_route(
+#     data: RequestMergeOtpRequest,
+#     db:   AsyncSession = Depends(get_db),
+# ):
+#     """
+#     Use when `GET /hr/validate` returned `account_exists: true`. Sends a
+#     6-digit code to the matched account's personal email. Call
+#     `POST /hr/accept/existing-user` next with that code to complete the merge.
+#     """
+#     if not data.invite_token and not data.invite_code:
+#         raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
+#     try:
+#         result = await request_merge_otp(db, data)
+#         await db.commit()
+#         return result
+#     except ValueError as e:
+#         raise HTTPException(status_code=400, detail=str(e))
 
 
-@invitation_router.post(
-    "/accept/existing-user",
-    response_model=AcceptInviteAuthResponse,
-    summary="Public: Step 2 of merge — confirm code, merge invite in",
-)
-async def accept_invitation_existing_user(
-    data: AcceptInviteExistingUserRequest,
-    db:   AsyncSession = Depends(get_db),
-):
-    """
-    Step 2 after `POST /hr/accept/existing-user/request-otp`. The 6-digit
-    code confirms it's really them — no password involved — then the new
-    employer link is merged into their existing account. All previous
-    cases, documents, and history stay attached to that one account.
-    """
-    if not data.invite_token and not data.invite_code:
-        raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
-    try:
-        result = await accept_invite_existing_user(db, data)
-        await db.commit()
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# @invitation_router.post(
+#     "/accept/existing-user",
+#     response_model=AcceptInviteAuthResponse,
+#     summary="Public: Step 2 of merge — confirm code, merge invite in",
+# )
+# async def accept_invitation_existing_user(
+#     data: AcceptInviteExistingUserRequest,
+#     db:   AsyncSession = Depends(get_db),
+# ):
+#     """
+#     Step 2 after `POST /hr/accept/existing-user/request-otp`. The 6-digit
+#     code confirms it's really them — no password involved — then the new
+#     employer link is merged into their existing account. All previous
+#     cases, documents, and history stay attached to that one account.
+#     """
+#     if not data.invite_token and not data.invite_code:
+#         raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
+#     try:
+#         result = await accept_invite_existing_user(db, data)
+#         await db.commit()
+#         return result
+#     except ValueError as e:
+#         raise HTTPException(status_code=400, detail=str(e))
 
 
 # =============================================================================
