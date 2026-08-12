@@ -12,10 +12,9 @@ from sqlalchemy import (
 )
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from sqlalchemy.orm import  relationship
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-
 
 
 # =============================================================================
@@ -819,7 +818,13 @@ class DocumentType(Base):
     accepted_formats = Column(String(100), nullable=True, default="PDF,JPG,PNG")
     max_file_size_mb = Column(Integer, default=10, nullable=False)
     is_active        = Column(Boolean, default=True, nullable=False)
+<<<<<<< Updated upstream
     ocr_slug = Column(String(50), nullable=True, index=True)
+=======
+    ocr_slug = Column(String(50), nullable=True, index=True)   # new
+
+
+>>>>>>> Stashed changes
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -1314,13 +1319,21 @@ class Notification(Base):
             "document_request_declined",
             "document_needs_hr_release",
             "document_release_declined",
+<<<<<<< Updated upstream
             'document_expiring',
+=======
+            "document_expiring",
+>>>>>>> Stashed changes
             name="notification_type_enum"),
         nullable=False
     )
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
+<<<<<<< Updated upstream
              "approval", "compliance", "employee","document",
+=======
+             "approval", "compliance", "employee","document",   
+>>>>>>> Stashed changes
              name="notification_category_enum"),
         nullable=False
     )

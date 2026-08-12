@@ -162,10 +162,14 @@ SECURITY_EVENT_COLORS = {
 def _period_start(period: TimelinePeriod, year: Optional[int], month: Optional[int]) -> datetime:
     now   = datetime.now(timezone.utc)
     today = now.date()
+    if period == "24hours":
+        return now - timedelta(hours=24)
     if period == "7days":
         return datetime.combine(today - timedelta(days=6), datetime.min.time()).replace(tzinfo=timezone.utc)
     if period == "30days":
         return datetime.combine(today - timedelta(days=29), datetime.min.time()).replace(tzinfo=timezone.utc)
+    if period == "90days":
+        return datetime.combine(today - timedelta(days=89), datetime.min.time()).replace(tzinfo=timezone.utc)
     if period == "month":
         return datetime(year or today.year, month or today.month, 1, tzinfo=timezone.utc)
     if period == "year":
