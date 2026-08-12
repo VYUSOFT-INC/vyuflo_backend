@@ -360,11 +360,10 @@ class UserProfile(Base):
     onboarding_step      = Column(Integer, default=1,     nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
     theme_color = Column(String(7), nullable=True, default="#4f46e5")
-    tour_employee_seen = Column(Boolean, nullable=False, default=False)   
-    tour_hr_seen       = Column(Boolean, nullable=False, default=False)   
-    tour_attorney_seen = Column(Boolean, nullable=False, default=False)   
-    tour_admin_seen    = Column(Boolean, nullable=False, default=False)   
-
+    tour_employee_seen   = Column(Boolean, default=False, nullable=False)
+    tour_hr_seen         = Column(Boolean, default=False, nullable=False)
+    tour_attorney_seen   = Column(Boolean, default=False, nullable=False)
+    tour_admin_seen      = Column(Boolean, default=False, nullable=False)
     # ── Employer Link (set when employee accepts HR invitation) ───────────────
     employer_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
                          nullable=True, index=True)
