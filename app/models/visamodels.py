@@ -360,10 +360,11 @@ class UserProfile(Base):
     onboarding_step      = Column(Integer, default=1,     nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
     theme_color = Column(String(7), nullable=True, default="#4f46e5")
-    tour_employee_seen   = Column(Boolean, default=False, nullable=False)
-    tour_hr_seen         = Column(Boolean, default=False, nullable=False)
-    tour_attorney_seen   = Column(Boolean, default=False, nullable=False)
-    tour_admin_seen      = Column(Boolean, default=False, nullable=False)
+    tour_employee_seen = Column(Boolean, nullable=False, default=False)   
+    tour_hr_seen       = Column(Boolean, nullable=False, default=False)   
+    tour_attorney_seen = Column(Boolean, nullable=False, default=False)   
+    tour_admin_seen    = Column(Boolean, nullable=False, default=False)   
+
     # ── Employer Link (set when employee accepts HR invitation) ───────────────
     employer_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
                          nullable=True, index=True)
@@ -818,13 +819,8 @@ class DocumentType(Base):
     accepted_formats = Column(String(100), nullable=True, default="PDF,JPG,PNG")
     max_file_size_mb = Column(Integer, default=10, nullable=False)
     is_active        = Column(Boolean, default=True, nullable=False)
-<<<<<<< Updated upstream
-    ocr_slug = Column(String(50), nullable=True, index=True)
-=======
-    ocr_slug = Column(String(50), nullable=True, index=True)   # new
+    ocr_slug = Column(String(50), nullable=True, index=True)   
 
-
->>>>>>> Stashed changes
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -1319,21 +1315,13 @@ class Notification(Base):
             "document_request_declined",
             "document_needs_hr_release",
             "document_release_declined",
-<<<<<<< Updated upstream
-            'document_expiring',
-=======
             "document_expiring",
->>>>>>> Stashed changes
             name="notification_type_enum"),
         nullable=False
     )
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
-<<<<<<< Updated upstream
-             "approval", "compliance", "employee","document",
-=======
              "approval", "compliance", "employee","document",   
->>>>>>> Stashed changes
              name="notification_category_enum"),
         nullable=False
     )
@@ -3171,7 +3159,9 @@ class EmployerInvitation(Base):
     invited_email    = Column(String(255), nullable=True)
     invite_code      = Column(String(30),  nullable=True, unique=True)
     invite_token     = Column(String(128), nullable=True, unique=True)
-    invited_passport_hash = Column(String(64), nullable=True)
+    invited_passport_hash = Column(String(64), nullable=True)   # new
+
+
     max_uses         = Column(Integer, nullable=True)
     used_count       = Column(Integer, default=0, nullable=False)
 
@@ -3234,7 +3224,9 @@ class EmployerEmployee(Base):
                                  nullable=False)
     invitation_id       = Column(UUID(as_uuid=True), ForeignKey("employer_invitations.id"),
                                  nullable=True)
-    access_revoked_at = Column(DateTime(timezone=True), nullable=True)
+    access_revoked_at = Column(DateTime(timezone=True), nullable=True)   
+
+
     is_active    = Column(Boolean, default=True,  nullable=False)
     job_title    = Column(String(200), nullable=True)
     department   = Column(String(200), nullable=True)
