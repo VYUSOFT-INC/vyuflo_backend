@@ -3107,6 +3107,9 @@ class ConsultationBooking(Base):
 
     meeting_link         = Column(String(1000), nullable=True)
 
+    zoho_session_key     = Column(String(200),  nullable=True)
+
+
     employee_notes       = Column(Text, nullable=True)
     attorney_notes       = Column(Text, nullable=True)
     cancellation_reason  = Column(String(500), nullable=True)

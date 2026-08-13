@@ -10,12 +10,13 @@ import uuid
 from datetime import date, time, datetime, timedelta, timezone
 from typing import List, Optional, Sequence
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_ , delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.visamodels import (
     User,
+    UserProfile,
     Application,
     AttorneyProfile,
     AppointmentType,
@@ -26,6 +27,7 @@ from app.models.visamodels import (
 from app.schemas.employee.consultation_schemas import (
     CreateConsultationBookingRequest,
     AttorneyAvailabilityCreateRequest,
+    SaveAvailabilityRequest,
     AppointmentTypeCreateRequest,
     SlotGenerateRequest,
     BookConsultationPageData,
@@ -148,6 +150,100 @@ async def set_attorney_availability(
     )
     return await db_create(db, obj)
 
+async def get_user_timezone(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    fallback: str,
+) -> str:
+    """
+    Looks up a user's own personal timezone from their profile (set on
+    the settings page). Falls back to `fallback` (usually the attorney's
+    slot timezone) if the user never filled that field in.
+    """
+    result = await db.execute(
+        select(UserProfile.timezone).where(UserProfile.user_id == user_id)
+    )
+    tz = result.scalar_one_or_none()
+    return tz or fallback
+
+
+async def _get_attorney_profile_for_user(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> Optional[AttorneyProfile]:
+    """Resolves the logged-in user's own AttorneyProfile.id — used by the
+    /attorneys/me/* endpoints so the frontend never has to know the UUID."""
+    result = await db.execute(
+        select(AttorneyProfile).where(AttorneyProfile.user_id == user_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def bulk_replace_availability(
+    db: AsyncSession,
+    attorney_id: uuid.UUID,
+    data: SaveAvailabilityRequest,
+) -> Sequence[AttorneyAvailability]:
+    """
+    Replaces the attorney's ENTIRE weekly availability in one call.
+    Any day not included in `data.rows` is treated as "turned off".
+
+    Safety rule: turning a day off must NEVER cancel a consultation that
+    was already booked. So this function only deletes unbooked
+    ConsultationSlot rows for days that were removed — booked slots (and
+    the real bookings tied to them) are left completely alone.
+    """
+    existing_rows = await list_attorney_availability(db, attorney_id)
+    old_days = {row.day_of_week for row in existing_rows}
+    new_days = {row.day_of_week for row in data.rows}
+    removed_days = old_days - new_days
+
+    await db.execute(
+        delete(AttorneyAvailability).where(AttorneyAvailability.attorney_id == attorney_id)
+    )
+    for row in data.rows:
+        db.add(AttorneyAvailability(
+            id=uuid.uuid4(),
+            attorney_id=attorney_id,
+            day_of_week=row.day_of_week,
+            start_time=row.start_time,
+            end_time=row.end_time,
+            slot_duration_minutes=row.slot_duration_minutes,
+            timezone=row.timezone,
+            is_active=True,
+        ))
+
+    if removed_days:
+        from app.core.timeutils import to_viewer_local
+
+        # Slots are stored as UTC (see generate_slots below). A slot near
+        # midnight can end up stored under a DIFFERENT UTC calendar date
+        # than the local weekday it was actually generated for — so we
+        # convert each slot back into the timezone of the OLD rule it
+        # came from to check the correct local day, instead of trusting
+        # the raw stored slot_date.weekday().
+        old_tz_by_day = {row.day_of_week: row.timezone for row in existing_rows}
+
+        future_slots = await db.execute(
+            select(ConsultationSlot).where(
+                and_(
+                    ConsultationSlot.attorney_id == attorney_id,
+                    ConsultationSlot.is_booked == False,
+                    ConsultationSlot.slot_date >= date.today() - timedelta(days=1),
+                )
+            )
+        )
+        for slot in future_slots.scalars().all():
+            utc_dt = datetime.combine(slot.slot_date, slot.slot_time, tzinfo=timezone.utc)
+            for removed_day in removed_days:
+                tz_name = old_tz_by_day.get(removed_day, "UTC")
+                local_dt = to_viewer_local(utc_dt, tz_name)
+                if local_dt.weekday() == removed_day:
+                    await db.delete(slot)
+                    break
+
+    await db.commit()
+    return await list_attorney_availability(db, attorney_id)
 
 # =============================================================================
 # Slot generation — called by attorney or cron job
@@ -159,55 +255,69 @@ async def generate_slots(
     data: SlotGenerateRequest,
 ) -> List[ConsultationSlot]:
     """
-    Walk every day in [from_date, to_date].
-    For each day that matches an availability rule (day_of_week),
-    generate time slots spaced by slot_duration_minutes.
-    Skip days that already have slots.
+    Walk every day in [from_date, to_date] using the ATTORNEY'S OWN local
+    calendar (their weekly rule is still expressed in their own timezone —
+    see AttorneyAvailability, which is intentionally NOT converted to UTC).
+
+    Every generated slot is converted to its true UTC instant BEFORE being
+    stored — ConsultationSlot rows are always UTC from here on, regardless
+    of which timezone the attorney's rule uses.
+
+    A slot near midnight can convert into the UTC day BEFORE or AFTER the
+    local day being walked (e.g. 11:30 PM in Los Angeles becomes the next
+    day in UTC) — so the "does this slot already exist" check is done
+    against a UTC-based lookup table, not the local day being walked.
     """
+    from app.core.timeutils import to_utc
+
     availability_rows = await list_attorney_availability(db, data.attorney_id)
     if not availability_rows:
         return []
 
-    # Build lookup: day_of_week → availability rule
     avail_by_day: dict[int, AttorneyAvailability] = {}
     for row in availability_rows:
         avail_by_day[row.day_of_week] = row
+
+    existing_result = await db.execute(
+        select(ConsultationSlot.slot_date, ConsultationSlot.slot_time).where(
+            and_(
+                ConsultationSlot.attorney_id == data.attorney_id,
+                ConsultationSlot.slot_date >= data.from_date - timedelta(days=1),
+                ConsultationSlot.slot_date <= data.to_date + timedelta(days=1),
+            )
+        )
+    )
+    existing_utc_pairs = {(r.slot_date, r.slot_time) for r in existing_result.all()}
 
     created: List[ConsultationSlot] = []
     current = data.from_date
 
     while current <= data.to_date:
-        dow = current.weekday()  # 0=Monday … 6=Sunday
+        dow = current.weekday()
         if dow in avail_by_day:
             rule = avail_by_day[dow]
 
-            # Check which slots already exist for this date
-            existing_result = await db.execute(
-                select(ConsultationSlot.slot_time).where(
-                    and_(
-                        ConsultationSlot.attorney_id == data.attorney_id,
-                        ConsultationSlot.slot_date == current,
-                    )
-                )
-            )
-            existing_times = set(existing_result.scalars().all())
-
-            # Walk start→end in steps of slot_duration_minutes
             slot_dt = datetime.combine(current, rule.start_time)
             end_dt  = datetime.combine(current, rule.end_time)
 
             while slot_dt < end_dt:
-                t = slot_dt.time()
-                if t not in existing_times:
+                local_time = slot_dt.time()
+                utc_instant = to_utc(current, local_time, rule.timezone)
+                utc_date = utc_instant.date()
+                utc_time = utc_instant.time()
+
+                pair = (utc_date, utc_time)
+                if pair not in existing_utc_pairs:
                     slot = ConsultationSlot(
                         id=uuid.uuid4(),
                         attorney_id=data.attorney_id,
-                        slot_date=current,
-                        slot_time=t,
-                        timezone=rule.timezone,
+                        slot_date=utc_date,
+                        slot_time=utc_time,
+                        timezone="UTC",
                     )
                     db.add(slot)
                     created.append(slot)
+                    existing_utc_pairs.add(pair)
                 slot_dt += timedelta(minutes=rule.slot_duration_minutes)
 
         current += timedelta(days=1)
@@ -277,13 +387,22 @@ def _slot_availability(slot: ConsultationSlot, booked_counts: dict) -> str:
 async def get_book_page_data(
     db: AsyncSession,
     attorney_id: Optional[uuid.UUID] = None,
+    viewer_id: Optional[uuid.UUID] = None,
 ) -> BookConsultationPageData:
     """
     Single query that assembles everything the BookConsultation screen needs:
     - attorney profile (with nested user)
     - appointment types
     - available slots for the next 30 days
+
+    `viewer_id` is the logged-in employee browsing this page. ConsultationSlot
+    rows are stored as UTC — display_date/display_time are computed here,
+    converted into the VIEWER's own timezone (from their profile, falling
+    back to UTC if they never set one), so the frontend needs no timezone
+    logic of its own — it just shows these two strings as-is.
     """
+    from app.core.timeutils import to_viewer_local
+
     attorney = None
     slots: List[ConsultationSlot] = []
 
@@ -311,9 +430,18 @@ async def get_book_page_data(
         for d in booked_result.scalars().all():
             booked_counts[d] = booked_counts.get(d, 0) + 1
 
+    viewer_tz = await get_user_timezone(db, viewer_id, fallback="UTC") if viewer_id else "UTC"
+
     slot_outs = []
     for s in slots:
         avail = _slot_availability(s, booked_counts)
+
+        # s.slot_date/s.slot_time are stored as UTC — convert to the
+        # viewer's own timezone before formatting for display.
+        utc_dt   = datetime.combine(s.slot_date, s.slot_time, tzinfo=timezone.utc)
+        local_dt = to_viewer_local(utc_dt, viewer_tz)
+        tz_abbrev = local_dt.tzname() or viewer_tz
+
         out = ConsultationSlotOut(
             id=s.id,
             attorney_id=s.attorney_id,
@@ -323,8 +451,8 @@ async def get_book_page_data(
             is_booked=s.is_booked,
             is_blocked=s.is_blocked,
             availability=avail,
-            display_date=s.slot_date.isoformat(),                          # NEW — 
-            display_time=s.slot_time.strftime("%I:%M %p").lstrip("0"),
+            display_date=local_dt.date().isoformat(),
+            display_time=f"{local_dt.strftime('%I:%M %p').lstrip('0')} {tz_abbrev}",
         )
         slot_outs.append(out)
 
@@ -409,16 +537,55 @@ async def create_booking(
     # ── Mark slot as booked ──────────────────────────────────────────────────
     await db_update(db, ConsultationSlot, slot.id, {"is_booked": True})
 
-    # ── NEW: send confirmation email + in-app notification ───────────────────
-    # Wrapped in try/except so a broken email server never blocks the booking itself.
+    # ── NEW: create Zoho meeting (best-effort) ────────────────────────────────
+    # Wrapped in try/except so a Zoho outage/auth problem never blocks the
+    # booking itself — booking still succeeds, link just stays empty.
+    employee = await db_get_by_id(db, User, employee_id)
     try:
+        from app.core.zoho_meeting import create_meeting
+
+        from app.core.timeutils import to_utc
+        start_dt_utc = to_utc(slot.slot_date, slot.slot_time, slot.timezone)
+        
+        zoho_resp = await create_meeting(
+            topic            = f"{appt_type.title} — {attorney.user.first_name} & {employee.first_name}",
+            start_time_utc   = start_dt_utc,
+            duration_minutes = appt_type.duration_minutes,
+            presenter_email  = attorney.user.email,
+            attendee_emails  = [employee.email],
+            agenda           = data.employee_notes or None,
+        )
+        session     = zoho_resp.get("session", {}) or {}
+        join_link   = session.get("joinLink") or session.get("attendeeJoinLink")
+        session_key = session.get("sessionKey") or session.get("meetingKey")
+
+        if join_link:
+            await db_update(db, ConsultationBooking, booking.id, {
+                "meeting_link":     join_link,
+                "zoho_session_key": session_key,
+            })
+            booking.meeting_link     = join_link
+            booking.zoho_session_key = session_key
+    except Exception as e:
+        print(f"[create_booking] Zoho meeting create failed: {e}")
+
+    # ── NEW: send confirmation email + in-app notification ───────────────────
+    # Wrapped in try/except so a broken email server never blocks the booking itself
+    try:
+        from app.core.timeutils import to_utc, format_in_timezone
+
         employee = await db_get_by_id(db, User, employee_id)
-        start_dt = datetime.combine(slot.slot_date, slot.slot_time)
         confirmation_no = f"VYU-{str(booking.id)[:6].upper()}"
-        join_url = booking.meeting_link or ""   # empty until Zoho is wired up
+        join_url = booking.meeting_link or ""   # empty if Zoho create failed above
 
-        when_text = f"{start_dt.strftime('%b %d, %Y')} at {start_dt.strftime('%I:%M %p')}"
+        start_dt_utc = to_utc(slot.slot_date, slot.slot_time, slot.timezone)
 
+        employee_tz = await get_user_timezone(db, employee.id, fallback=slot.timezone)
+        attorney_tz = await get_user_timezone(db, attorney.user_id, fallback=slot.timezone)
+
+        when_text_employee = format_in_timezone(start_dt_utc, employee_tz)
+        when_text_attorney = format_in_timezone(start_dt_utc, attorney_tz)
+    
         # -- Email to the employee --
         await send_email(
             to=employee.email,
@@ -426,7 +593,7 @@ async def create_booking(
             body=(
                 f"Hi {employee.first_name},\n\n"
                 f"Your {appt_type.title} with {attorney.user.first_name} {attorney.user.last_name} "
-                f"is confirmed for {when_text}.\n"
+                f"is confirmed for {when_text_employee}.\n"
                 f"Confirmation #: {confirmation_no}\n"
                 f"{'Join link: ' + join_url if join_url else 'Meeting link will be shared before the call.'}\n\n"
                 f"Thanks,\nVyuflo Team"
@@ -440,7 +607,7 @@ async def create_booking(
             body=(
                 f"Hi {attorney.user.first_name},\n\n"
                 f"{employee.first_name} {employee.last_name} ({employee.email}) booked a "
-                f"{appt_type.title} with you for {when_text}.\n"
+                f"{appt_type.title} with you for {when_text_attorney}.\n"
                 f"Confirmation #: {confirmation_no}\n"
                 f"{'Join link: ' + join_url if join_url else 'Meeting link will be shared before the call.'}\n\n"
                 f"Thanks,\nVyuflo Team"
@@ -455,7 +622,7 @@ async def create_booking(
             category="case_update",
             priority="medium",
             title=f"Consultation booked with {attorney.user.first_name} {attorney.user.last_name}",
-            body=f"{appt_type.title} on {when_text}. Meeting link has been emailed to you.",
+            body=f"{appt_type.title} on {when_text_employee}. Meeting link has been emailed to you.",
             case_reference=confirmation_no,
             actor_id=attorney.user_id,
             actor_label=f"{attorney.user.first_name} {attorney.user.last_name}",
@@ -473,13 +640,48 @@ async def create_booking(
             category="case_update",
             priority="medium",
             title=f"New consultation with {employee.first_name} {employee.last_name}",
-            body=f"Scheduled for {when_text}. Client email: {employee.email}",
+            body=f"Scheduled for {when_text_attorney}. Client email: {employee.email}",
             case_reference=confirmation_no,
             actor_id=employee.id,
             actor_label=f"{employee.first_name} {employee.last_name}",
             is_read=False,
             created_by=employee.id,
         ))
+        # -- NEW: notify assigned HR, if any --
+        # Only fires when the booking is linked to an application that has an
+        # assigned HR (employer-sponsored cases). Self-petition bookings have
+        # no application_id and are silently skipped.
+        if booking.application_id:
+            application = await db_get_by_id(db, Application, booking.application_id)
+            if application and application.assigned_hr_id:
+                hr_user = await db_get_by_id(db, User, application.assigned_hr_id)
+                if hr_user:
+                    hr_tz = await get_user_timezone(db, hr_user.id, fallback=slot.timezone)
+                    when_text_hr = format_in_timezone(start_dt_utc, hr_tz)
+                    db.add(Notification(
+                        id=uuid.uuid4(),
+                        user_id=hr_user.id,
+                        notification_type="calendar_event_reminder",
+                        category="case_update",
+                        priority="low",
+                        title=f"Consultation scheduled: {employee.first_name} {employee.last_name}",
+                        body=(
+                            f"{employee.first_name} {employee.last_name} has a "
+                            f"{appt_type.title} with {attorney.user.first_name} "
+                            f"{attorney.user.last_name} on {when_text_hr}. "
+                            + ("You can join using the link below if needed."
+                               if join_url else
+                               "Meeting link will be shared before the call.")
+                        ),
+                        case_reference=confirmation_no,
+                        actor_id=employee.id,
+                        actor_label=f"{employee.first_name} {employee.last_name}",
+                        cta_primary_label="Join meeting" if join_url else None,
+                        cta_primary_url=join_url or None,
+                        is_read=False,
+                        created_by=employee.id,
+                    ))
+
     except Exception as e:
         # Booking still succeeds even if email/notification fails — just log it.
         print(f"[create_booking] email/notification failed: {e}")
@@ -536,4 +738,42 @@ async def cancel_booking(
         "cancelled_by":         cancelled_by,
         "modified_by":          cancelled_by,
     })
+
+        # ── NEW: delete the Zoho meeting (best-effort) ────────────────────────────
+    if booking.zoho_session_key:
+        try:
+            from app.core.zoho_meeting import delete_meeting
+            await delete_meeting(booking.zoho_session_key)
+        except Exception as e:
+            print(f"[cancel_booking] Zoho meeting delete failed: {e}")
+
+    # ── NEW: notify assigned HR of the cancellation, if any ───────────────────
+    try:
+        if booking.application_id:
+            application = await db_get_by_id(db, Application, booking.application_id)
+            if application and application.assigned_hr_id:
+                hr_user = await db_get_by_id(db, User, application.assigned_hr_id)
+                employee = await db_get_by_id(db, User, booking.employee_id)
+                if hr_user and employee:
+                    confirmation_no = f"VYU-{str(booking.id)[:6].upper()}"
+                    db.add(Notification(
+                        id=uuid.uuid4(),
+                        user_id=hr_user.id,
+                        notification_type="calendar_event_reminder",
+                        category="case_update",
+                        priority="low",
+                        title=f"Consultation cancelled: {employee.first_name} {employee.last_name}",
+                        body=(
+                            f"The consultation for {employee.first_name} "
+                            f"{employee.last_name} has been cancelled."
+                            + (f" Reason: {reason}" if reason else "")
+                        ),
+                        case_reference=confirmation_no,
+                        actor_id=cancelled_by,
+                        is_read=False,
+                        created_by=cancelled_by,
+                    ))
+    except Exception as e:
+        print(f"[cancel_booking] HR notification failed: {e}")
+
     return updated
