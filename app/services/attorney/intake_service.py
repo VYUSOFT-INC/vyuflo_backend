@@ -736,6 +736,13 @@ def _build_intake_data_response(row: IntakeImmigrationHistory) -> IntakeDataResp
         date_of_birth        = row.date_of_birth,
         gender               = row.gender,
         nationality          = row.nationality,
+        phone                = row.phone,            # new
+        is_student           = row.is_student,       # new
+        company_name         = row.company_name,     # new
+        job_title            = row.job_title,         # new
+        start_date           = row.start_date,        # new
+        annual_salary        = row.annual_salary,     # new
+        visa_type_code       = row.visa_type_code,    # new
         passport_number      = row.passport_number,
         passport_expiry_date = row.passport_expiry_date,
         email                = row.email,
@@ -827,6 +834,7 @@ async def list_assigned_applications(
     if hasattr(Application, "assigned_attorney_id"):
         query = query.where(Application.assigned_attorney_id == attorney_id)
     # else: returns all apps until column is added (dev-only behavior)
+        query = query.where(Application.case_pipeline_stage.is_(None))   # new — once intake is accepted, case_pipeline_stage is set and it belongs in the main Cases section, not this queue
 
     result = await db.execute(query)
     applications = result.scalars().all()

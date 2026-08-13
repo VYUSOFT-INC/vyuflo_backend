@@ -12,10 +12,9 @@ from sqlalchemy import (
 )
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from sqlalchemy.orm import  relationship
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
-
 
 
 # =============================================================================
@@ -44,9 +43,7 @@ class User(Base):
     )
     auth_provider_id = Column(String(255), nullable=True)
 
-    is_active   = Column(Boolean, default=True,  nullable=False)
-    token_version = Column(Integer, default=0, nullable=False)
-    
+    is_active   = Column(Boolean, default=True,  nullable=False)    
     is_verified = Column(Boolean, default=False, nullable=False)
 
     terms_accepted    = Column(Boolean,  nullable=False, default=False)
@@ -819,7 +816,9 @@ class DocumentType(Base):
     accepted_formats = Column(String(100), nullable=True, default="PDF,JPG,PNG")
     max_file_size_mb = Column(Integer, default=10, nullable=False)
     is_active        = Column(Boolean, default=True, nullable=False)
-    ocr_slug = Column(String(50), nullable=True, index=True)
+    ocr_slug = Column(String(50), nullable=True, index=True)   # new
+
+
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -1314,13 +1313,13 @@ class Notification(Base):
             "document_request_declined",
             "document_needs_hr_release",
             "document_release_declined",
-            'document_expiring',
+            "document_expiring",
             name="notification_type_enum"),
         nullable=False
     )
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
-             "approval", "compliance", "employee","document",
+             "approval", "compliance", "employee","document",   
              name="notification_category_enum"),
         nullable=False
     )
@@ -3158,7 +3157,9 @@ class EmployerInvitation(Base):
     invited_email    = Column(String(255), nullable=True)
     invite_code      = Column(String(30),  nullable=True, unique=True)
     invite_token     = Column(String(128), nullable=True, unique=True)
-    invited_passport_hash = Column(String(64), nullable=True)
+    invited_passport_hash = Column(String(64), nullable=True)   # new
+
+
     max_uses         = Column(Integer, nullable=True)
     used_count       = Column(Integer, default=0, nullable=False)
 
@@ -3221,7 +3222,9 @@ class EmployerEmployee(Base):
                                  nullable=False)
     invitation_id       = Column(UUID(as_uuid=True), ForeignKey("employer_invitations.id"),
                                  nullable=True)
-    access_revoked_at = Column(DateTime(timezone=True), nullable=True)
+    access_revoked_at = Column(DateTime(timezone=True), nullable=True)   
+
+
     is_active    = Column(Boolean, default=True,  nullable=False)
     job_title    = Column(String(200), nullable=True)
     department   = Column(String(200), nullable=True)
@@ -3389,6 +3392,13 @@ class IntakeImmigrationHistory(Base):
     date_of_birth        = Column(Date,        nullable=True)
     gender               = Column(String(20),  nullable=True)
     nationality          = Column(String(100), nullable=True)
+    phone            = Column(String(30),  nullable=True)   # new
+    is_student       = Column(Boolean,     nullable=True)   # new
+    company_name     = Column(String(200), nullable=True)   # new
+    job_title        = Column(String(200), nullable=True)   # new
+    start_date       = Column(Date,        nullable=True)   # new
+    annual_salary    = Column(String(30),  nullable=True)   # new
+    visa_type_code   = Column(String(30),  nullable=True)   # new
     passport_number      = Column(String(50),  nullable=True)
     passport_expiry_date = Column(Date,        nullable=True)
     email                = Column(String(255), nullable=True)

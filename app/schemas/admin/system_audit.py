@@ -17,7 +17,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-TimelinePeriod = Literal["7days", "30days", "month", "year"]
+TimelinePeriod = Literal["24hours", "7days", "30days", "90days", "month", "year"]
 
 
 # ===========================================================================

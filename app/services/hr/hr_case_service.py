@@ -880,7 +880,6 @@ async def hr_list_case_history(
     )
     rows = result.scalars().all()
     return [HRCaseStatusHistoryResponse.model_validate(r) for r in rows]
-    return [HRCaseStatusHistoryResponse.model_validate(r) for r in rows]
 
 
 async def hr_connect_firm(   # new
