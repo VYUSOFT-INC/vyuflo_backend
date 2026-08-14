@@ -34,6 +34,7 @@ from app.models.visamodels import (
     EmployerProfile,
     EmployerFirmConnection,
     AttorneyProfile,
+    LawFirm,
     User,
     UserProfile,
     VisaType,
@@ -878,3 +879,54 @@ async def hr_list_case_history(
         .order_by(ApplicationStatusHistory.created_at.asc())
     )
     rows = result.scalars().all()
+    return [HRCaseStatusHistoryResponse.model_validate(r) for r in rows]
+
+
+async def hr_connect_firm(   # new
+    db: AsyncSession,
+    hr_user_id: uuid.UUID,
+    firm_name: str,
+) -> dict:
+    """
+    HR connects their company to a law firm by name.
+    Creates the firm if it doesn't exist, then links the employer to it.
+    """
+    emp_profile_result = await db.execute(
+        select(EmployerProfile).where(EmployerProfile.user_id == hr_user_id)
+    )
+    emp_profile = emp_profile_result.scalars().first()
+    if not emp_profile:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Complete your employer profile before connecting a firm.",
+        )
+
+    firm = await db.scalar(select(LawFirm).where(LawFirm.name == firm_name))
+    if not firm:
+        firm = LawFirm(id=uuid.uuid4(), name=firm_name, is_active=True)
+        db.add(firm)
+        await db.flush()
+
+    existing_connection = await db.scalar(
+        select(EmployerFirmConnection).where(
+            EmployerFirmConnection.employer_profile_id == emp_profile.id,
+            EmployerFirmConnection.firm_id == firm.id,
+        )
+    )
+    if not existing_connection:
+        connection = EmployerFirmConnection(
+            id=uuid.uuid4(),
+            employer_profile_id=emp_profile.id,
+            firm_id=firm.id,
+            is_active=True,
+            created_by=hr_user_id,
+        )
+        db.add(connection)
+
+    await db.commit()
+
+    return {
+        "firm_id":   firm.id,
+        "firm_name": firm.name,
+        "message":   f"Connected to {firm.name}.",
+    }

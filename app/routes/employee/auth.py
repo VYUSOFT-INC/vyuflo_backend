@@ -15,6 +15,7 @@ from app.core.exceptions import NotFoundException, UnauthorizedException
 from app.core.security import create_access_token, decode_token
 from app.models.visamodels import User, UserProfile
 from app.schemas.employee.auth import (
+    AddPersonalEmailRequest,
     LoginRequest,
     MessageResponse,
     PasswordResetComplete,
@@ -24,8 +25,10 @@ from app.schemas.employee.auth import (
     SignupRequest,
     SSORequest,
     TokenResponse,
+    VerifyPersonalEmailRequest,
 )
 from app.services.employee.auth_services import (
+    service_add_personal_email,
     service_complete_password_reset,
     service_login,
     service_logout,
@@ -34,6 +37,7 @@ from app.services.employee.auth_services import (
     service_sign_out_all_devices,
     service_signup,
     service_sso_login,
+    service_verify_personal_email,
     service_verify_reset_otp,
 )
 from app.services.employee.services import db_get_by_field, db_get_by_id, get_user_role
@@ -117,9 +121,6 @@ def _set_avatar_session_cookie(response: Response, user_id: str) -> None:
 def _clear_avatar_session_cookie(response: Response) -> None:
     response.delete_cookie(key="avatar_session", path="/api/v1/users/me/avatar")
 
-def _clear_avatar_session_cookie(response: Response) -> None:
-    response.delete_cookie(key="avatar_session", path="/api/v1/users/me/avatar")
-    
 def _clear_refresh_cookie(response: Response) -> None:
     response.delete_cookie(key="refresh_token", path="/api/v1/auth")
 
@@ -340,6 +341,43 @@ async def logout_all_devices(
     _clear_ui_cookie(response)
     _clear_avatar_session_cookie(response)
     return MessageResponse(message=f"Signed out from {revoked_count} device(s).")
+
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║                        PERSONAL EMAIL (ADD + VERIFY)                     ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+@router.post("/account/add-personal-email", response_model=MessageResponse)
+async def add_personal_email(
+    body:         AddPersonalEmailRequest,
+    db:           DBSession,
+    current_user: Current_User,
+) -> MessageResponse:
+    """
+    Authenticated user (typically someone who joined via an org-issued
+    email) adds a personal email as a backup login. A verification link
+    is sent — the email only becomes the login email once clicked.
+    """
+    await service_add_personal_email(
+        db, user_id=current_user.user_id, personal_email=body.personal_email
+    )
+    await db.commit()
+    return MessageResponse(message="Verification email sent to your personal address.")
+
+
+@router.post("/account/verify-personal-email", response_model=MessageResponse)
+async def verify_personal_email(
+    body: VerifyPersonalEmailRequest,
+    db:   DBSession,
+) -> MessageResponse:
+    """
+    PUBLIC endpoint — the link is clicked from the person's email client,
+    so there's no active session yet. Token itself is the credential.
+    """
+    await service_verify_personal_email(db, token=body.token)
+    await db.commit()
+    return MessageResponse(message="Personal email verified and set as your login email.")
+
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                        PASSWORD RESET                                    ║

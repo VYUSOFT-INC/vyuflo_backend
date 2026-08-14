@@ -31,6 +31,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings          # NEW
+from app.core.email import send_email  
+
 from app.services.employee.services import db_create, db_get_by_id, db_update
 from app.models.visamodels import (
     Application,
@@ -586,7 +589,7 @@ from sqlalchemy.orm import selectinload
 
 
 TOKEN_EXPIRY_DAYS      = 7
-CLIENT_PORTAL_BASE_URL = "https://app.visaflow.com/intake"
+CLIENT_PORTAL_BASE_URL = f"{settings.FRONTEND_URL}/intake"   # new — was hardcoded to a live production URL
 
 VISA_STATUS_OPTIONS = [
     ("H1B",               "H-1B Specialty Occupation"),
@@ -673,6 +676,32 @@ async def _verify_session_access(
     _verify_attorney_owns(application, attorney_id)
     return session
 
+# new — lets the EMPLOYEE (client) use the wizard too, not just the attorney
+async def _verify_intake_access(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    current_user_id: uuid.UUID,
+) -> ClientIntakeSession:
+    """
+    Load session and allow access to EITHER:
+      - the attorney assigned to the case, OR
+      - the employee (client) the case belongs to.
+    Used only by the endpoints the client fills out (get/save/submit data).
+    Attorney-only actions (accept, request changes, generate link) keep
+    using the stricter _verify_session_access above and are unaffected.
+    """
+    session = await _get_session_or_404(db, session_id)
+    application = await _load_application_or_404(db, session.application_id)
+
+    is_the_attorney = getattr(application, "assigned_attorney_id", None) == current_user_id
+    is_the_employee = getattr(application, "user_id", None) == current_user_id
+
+    if not is_the_attorney and not is_the_employee:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this intake session.",
+        )
+    return session
 
 async def _fetch_intake_row(
     db: AsyncSession, session_id: uuid.UUID
@@ -707,6 +736,13 @@ def _build_intake_data_response(row: IntakeImmigrationHistory) -> IntakeDataResp
         date_of_birth        = row.date_of_birth,
         gender               = row.gender,
         nationality          = row.nationality,
+        phone                = row.phone,            # new
+        is_student           = row.is_student,       # new
+        company_name         = row.company_name,     # new
+        job_title            = row.job_title,         # new
+        start_date           = row.start_date,        # new
+        annual_salary        = row.annual_salary,     # new
+        visa_type_code       = row.visa_type_code,    # new
         passport_number      = row.passport_number,
         passport_expiry_date = row.passport_expiry_date,
         email                = row.email,
@@ -798,6 +834,7 @@ async def list_assigned_applications(
     if hasattr(Application, "assigned_attorney_id"):
         query = query.where(Application.assigned_attorney_id == attorney_id)
     # else: returns all apps until column is added (dev-only behavior)
+        query = query.where(Application.case_pipeline_stage.is_(None))   # new — once intake is accepted, case_pipeline_stage is set and it belongs in the main Cases section, not this queue
 
     result = await db.execute(query)
     applications = result.scalars().all()
@@ -911,7 +948,7 @@ async def get_session(
     session_id: uuid.UUID,
     current_user_id: uuid.UUID,
 ) -> IntakeSessionResponse:
-    session    = await _verify_session_access(db, session_id, current_user_id)
+    session    = await _verify_intake_access(db, session_id, current_user_id)   # new — was _verify_session_access
     intake_row = await _fetch_intake_row(db, session_id)
     return _build_session_response(session, intake_row)
 
@@ -952,6 +989,7 @@ async def generate_client_link(
     db: AsyncSession,
     session_id: uuid.UUID,
     current_user_id: uuid.UUID,
+    note: Optional[str] = None,                                              # NEW
 ) -> GenerateLinkResponse:
     await _verify_session_access(db, session_id, current_user_id)
 
@@ -965,6 +1003,46 @@ async def generate_client_link(
         "token_generated_at": datetime.now(timezone.utc),
         "modified_by":        current_user_id,
     })
+
+    # NEW — everything below this line is new, nothing here existed before
+    session = await _get_session_or_404(db, session_id)
+    application = await _load_application_or_404(db, session.application_id)
+
+    if application.user_id:
+        await db_create(db, Notification(
+            user_id           = application.user_id,
+            notification_type = "case_status_updated",
+            category          = "case_update",
+            priority           = "high",
+            title              = "Your attorney requested your intake details",
+            body               = note or "Please complete your intake form so your attorney can move forward with your case.",
+            application_id     = application.id,
+            actor_id           = current_user_id,
+            cta_primary_label = "Complete intake",                          # new
+            cta_primary_url   = f"/my-intake/{session_id}",                 # new — use whatever frontend path is confirmed
+        ))
+
+        try:
+            client_user = await db_get_by_id(db, User, application.user_id)
+            attorney    = await db_get_by_id(db, User, current_user_id)
+            if client_user and client_user.email:
+                attorney_name = f"{attorney.first_name} {attorney.last_name}" if attorney else "Your attorney"
+                intake_url    = f"{settings.FRONTEND_URL}/my-intake/{session_id}"   # new — 
+                await send_email(
+                    to=client_user.email,
+                    subject="Your attorney has requested your intake details",
+                    body=(
+                        f"Hi {client_user.first_name or 'there'},\n\n"
+                        f"{attorney_name} has requested that you complete your intake form "
+                        f"so they can move forward with your case.\n\n"
+                        + (f"Note from your attorney: {note}\n\n" if note else "")
+                        + f"Complete it here: {intake_url}\n\n"
+                        f"Thanks,\nVyuflo Team"
+                    ),
+                )
+        except Exception as e:
+            print(f"[generate_client_link] email failed for session {session_id}: {e}")
+    # NEW — end of new code
 
     return GenerateLinkResponse(
         token            = token,
@@ -990,7 +1068,7 @@ async def save_intake_data(
             detail="visa_denial_details is required when has_visa_denial is True.",
         )
 
-    session = await _verify_session_access(db, session_id, current_user_id)
+    session = await _verify_intake_access(db, session_id, current_user_id)   # new — was _verify_session_access
     row     = await _fetch_intake_row(db, session_id)
 
     data = payload.model_dump(exclude_unset=True)
@@ -1041,7 +1119,7 @@ async def get_intake_data(
     session_id: uuid.UUID,
     current_user_id: uuid.UUID,
 ) -> Optional[IntakeDataResponse]:
-    await _verify_session_access(db, session_id, current_user_id)
+    await _verify_intake_access(db, session_id, current_user_id)   # new — was _verify_session_access
     row = await _fetch_intake_row(db, session_id)
     return _build_intake_data_response(row) if row else None
 
@@ -1055,8 +1133,7 @@ async def save_draft(
     session_id: uuid.UUID,
     current_user_id: uuid.UUID,
 ) -> SaveDraftResponse:
-    await _verify_session_access(db, session_id, current_user_id)
-
+    await _verify_intake_access(db, session_id, current_user_id)   # new — was _verify_session_access
     now     = datetime.now(timezone.utc)
     updated = await db_update(db, ClientIntakeSession, session_id, {
         "is_draft":      True,
@@ -1079,8 +1156,7 @@ async def submit_intake(
     session_id: uuid.UUID,
     current_user_id: uuid.UUID,
 ) -> SubmitIntakeResponse:
-    session = await _verify_session_access(db, session_id, current_user_id)
-
+    session = await _verify_intake_access(db, session_id, current_user_id)   # new — was _verify_session_access
     if session.is_submitted:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1158,16 +1234,18 @@ async def accept_intake(
     })
  
     if application.user_id:
-        await db_create(db, Notification, {
-            "user_id":           application.user_id,
-            "notification_type": "case_status_updated",
-            "category":          "case_update",
-            "priority":          "medium",
-            "title":             "Your intake was accepted",
-            "body":              "Your attorney has accepted your intake. Your case is now active and moving into the filing pipeline.",
-            "application_id":    application.id,
-            "actor_id":          current_user_id,
-        })
+        await db_create(db, Notification (
+            user_id =     application.user_id,
+            notification_type = "case_status_updated",
+            category =         "case_update",
+            priority =          "medium",
+            title =             "Your intake was accepted",
+            body =               "Your attorney has accepted your intake. Your case is now active and moving into the filing pipeline.",
+            application_id =    application.id,
+            actor_id =           current_user_id,
+            cta_primary_label = "View case",             # new — see next fix, why this matters
+            cta_primary_url   = f"/applications/{application.id}",   # new
+        ))
  
     return IntakeReviewDecisionResponse(
         detail               = "Intake accepted. Application has been converted into an active case.",
@@ -1236,16 +1314,38 @@ async def request_intake_changes(
  
     application = await _load_application_or_404(db, session.application_id)
     if application.user_id:
-        await db_create(db, Notification, {
-            "user_id":           application.user_id,
-            "notification_type": "case_status_updated",
-            "category":          "case_update",
-            "priority":          "high",
-            "title":             "Your intake needs corrections",
-            "body":              payload.correction_note,
-            "application_id":    application.id,
-            "actor_id":          current_user_id,
-        })
+        await db_create(db, Notification (
+            user_id =           application.user_id,
+            notification_type = "case_status_updated",
+            category =          "case_update",
+            priority =           "high",
+            title =            "Your intake needs corrections",
+            body =               payload.correction_note,
+            application_id =     application.id,
+            actor_id =          current_user_id,
+            cta_primary_label = "Complete intake",                # new
+            cta_primary_url   = f"/my-intake/{session.id}",       # new
+        ))
+                # NEW — sends an email to the employee, in addition to the notification above
+        try:
+            client_user = await db_get_by_id(db, User, application.user_id)
+            attorney    = await db_get_by_id(db, User, current_user_id)
+            if client_user and client_user.email:
+                attorney_name = f"{attorney.first_name} {attorney.last_name}" if attorney else "Your attorney"
+                intake_url    = f"{settings.FRONTEND_URL}/my-intake/{session_id}"   # new
+                await send_email(
+                    to=client_user.email,
+                    subject="Your intake needs corrections",
+                    body=(
+                        f"Hi {client_user.first_name or 'there'},\n\n"
+                        f"{attorney_name} has reviewed your intake and requested corrections:\n\n"
+                        f"{payload.correction_note}\n\n"
+                        f"Update it here: {intake_url}\n\n"
+                        f"Thanks,\nVyuflo Team"
+                    ),
+                )
+        except Exception as e:
+            print(f"[request_intake_changes] email failed for session {session.id}: {e}")
  
     return IntakeReviewDecisionResponse(
         detail          = "Changes requested. The employee has been notified and the form has been reopened.",
@@ -1335,6 +1435,8 @@ async def get_client_profile(
             progress_percent = active_app.progress_percent,
             current_stage    = active_app.current_stage,
             due_date         = active_app.due_date,
+            receipt_number   = active_app.receipt_number,   # NEW
+            priority_date    = active_app.priority_date,     # NEW
         )
 
     # ── 5. Next deadline (handles both datetime and date types) ───────────────

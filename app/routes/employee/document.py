@@ -15,7 +15,7 @@ from app.core.core_permissions import PermissionChecker
 from app.core.database import get_db
 from app.core.dependencies import CurrentUserData, get_current_user
 from app.models.visamodels import User
-from app.ocr.ocr_service_router import OCRField, run_extraction
+from app.ocr.ocr_service_router import OCRField, OCRResponse, run_extraction
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
 from app.schemas.employee.ocr import OCRFieldResponse, OCRFieldUpdate, SaveOCRFieldsRequest
 from app.services.employee.document_field_config_service import get_document_field_config
@@ -203,7 +203,6 @@ from app.services.employee import storage
 )
 async def api_view_document(
     document_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
     current_user: Annotated[
         CurrentUserData,
         Depends(PermissionChecker(
@@ -215,7 +214,8 @@ async def api_view_document(
             ],
             require_all=False,   # holding ANY one of these passes the gate
         )),
-    ] = None,
+    ],
+    db: AsyncSession = Depends(get_db),
 ):
     # ── Layer 1 (PermissionChecker above): user holds SOME document-view capability ──
     # ── Layer 2 (inside get_document_file_url): is THIS document in scope for them? ──
@@ -248,6 +248,7 @@ async def ocr_extract_for_document(
     current_user: User = Depends(get_current_user),
 ):
     expected_slug = await get_expected_ocr_slug(db, doc_id)
+    print(f"🔍 DEBUG expected_slug = {expected_slug!r}")
     filename = file.filename or "upload"
     ext = filename.rsplit(".", 1)[-1].lower()
     content = await file.read()
@@ -256,6 +257,7 @@ async def ocr_extract_for_document(
     result.filename = filename
     if expected_slug:
         config = await get_document_field_config(db, expected_slug)
+        print(f"🔍 DEBUG expected_slug = {expected_slug!r}")
         if config and config.mandatory_fields:
             existing_names = {f.field_name for f in result.fields}
             for f in result.fields:
@@ -368,3 +370,48 @@ async def api_update_ocr_field(
         payload.extracted_value or "",
         payload.is_confirmed or False,
     )
+
+
+
+from pydantic import BaseModel
+ 
+class ExpectedFieldItem(BaseModel):
+    field_name:   str
+    is_mandatory: bool
+ 
+class ExpectedFieldsResponse(BaseModel):
+    ocr_slug: str | None
+    fields:   list[ExpectedFieldItem]
+ 
+ 
+@document_router.get(
+    "/documents/{doc_id}/expected-fields",
+    response_model=ExpectedFieldsResponse,
+)
+async def get_expected_fields(
+    doc_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Fast, OCR-free lookup: what fields SHOULD this document type have,
+    per admin config? Returns an empty fields list for fuzzy/VLM types
+    (Offer Letter, Organizational Chart, etc.) that have no fixed config —
+    the frontend should fall back to a plain loading spinner in that case.
+    """
+    expected_slug = await get_expected_ocr_slug(db, doc_id)
+    if not expected_slug:
+        return ExpectedFieldsResponse(ocr_slug=None, fields=[])
+ 
+    config = await get_document_field_config(db, expected_slug)
+    if not config:
+        return ExpectedFieldsResponse(ocr_slug=expected_slug, fields=[])
+ 
+    return ExpectedFieldsResponse(
+        ocr_slug=expected_slug,
+        fields=[
+            ExpectedFieldItem(field_name=name, is_mandatory=True)
+            for name in config.mandatory_fields
+        ],
+    )
+ 

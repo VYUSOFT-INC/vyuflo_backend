@@ -1,11 +1,16 @@
 """
 VisaFlow FastAPI Application Entry Point
 """
+
 import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from zoneinfo import ZoneInfo
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, engine, Base, get_db
@@ -26,11 +31,11 @@ from app.routes.employee.dashboard import dashboard_router
 from app.routes.employee.user_profile import user_profile_router
 from app.routes.employee.login_history import login_history_router
 from app.routes.admin.admin_dashboard import admin_dashboard_router
-from app.routes.employee.ocr_service import ocr_router
 from app.routes.employee.roles import roles_router
 from app.routes.employee.payment_routes import payment_router
 from app.routes.attorney.attorney_routes import attorney_router
 from app.routes.employee.consultation_routes import consultation_router
+from app.routes.attorney.new_case_routes import new_case_router   # NEW
 from app.routes.employee.notification_routes import notification_router
 from app.routes.admin.roles import roles_router
 from app.routes.admin.custom_roles import custom_roles_router
@@ -70,9 +75,8 @@ from app.routes.hr.hr_document_request_routes import hr_document_request_router
 from app.routes.hr.hr_case_overview_routes import hr_case_overview_router
 from app.routes.hr.hr_case_letters_routes import hr_case_letters_router
 
-
+from app.ocr.ocr_service_router import ocr_router
 from fastapi.staticfiles import StaticFiles
-
 
 # ─────────────────────────────────────────────
 # Lifespan (startup / shutdown)
@@ -92,39 +96,6 @@ async def _ensure_pg_enum_values(enum_name: str, values: tuple[str, ...]) -> Non
             await conn.execute(
                 text(f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{value}'")
             )
-
-async def _expiry_reminder_loop():
-    while True:
-        try:
-            async with AsyncSessionLocal() as db:
-                sent = await check_and_send_expiry_reminders(db)
-                if sent:
-                    print(f"✅ Sent {sent} document expiry reminder(s)")
-        except Exception as e:
-            print(f"⚠️  Expiry reminder check failed: {type(e).__name__}: {e}")
-        await asyncio.sleep(24 * 60 * 60)
- 
-        
-    # async def _ensure_users_personal_email_columns() -> None:
-    #     """
-    #     create_all does not add new columns to a table that already exists.
-    #     """
-    #     from sqlalchemy import text
-
-    #     async with engine.begin() as conn:
-    #         await conn.execute(text("""
-    #             ALTER TABLE users
-    #             ADD COLUMN IF NOT EXISTS personal_email VARCHAR(255)
-    #         """))
-    #         await conn.execute(text("""
-    #             ALTER TABLE users
-    # EFAULT FALSE
-    #         """))
-    #         await conn.execute(text("""
-    #             CREATE UNIQUE INDEX IF NOT EXISTS ix_users_personal_email
-    #             ON users (personal_email)
-    #             WHERE personal_email IS NOT NULL
-    #         """))
 
 async def _ensure_notif_template_unique_constraint() -> None:
     """
@@ -175,6 +146,24 @@ async def _ensure_notif_template_unique_constraint() -> None:
         """))
 
 
+async def _run_expiry_reminder_check():
+    """
+    The actual job APScheduler calls. Creates its own DB session since
+    scheduled jobs run outside any request context — same pattern as the
+    old asyncio loop, just triggered by the scheduler now instead of a
+    manual sleep().
+    """
+    print("cron job is working ")
+    try:
+        async with AsyncSessionLocal() as db:
+            sent = await check_and_send_expiry_reminders(db)
+            if sent:
+                print(f"✅ Sent {sent} document expiry reminder(s)")
+    except Exception as e:
+        print(f"⚠️  Expiry reminder check failed: {type(e).__name__}: {e}")
+
+scheduler = AsyncIOScheduler()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Starting application...")
@@ -200,10 +189,18 @@ async def lifespan(app: FastAPI):
         await seed_support_articles(db)      # support_articles
         await seed_notification_templates(db)
         await seed_document_field_configurations(db)
-        
-    asyncio.create_task(_expiry_reminder_loop())             
+    job = scheduler.add_job(
+        _run_expiry_reminder_check,
+        trigger=CronTrigger(hour=12, minute=10, timezone=ZoneInfo("Asia/Kolkata")),
+        id="expiry_reminder_check",
+        misfire_grace_time=3600,
+        replace_existing=True,
+    )
+    scheduler.start()
+    print(f"⏰ Scheduler started — expiry_reminder_check next run at: {job.next_run_time}")
     yield
     print("🛑 Shutting down...")
+    scheduler.shutdown(wait=False)
     await engine.dispose()
 
 # ─────────────────────────────────────────────
@@ -246,7 +243,7 @@ register_exception_handlers(app)
 # ─────────────────────────────────────────────
 # Routers
 # ─────────────────────────────────────────────
-app.mount("/static", StaticFiles(directory="uploads"), name="static")
+app.include_router(ocr_router,prefix="/api/v1", tags=["Ocr"]) 
 app.include_router(auth.router,                prefix="/api/v1/auth",       tags=["Authentication"])
 app.include_router(onboarding.router,          prefix="/api/v1/onboarding", tags=["Onboarding"])
 app.include_router(document_extra_router, prefix="/api/v1", tags=["Attroney-Documents"])
@@ -260,11 +257,11 @@ app.include_router(user_profile_router,        prefix="/api/v1", tags=["User Pro
 app.include_router(login_history_router,       prefix="/api/v1", tags=["Login History"])
 app.include_router(admin_dashboard_router,     prefix="/api/v1", tags=["Admin cards"])
 app.include_router(roles_router,               prefix="/api/v1", tags=["Roles"])
-app.include_router(ocr_router,                 prefix="/api/v1", tags=["Ocr"])
 app.include_router(payment_router,             prefix="/api/v1", tags=["Payments "])
 app.include_router(consultation_router, prefix="/api/v1", tags=["consultations"])
 app.include_router(notification_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(attorney_router, prefix="/api/v1", tags=["attorneys"])
+app.include_router(new_case_router, prefix="/api/v1", tags=["Lawyer Cases"])   # NEW
 # app.include_router(roles_router,       prefix="/api/v1")
 # app.include_router(user_roles_router,  prefix="/api/v1", tags=["User Roles"])
 

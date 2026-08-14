@@ -336,3 +336,13 @@ class DocumentBasic(BaseModel):
     status:        str
 
     model_config = ConfigDict(from_attributes=True)
+
+class HRFirmConnectRequest(BaseModel):   # new
+    """HR connects their company to a law firm by name."""
+    firm_name: str
+
+
+class HRFirmConnectResponse(BaseModel):   # new
+    firm_id:   uuid.UUID
+    firm_name: str
+    message:   str

@@ -12,7 +12,7 @@ from sqlalchemy import (
 )
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -32,9 +32,8 @@ class User(Base):
     phone        = Column(String(20),  nullable=True)
     country_code = Column(String(10),  nullable=True)
 
-    linked_emails = Column(ARRAY(String), nullable=False, default=list, server_default="{}")
-
-    email_is_active = Column(Boolean, default=True, nullable=False)
+    # linked_emails = Column(ARRAY(String), nullable=False, default=list, server_default="{}")
+    # email_is_active = Column(Boolean, default=True, nullable=False)
 
     password_hash    = Column(String(255), nullable=True)
     auth_provider    = Column(
@@ -44,7 +43,7 @@ class User(Base):
     )
     auth_provider_id = Column(String(255), nullable=True)
 
-    is_active   = Column(Boolean, default=True,  nullable=False)
+    is_active   = Column(Boolean, default=True,  nullable=False)    
     is_verified = Column(Boolean, default=False, nullable=False)
 
     terms_accepted    = Column(Boolean,  nullable=False, default=False)
@@ -52,7 +51,7 @@ class User(Base):
     marketing_opt_in  = Column(Boolean,  default=False, nullable=False)
     newsletter_opt_in = Column(Boolean,  default=False, nullable=False)
     referral_source   = Column(String(100), nullable=True)
-
+    token_version = Column(Integer, default=0, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at    = Column(DateTime(timezone=True),
                            default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -359,7 +358,10 @@ class UserProfile(Base):
     onboarding_step      = Column(Integer, default=1,     nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
     theme_color = Column(String(7), nullable=True, default="#4f46e5")
-
+    tour_employee_seen   = Column(Boolean, default=False, nullable=False)
+    tour_hr_seen         = Column(Boolean, default=False, nullable=False)
+    tour_attorney_seen   = Column(Boolean, default=False, nullable=False)
+    tour_admin_seen      = Column(Boolean, default=False, nullable=False)
     # ── Employer Link (set when employee accepts HR invitation) ───────────────
     employer_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
                          nullable=True, index=True)
@@ -560,7 +562,7 @@ class Application(Base):
     visa_type_id = Column(UUID(as_uuid=True), ForeignKey("visa_types.id"),
                           nullable=False)
     case_origin = Column(
-        Enum("employer_sponsored", "self_petition", name="case_origin_enum"),
+        Enum("employer_sponsored", "self_petition","lawyer_initiated", name="case_origin_enum"),
         nullable=False, default="employer_sponsored"
     )
 
@@ -814,6 +816,8 @@ class DocumentType(Base):
     accepted_formats = Column(String(100), nullable=True, default="PDF,JPG,PNG")
     max_file_size_mb = Column(Integer, default=10, nullable=False)
     is_active        = Column(Boolean, default=True, nullable=False)
+    ocr_slug = Column(String(50), nullable=True, index=True)   # new
+
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -845,7 +849,7 @@ class Document(Base):
     file_size_kb     = Column(Integer, nullable=False)
     file_format      = Column(
                           Enum("pdf", "jpg", "png", "docx", "jpeg", "gif",
-                               name="file_format_enum"),
+                               name="file_format_enum"),    
                           nullable=False
                        )
     total_pages      = Column(Integer, nullable=True)
@@ -1309,12 +1313,13 @@ class Notification(Base):
             "document_request_declined",
             "document_needs_hr_release",
             "document_release_declined",
+            "document_expiring",
             name="notification_type_enum"),
         nullable=False
     )
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
-             "approval", "compliance", "employee",
+             "approval", "compliance", "employee","document",   
              name="notification_category_enum"),
         nullable=False
     )
@@ -3102,6 +3107,9 @@ class ConsultationBooking(Base):
 
     meeting_link         = Column(String(1000), nullable=True)
 
+    zoho_session_key     = Column(String(200),  nullable=True)
+
+
     employee_notes       = Column(Text, nullable=True)
     attorney_notes       = Column(Text, nullable=True)
     cancellation_reason  = Column(String(500), nullable=True)
@@ -3152,6 +3160,8 @@ class EmployerInvitation(Base):
     invited_email    = Column(String(255), nullable=True)
     invite_code      = Column(String(30),  nullable=True, unique=True)
     invite_token     = Column(String(128), nullable=True, unique=True)
+    invited_passport_hash = Column(String(64), nullable=True)   # new
+
 
     max_uses         = Column(Integer, nullable=True)
     used_count       = Column(Integer, default=0, nullable=False)
@@ -3215,6 +3225,8 @@ class EmployerEmployee(Base):
                                  nullable=False)
     invitation_id       = Column(UUID(as_uuid=True), ForeignKey("employer_invitations.id"),
                                  nullable=True)
+    access_revoked_at = Column(DateTime(timezone=True), nullable=True)   
+
 
     is_active    = Column(Boolean, default=True,  nullable=False)
     job_title    = Column(String(200), nullable=True)
@@ -3383,6 +3395,13 @@ class IntakeImmigrationHistory(Base):
     date_of_birth        = Column(Date,        nullable=True)
     gender               = Column(String(20),  nullable=True)
     nationality          = Column(String(100), nullable=True)
+    phone            = Column(String(30),  nullable=True)   # new
+    is_student       = Column(Boolean,     nullable=True)   # new
+    company_name     = Column(String(200), nullable=True)   # new
+    job_title        = Column(String(200), nullable=True)   # new
+    start_date       = Column(Date,        nullable=True)   # new
+    annual_salary    = Column(String(30),  nullable=True)   # new
+    visa_type_code   = Column(String(30),  nullable=True)   # new
     passport_number      = Column(String(50),  nullable=True)
     passport_expiry_date = Column(Date,        nullable=True)
     email                = Column(String(255), nullable=True)
