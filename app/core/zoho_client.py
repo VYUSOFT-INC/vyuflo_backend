@@ -1,7 +1,8 @@
 # app/core/zoho_client.py
 import httpx
 import asyncio
-from config import settings
+# from config import settings
+from app.core.config import settings
 
 class ZohoClient:
     BASE_URL = "https://analyticsapi.zoho.com/restapi/v2"

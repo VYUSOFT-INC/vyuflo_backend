@@ -103,7 +103,52 @@ class AttorneyAvailabilityCreateRequest(BaseModel):
             raise ValueError("day_of_week must be 0–6")
         return v
 
+# =============================================================================
+# Bulk "Set Weekly Availability" — one row per active day, replaces the
+# attorney's whole week in a single call (used by /attorneys/me/availability)
+# =============================================================================
 
+class AvailabilityRowIn(BaseModel):
+    day_of_week:            int    # 0=Mon … 6=Sun — Sat/Sun are already valid
+    start_time:             time
+    end_time:               time
+    slot_duration_minutes:  int  = 30
+    timezone:               str  = "America/Los_Angeles"
+    is_active:              bool = True
+
+    @field_validator("day_of_week")
+    @classmethod
+    def valid_day(cls, v: int) -> int:
+        if v not in range(7):
+            raise ValueError("day_of_week must be 0–6")
+        return v
+
+    @field_validator("end_time")
+    @classmethod
+    def end_after_start(cls, v: time, info) -> time:
+        start = info.data.get("start_time")
+        if start is not None and v <= start:
+            raise ValueError("end_time must be after start_time")
+        return v
+    
+    @field_validator("slot_duration_minutes")
+    @classmethod
+    def valid_duration(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("slot_duration_minutes must be a positive number")
+        if v > 480:   # 8 hours — generous upper bound, catches obvious mistakes
+            raise ValueError("slot_duration_minutes seems too large")
+        return v
+class SaveAvailabilityRequest(BaseModel):
+    rows: List[AvailabilityRowIn]
+
+    @field_validator("rows")
+    @classmethod
+    def at_least_one_day(cls, v: List[AvailabilityRowIn]) -> List[AvailabilityRowIn]:
+        if not v:
+            raise ValueError("Enable at least one working day")
+        return v
+    
 # =============================================================================
 # ConsultationSlot (TABLE 60)
 # =============================================================================
@@ -132,6 +177,12 @@ class SlotGenerateRequest(BaseModel):
     attorney_id: uuid.UUID
     from_date:   date
     to_date:     date
+
+class GenerateMySlotsRequest(BaseModel):
+    """Same as SlotGenerateRequest, but for /attorneys/me/slots/generate —
+    no attorney_id in the body, it's derived from the logged-in user."""
+    from_date: date
+    to_date:   date
 
 
 # =============================================================================
