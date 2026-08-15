@@ -84,7 +84,7 @@ async def _enrich_notification(
                 VisaType.code,
                 Application.application_number,
             )
-            .join(Application, Application.id == notification.application_id)
+            .select_from(Application) 
             .join(User,     User.id     == Application.user_id)
             .join(VisaType, VisaType.id == Application.visa_type_id)
             .where(Application.id == notification.application_id)

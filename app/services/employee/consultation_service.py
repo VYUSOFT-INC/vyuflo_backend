@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from datetime import date, time, datetime, timedelta, timezone
 from typing import List, Optional, Sequence
 
-from sqlalchemy import select, and_ , delete
+from sqlalchemy import select, and_, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -150,6 +151,7 @@ async def set_attorney_availability(
     )
     return await db_create(db, obj)
 
+
 async def get_user_timezone(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -179,6 +181,28 @@ async def _get_attorney_profile_for_user(
     return result.scalar_one_or_none()
 
 
+def _verify_no_overlap_within_day(rows) -> None:
+    """
+    Belt-and-suspenders check: frontend already prevents overlapping
+    windows on the same day, but a malformed API call could still send
+    e.g. Mon 9-12 AND Mon 11-13 (overlapping by an hour). Catch that here
+    before it ever reaches the database.
+    """
+    rows_by_day: dict[int, list] = defaultdict(list)
+    for r in rows:
+        rows_by_day[r.day_of_week].append(r)
+
+    for day, day_rows in rows_by_day.items():
+        sorted_rows = sorted(day_rows, key=lambda r: r.start_time)
+        for i, r in enumerate(sorted_rows):
+            if i > 0 and r.start_time < sorted_rows[i - 1].end_time:
+                raise ValueError(
+                    f"day_of_week={day}: overlapping windows "
+                    f"{sorted_rows[i-1].start_time}-{sorted_rows[i-1].end_time} "
+                    f"and {r.start_time}-{r.end_time}"
+                )
+
+
 async def bulk_replace_availability(
     db: AsyncSession,
     attorney_id: uuid.UUID,
@@ -187,17 +211,24 @@ async def bulk_replace_availability(
     """
     Replaces the attorney's ENTIRE weekly availability in one call.
     Any day not included in `data.rows` is treated as "turned off".
+    A day can have MULTIPLE windows (e.g. 9-12 AND 14-17) — every row
+    in `data.rows` gets inserted, no deduping by day_of_week.
 
-    Safety rule: turning a day off must NEVER cancel a consultation that
-    was already booked. So this function only deletes unbooked
-    ConsultationSlot rows for days that were removed — booked slots (and
-    the real bookings tied to them) are left completely alone.
+    Safety rule: turning a day off (or narrowing its hours) must NEVER
+    cancel a consultation that was already booked. So this function only
+    wipes UNBOOKED future ConsultationSlot rows — booked slots (and the
+    real bookings tied to them) are always left completely alone.
+
+    We wipe ALL unbooked future slots on every save, not just the ones
+    for days that got turned off — an earlier version only cleaned up
+    removed days, which missed a real case: a day that stays ACTIVE but
+    has its time window narrowed (e.g. 9-5 -> 10-4) still left the old
+    9-10 and 4-5 slots bookable forever. Wiping everything and letting
+    generate_slots rebuild from scratch is simpler and can't miss a case.
     """
-    existing_rows = await list_attorney_availability(db, attorney_id)
-    old_days = {row.day_of_week for row in existing_rows}
-    new_days = {row.day_of_week for row in data.rows}
-    removed_days = old_days - new_days
+    _verify_no_overlap_within_day(data.rows)   # raises ValueError on overlap
 
+    # ── Bulk replace the availability rules ───────────────────────────────
     await db.execute(
         delete(AttorneyAvailability).where(AttorneyAvailability.attorney_id == attorney_id)
     )
@@ -213,37 +244,22 @@ async def bulk_replace_availability(
             is_active=True,
         ))
 
-    if removed_days:
-        from app.core.timeutils import to_viewer_local
-
-        # Slots are stored as UTC (see generate_slots below). A slot near
-        # midnight can end up stored under a DIFFERENT UTC calendar date
-        # than the local weekday it was actually generated for — so we
-        # convert each slot back into the timezone of the OLD rule it
-        # came from to check the correct local day, instead of trusting
-        # the raw stored slot_date.weekday().
-        old_tz_by_day = {row.day_of_week: row.timezone for row in existing_rows}
-
-        future_slots = await db.execute(
-            select(ConsultationSlot).where(
-                and_(
-                    ConsultationSlot.attorney_id == attorney_id,
-                    ConsultationSlot.is_booked == False,
-                    ConsultationSlot.slot_date >= date.today() - timedelta(days=1),
-                )
+    # ── Wipe every UNBOOKED future slot — generate_slots (called by the
+    #    frontend right after this) rebuilds a clean, correct set from the
+    #    rules just saved above. Booked slots are never touched.
+    await db.execute(
+        delete(ConsultationSlot).where(
+            and_(
+                ConsultationSlot.attorney_id == attorney_id,
+                ConsultationSlot.is_booked == False,
+                ConsultationSlot.slot_date >= date.today(),
             )
         )
-        for slot in future_slots.scalars().all():
-            utc_dt = datetime.combine(slot.slot_date, slot.slot_time, tzinfo=timezone.utc)
-            for removed_day in removed_days:
-                tz_name = old_tz_by_day.get(removed_day, "UTC")
-                local_dt = to_viewer_local(utc_dt, tz_name)
-                if local_dt.weekday() == removed_day:
-                    await db.delete(slot)
-                    break
+    )
 
     await db.commit()
     return await list_attorney_availability(db, attorney_id)
+
 
 # =============================================================================
 # Slot generation — called by attorney or cron job
@@ -258,6 +274,11 @@ async def generate_slots(
     Walk every day in [from_date, to_date] using the ATTORNEY'S OWN local
     calendar (their weekly rule is still expressed in their own timezone —
     see AttorneyAvailability, which is intentionally NOT converted to UTC).
+
+    A day can have MULTIPLE windows (e.g. 9-12 AND 14-17) — avail_by_day
+    groups by day_of_week into a LIST of rules, not a single rule. A plain
+    dict would silently keep only the LAST window inserted for that day
+    and drop the rest.
 
     Every generated slot is converted to its true UTC instant BEFORE being
     stored — ConsultationSlot rows are always UTC from here on, regardless
@@ -274,10 +295,13 @@ async def generate_slots(
     if not availability_rows:
         return []
 
-    avail_by_day: dict[int, AttorneyAvailability] = {}
+    # Group by day_of_week — a day can have MULTIPLE windows.
+    avail_by_day: dict[int, list[AttorneyAvailability]] = defaultdict(list)
     for row in availability_rows:
-        avail_by_day[row.day_of_week] = row
+        avail_by_day[row.day_of_week].append(row)
 
+    # Pad the existing-slot lookup by 1 day on each side — a local slot
+    # near midnight can land on the UTC day just before/after the range.
     existing_result = await db.execute(
         select(ConsultationSlot.slot_date, ConsultationSlot.slot_time).where(
             and_(
@@ -293,32 +317,33 @@ async def generate_slots(
     current = data.from_date
 
     while current <= data.to_date:
-        dow = current.weekday()
+        dow = current.weekday()  # 0=Monday … 6=Sunday, attorney's LOCAL day
         if dow in avail_by_day:
-            rule = avail_by_day[dow]
+            for rule in avail_by_day[dow]:   # walk EACH window on this day
 
-            slot_dt = datetime.combine(current, rule.start_time)
-            end_dt  = datetime.combine(current, rule.end_time)
+                # Walk start→end in the attorney's own local time
+                slot_dt = datetime.combine(current, rule.start_time)
+                end_dt  = datetime.combine(current, rule.end_time)
 
-            while slot_dt < end_dt:
-                local_time = slot_dt.time()
-                utc_instant = to_utc(current, local_time, rule.timezone)
-                utc_date = utc_instant.date()
-                utc_time = utc_instant.time()
+                while slot_dt < end_dt:
+                    local_time = slot_dt.time()
+                    utc_instant = to_utc(current, local_time, rule.timezone)
+                    utc_date = utc_instant.date()
+                    utc_time = utc_instant.time()
 
-                pair = (utc_date, utc_time)
-                if pair not in existing_utc_pairs:
-                    slot = ConsultationSlot(
-                        id=uuid.uuid4(),
-                        attorney_id=data.attorney_id,
-                        slot_date=utc_date,
-                        slot_time=utc_time,
-                        timezone="UTC",
-                    )
-                    db.add(slot)
-                    created.append(slot)
-                    existing_utc_pairs.add(pair)
-                slot_dt += timedelta(minutes=rule.slot_duration_minutes)
+                    pair = (utc_date, utc_time)
+                    if pair not in existing_utc_pairs:
+                        slot = ConsultationSlot(
+                            id=uuid.uuid4(),
+                            attorney_id=data.attorney_id,
+                            slot_date=utc_date,
+                            slot_time=utc_time,
+                            timezone="UTC",
+                        )
+                        db.add(slot)
+                        created.append(slot)
+                        existing_utc_pairs.add(pair)   # avoid dupes within this same run
+                    slot_dt += timedelta(minutes=rule.slot_duration_minutes)
 
         current += timedelta(days=1)
 
@@ -538,15 +563,19 @@ async def create_booking(
     await db_update(db, ConsultationSlot, slot.id, {"is_booked": True})
 
     # ── NEW: create Zoho meeting (best-effort) ────────────────────────────────
-    # Wrapped in try/except so a Zoho outage/auth problem never blocks the
-    # booking itself — booking still succeeds, link just stays empty.
+    # Wrapped in try/except so a Zoho outage or auth/scope problem never blocks
+    # the booking itself — the booking still succeeds with an empty link.
     employee = await db_get_by_id(db, User, employee_id)
     try:
         from app.core.zoho_meeting import create_meeting
-
         from app.core.timeutils import to_utc
+
+        # The slot's own timezone (e.g. "Asia/Kolkata") tells us what the
+        # stored 09:00 actually means. Converting through it — instead of
+        # treating 09:00 as if it were already UTC — is what makes the
+        # real Zoho meeting land on the correct real-world moment no
+        # matter which timezone the attorney set their hours in.
         start_dt_utc = to_utc(slot.slot_date, slot.slot_time, slot.timezone)
-        
         zoho_resp = await create_meeting(
             topic            = f"{appt_type.title} — {attorney.user.first_name} & {employee.first_name}",
             start_time_utc   = start_dt_utc,
@@ -564,20 +593,24 @@ async def create_booking(
                 "meeting_link":     join_link,
                 "zoho_session_key": session_key,
             })
+            # Refresh in-memory row so the email/notification block below uses it
             booking.meeting_link     = join_link
             booking.zoho_session_key = session_key
     except Exception as e:
+        # Booking still succeeds. Meeting can be manually re-created later.
         print(f"[create_booking] Zoho meeting create failed: {e}")
 
     # ── NEW: send confirmation email + in-app notification ───────────────────
-    # Wrapped in try/except so a broken email server never blocks the booking itself
+    # Wrapped in try/except so a broken email server never blocks the booking itself.
     try:
         from app.core.timeutils import to_utc, format_in_timezone
 
-        employee = await db_get_by_id(db, User, employee_id)
         confirmation_no = f"VYU-{str(booking.id)[:6].upper()}"
         join_url = booking.meeting_link or ""   # empty if Zoho create failed above
 
+        # The one true moment this consultation happens at, regardless of
+        # who is looking at it — everything below is just this same instant
+        # displayed in each viewer's own timezone.
         start_dt_utc = to_utc(slot.slot_date, slot.slot_time, slot.timezone)
 
         employee_tz = await get_user_timezone(db, employee.id, fallback=slot.timezone)
@@ -585,7 +618,7 @@ async def create_booking(
 
         when_text_employee = format_in_timezone(start_dt_utc, employee_tz)
         when_text_attorney = format_in_timezone(start_dt_utc, attorney_tz)
-    
+
         # -- Email to the employee --
         await send_email(
             to=employee.email,
@@ -647,10 +680,13 @@ async def create_booking(
             is_read=False,
             created_by=employee.id,
         ))
+
         # -- NEW: notify assigned HR, if any --
         # Only fires when the booking is linked to an application that has an
-        # assigned HR (employer-sponsored cases). Self-petition bookings have
-        # no application_id and are silently skipped.
+        # assigned HR (employer-sponsored cases). Self-petition/marketplace
+        # bookings have no application_id and are silently skipped — there's
+        # no HR to notify. HR is not added to the Zoho meeting itself; they
+        # just get the join link here and can join if they choose to.
         if booking.application_id:
             application = await db_get_by_id(db, Application, booking.application_id)
             if application and application.assigned_hr_id:
@@ -681,7 +717,6 @@ async def create_booking(
                         is_read=False,
                         created_by=employee.id,
                     ))
-
     except Exception as e:
         # Booking still succeeds even if email/notification fails — just log it.
         print(f"[create_booking] email/notification failed: {e}")
@@ -739,7 +774,7 @@ async def cancel_booking(
         "modified_by":          cancelled_by,
     })
 
-        # ── NEW: delete the Zoho meeting (best-effort) ────────────────────────────
+    # ── NEW: delete the Zoho meeting (best-effort) ────────────────────────────
     if booking.zoho_session_key:
         try:
             from app.core.zoho_meeting import delete_meeting
@@ -748,6 +783,8 @@ async def cancel_booking(
             print(f"[cancel_booking] Zoho meeting delete failed: {e}")
 
     # ── NEW: notify assigned HR of the cancellation, if any ───────────────────
+    # Same silent-skip rule as create_booking — only fires when the booking
+    # is linked to an application with an assigned HR.
     try:
         if booking.application_id:
             application = await db_get_by_id(db, Application, booking.application_id)
