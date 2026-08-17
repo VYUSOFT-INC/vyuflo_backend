@@ -158,10 +158,13 @@ async def api_bulk_update_my_availability(
     profile = await _get_attorney_profile_for_user(db, current_user.user_id)
     if not profile:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not an attorney account.")
-    return await bulk_replace_availability(db, profile.id, body)
+    try:
+        return await bulk_replace_availability(db, profile.id, body)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
 
-@consultation_router.post(                                                      # NEW
+@consultation_router.post(                                                     
     "/attorneys/me/slots/generate",
     response_model=List[ConsultationSlotOut],
     status_code=status.HTTP_201_CREATED,
