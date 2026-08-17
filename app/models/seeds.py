@@ -1628,21 +1628,6 @@ SYSTEM_SETTINGS_SEED = [
         "is_readonly": False,
         "display_order": 0,
     },
-    # ── Documents ─────────────────────────────────────────────────────────────
-    {
-        "key": "documents.expiry_reminder_thresholds",
-        "value": "90,60,30,14,7,1",
-        "value_type": "string",
-        "setting_group": "documents",
-        "label": "Expiry Reminder Thresholds (days)",
-        "description": (
-            "Comma-separated list of days-before-expiry to send document "
-            "expiry reminders (e.g. passport, visa, EAD renewal alerts)."
-        ),
-        "is_public": False,
-        "is_readonly": False,
-        "display_order": 0,
-    },
     # ── Maintenance ───────────────────────────────────────────────────────────
     {
         "key": "maintenance.enabled",

@@ -44,9 +44,7 @@ class User(Base):
     )
     auth_provider_id = Column(String(255), nullable=True)
 
-    is_active   = Column(Boolean, default=True,  nullable=False)
-    token_version = Column(Integer, default=0, nullable=False)
-    
+    is_active   = Column(Boolean, default=True,  nullable=False)    
     is_verified = Column(Boolean, default=False, nullable=False)
 
     terms_accepted    = Column(Boolean,  nullable=False, default=False)
@@ -3108,6 +3106,9 @@ class ConsultationBooking(Base):
 
     meeting_link         = Column(String(1000), nullable=True)
 
+    zoho_session_key     = Column(String(200),  nullable=True)
+
+
     employee_notes       = Column(Text, nullable=True)
     attorney_notes       = Column(Text, nullable=True)
     cancellation_reason  = Column(String(500), nullable=True)
@@ -3389,6 +3390,13 @@ class IntakeImmigrationHistory(Base):
     date_of_birth        = Column(Date,        nullable=True)
     gender               = Column(String(20),  nullable=True)
     nationality          = Column(String(100), nullable=True)
+    phone            = Column(String(30),  nullable=True)   # new
+    is_student       = Column(Boolean,     nullable=True)   # new
+    company_name     = Column(String(200), nullable=True)   # new
+    job_title        = Column(String(200), nullable=True)   # new
+    start_date       = Column(Date,        nullable=True)   # new
+    annual_salary    = Column(String(30),  nullable=True)   # new
+    visa_type_code   = Column(String(30),  nullable=True)   # new
     passport_number      = Column(String(50),  nullable=True)
     passport_expiry_date = Column(Date,        nullable=True)
     email                = Column(String(255), nullable=True)
