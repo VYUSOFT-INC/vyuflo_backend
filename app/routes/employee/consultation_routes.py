@@ -9,12 +9,15 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.timeutils import format_in_timezone
+from app.services.employee.consultation_service import get_user_timezone
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
@@ -316,14 +319,21 @@ async def api_create_booking(
         await db.commit()
 
         # NEW — build the fields the Confirmation screen needs to show real date/time
-        start_dt = datetime.combine(booking.slot.slot_date, booking.slot.slot_time)
+
+        start_dt_utc = datetime.combine(
+            booking.slot.slot_date, booking.slot.slot_time, tzinfo=timezone.utc,
+        )
+        viewer_tz = await get_user_timezone(db, current_user.user_id, fallback=booking.slot.timezone)
+        scheduled_start_display = format_in_timezone(start_dt_utc, viewer_tz)
+
         confirmation_no = "VYU-" + str(booking.id)[:6].upper()
 
         return CreateConsultationBookingResponse(
             id=booking.id,
             status=booking.status,
             confirmation_no=confirmation_no,
-            scheduled_start_iso=start_dt,
+            scheduled_start_iso=start_dt_utc,
+            scheduled_start_display=scheduled_start_display,
             duration_minutes=booking.appointment_type.duration_minutes,
             zoho_meeting_id=booking.zoho_session_key,
             zoho_join_url=booking.meeting_link,

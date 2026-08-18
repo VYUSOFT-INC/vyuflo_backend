@@ -11,7 +11,7 @@ from sqlalchemy import (
     Integer, Enum, Text, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB  
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -674,6 +674,11 @@ class Application(Base):
         "ApplicationGeneratedLetter",
         back_populates="application",
         order_by="ApplicationGeneratedLetter.generated_at.desc()",
+    )
+    employee_forms = relationship(         
+        "EmployeeForm",
+        back_populates="application",
+        cascade="all, delete-orphan",
     )
 
 
@@ -3894,3 +3899,44 @@ class EmployerFirmConnection(Base):
         UniqueConstraint("employer_profile_id", "firm_id", name="uq_employer_firm"),
     )
 
+
+# =============================================================================
+# TABLE — 76
+# EmployeeForm  ← NEW
+#
+# Stores employee-filled USCIS forms (I-9, I-983, ...). form_response is
+# JSONB — each form's field shape lives client-side and can change without
+# a migration.
+#
+# =============================================================================
+
+class EmployeeForm(Base):
+    __tablename__ = "employee_forms"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    application_id = Column(UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"),
+                            nullable=False, index=True)
+    employee_id    = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+
+    form_type     = Column(String(20), nullable=False)                   # 'i9' | 'i983'
+    status        = Column(String(20), nullable=False, default="draft") # 'draft' | 'submitted' | 'archived'
+    form_response = Column(JSONB, nullable=False, default=dict, server_default="{}")  # NEW name, per manager
+
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("application_id", "form_type", name="uq_employee_form_app_type"),
+        Index("ix_employee_forms_employee_type", "employee_id", "form_type"),
+    )
+
+    application = relationship("Application", foreign_keys=[application_id],
+                               back_populates="employee_forms")
+    employee    = relationship("User", foreign_keys=[employee_id])
