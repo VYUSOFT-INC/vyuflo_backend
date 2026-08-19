@@ -17,6 +17,7 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
+
 # =============================================================================
 # TABLE 01 — users
 # =============================================================================
@@ -821,9 +822,7 @@ class DocumentType(Base):
     accepted_formats = Column(String(100), nullable=True, default="PDF,JPG,PNG")
     max_file_size_mb = Column(Integer, default=10, nullable=False)
     is_active        = Column(Boolean, default=True, nullable=False)
-    ocr_slug = Column(String(50), nullable=True, index=True)   # new
-
-
+    ocr_slug = Column(String(50), nullable=True, index=True)
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -1318,13 +1317,13 @@ class Notification(Base):
             "document_request_declined",
             "document_needs_hr_release",
             "document_release_declined",
-            "document_expiring",
+            'document_expiring',
             name="notification_type_enum"),
         nullable=False
     )
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
-             "approval", "compliance", "employee","document",   
+             "approval", "compliance", "employee","document",
              name="notification_category_enum"),
         nullable=False
     )
@@ -3165,9 +3164,7 @@ class EmployerInvitation(Base):
     invited_email    = Column(String(255), nullable=True)
     invite_code      = Column(String(30),  nullable=True, unique=True)
     invite_token     = Column(String(128), nullable=True, unique=True)
-    invited_passport_hash = Column(String(64), nullable=True)   # new
-
-
+    invited_passport_hash = Column(String(64), nullable=True)
     max_uses         = Column(Integer, nullable=True)
     used_count       = Column(Integer, default=0, nullable=False)
 
@@ -3230,9 +3227,7 @@ class EmployerEmployee(Base):
                                  nullable=False)
     invitation_id       = Column(UUID(as_uuid=True), ForeignKey("employer_invitations.id"),
                                  nullable=True)
-    access_revoked_at = Column(DateTime(timezone=True), nullable=True)   
-
-
+    access_revoked_at = Column(DateTime(timezone=True), nullable=True)
     is_active    = Column(Boolean, default=True,  nullable=False)
     job_title    = Column(String(200), nullable=True)
     department   = Column(String(200), nullable=True)
