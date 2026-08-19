@@ -236,6 +236,7 @@ class CreateConsultationBookingResponse(BaseModel):
     status:  str
     confirmation_no:      Optional[str] = None
     scheduled_start_iso:  Optional[datetime] = None
+    scheduled_start_display: Optional[str] = None   
     duration_minutes:     Optional[int] = None
     zoho_meeting_id:      Optional[str] = None   # stays null until Zoho is wired up
     zoho_join_url:        Optional[str] = None   # stays null until Zoho is wired up

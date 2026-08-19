@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import date, time, datetime, timedelta, timezone
 from typing import List, Optional, Sequence
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, and_, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -557,7 +558,13 @@ async def create_booking(
         created_by=employee_id,
         modified_by=employee_id,
     )
-    await db_create(db, booking)
+    try:
+        await db_create(db, booking)
+    except IntegrityError:
+        await db.rollback()
+        raise ValueError(
+            "This slot was just booked by someone else. Please choose another time."
+        )
 
     # ── Mark slot as booked ──────────────────────────────────────────────────
     await db_update(db, ConsultationSlot, slot.id, {"is_booked": True})
