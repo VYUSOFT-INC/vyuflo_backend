@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import asyncio
@@ -1415,7 +1414,17 @@ async def fire_document_expiring(
     application_id: Optional[uuid.UUID] = None,
 ) -> None:
     try:
-        doc_url  = f"/documents/{document_id}"
+        # FIXED: was always f"/documents/{document_id}" — a route that
+        # doesn't exist in the frontend router (no /documents/:id page).
+        # Now routes to the case's tasks tab — where the expired-document
+        # re-upload UI already lives in TaskRow — if this document belongs
+        # to a case; otherwise to the Document Hub with ?reupload= so the
+        # Hub can auto-open the matching document's preview/re-upload modal.
+        doc_url = (
+            f"/applications/{application_id}?tab=tasks"
+            if application_id
+            else f"/documents?reupload={document_id}"
+        )
         priority = "urgent" if days_remaining <= 14 else "high" if days_remaining <= 30 else "medium"
  
         title = f"{document_name} expires in {days_remaining} day{'s' if days_remaining != 1 else ''}"

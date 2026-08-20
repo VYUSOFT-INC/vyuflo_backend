@@ -100,3 +100,18 @@ def verify_otp(plain: str, hashed: str) -> bool:
 
 def generate_secure_token(nbytes: int = 32) -> str:
     return secrets.token_urlsafe(nbytes)
+
+
+
+def create_avatar_token(user_id: str) -> str:
+    """
+    Long-lived, narrow-scope token for the avatar image cookie.
+    Deliberately NOT reusing create_access_token, because that always
+    expires after ACCESS_TOKEN_EXPIRE_MINUTES (15 min) — which caused the
+    avatar_session cookie's underlying JWT to expire in minutes while the
+    cookie itself claimed a 7-day max_age, silently breaking avatars
+    mid-session with no refresh path (a plain <img> tag can't retry).
+    This token carries only `sub` and lives as long as the cookie does.
+    """
+    payload = {"sub": user_id, "type": "avatar"}
+    return _create_token(payload, timedelta(days=7))

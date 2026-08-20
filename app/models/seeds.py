@@ -1037,13 +1037,13 @@ VISA_TYPES_SEED = [
 
 DOCUMENT_TYPES_SEED = [
     # ── Identity ──────────────────────────────────────────────────────────────
-    {"name": "Passport Copy",                  "category": "identity",    "description": "Biographical page showing photo, personal details, and expiration date.",         "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
+    {"name": "Passport Copy",                  "category": "identity",    "ocr_slug": "passport", "description": "Biographical page showing photo, personal details, and expiration date.",         "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
     {"name": "Birth Certificate",              "category": "identity",    "description": "Official government-issued birth certificate.",                                     "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
     {"name": "Two Passport Photos",            "category": "identity",    "description": "Two recent passport-style photographs meeting USCIS specifications.",               "is_optional": False, "accepted_formats": "JPG,PNG",     "max_file_size_mb": 5},
     {"name": "Copy of Current Visa",           "category": "identity",    "description": "Copy of current valid visa stamp in passport.",                                    "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
-    {"name": "Current Immigration Status Evidence", "category": "identity","description": "I-94, current visa, or other evidence of lawful immigration status.",             "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
-    {"name": "EAD Card",                       "category": "identity",    "description": "Employment Authorization Document (EAD) card front and back.",                     "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
-    {"name": "Current EAD Card",               "category": "identity",    "description": "Current valid EAD card for OPT or other work authorization.",                     "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
+    {"name": "Current Immigration Status Evidence", "category": "identity", "ocr_slug": "i94",     "description": "I-94, current visa, or other evidence of lawful immigration status.",             "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
+    {"name": "EAD Card",                       "category": "identity",    "ocr_slug": "ead",       "description": "Employment Authorization Document (EAD) card front and back.",                     "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
+    {"name": "Current EAD Card",               "category": "identity",    "ocr_slug": "ead",       "description": "Current valid EAD card for OPT or other work authorization.",                     "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
 
     # ── Employment ────────────────────────────────────────────────────────────
     {"name": "Offer Letter",                        "category": "employment", "description": "Signed offer letter from the sponsoring employer.",                                "is_optional": False, "accepted_formats": "PDF,DOCX",    "max_file_size_mb": 10},
@@ -1064,8 +1064,8 @@ DOCUMENT_TYPES_SEED = [
     {"name": "Enrollment Verification",        "category": "education",  "description": "DSO-issued enrollment verification confirming full-time status.",                   "is_optional": False, "accepted_formats": "PDF,DOCX",    "max_file_size_mb": 10},
 
     # ── Legal / Government Forms ───────────────────────────────────────────────
-    {"name": "Previous I-797",                      "category": "legal",  "description": "Prior USCIS approval notice (I-797) for the same or related petition.",           "is_optional": True,  "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
-    {"name": "Current I-797 Approval Notice",       "category": "legal",  "description": "Most recent valid USCIS I-797 approval for current status.",                      "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
+    {"name": "Previous I-797",                      "category": "legal",  "ocr_slug": "i797", "description": "Prior USCIS approval notice (I-797) for the same or related petition.",           "is_optional": True,  "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
+    {"name": "Current I-797 Approval Notice",       "category": "legal",  "ocr_slug": "i797", "description": "Most recent valid USCIS I-797 approval for current status.",                      "is_optional": False, "accepted_formats": "PDF,JPG,PNG", "max_file_size_mb": 10},
     {"name": "Form I-20",                           "category": "legal",  "description": "I-20 Certificate of Eligibility from DSO-authorized institution.",                "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
     {"name": "Form I-20 (OPT Recommendation)",      "category": "legal",  "description": "I-20 with DSO recommendation for OPT endorsement.",                              "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
     {"name": "Form I-20 (Updated)",                 "category": "legal",  "description": "Updated I-20 reflecting current program/status.",                                 "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
@@ -1104,7 +1104,7 @@ DOCUMENT_TYPES_SEED = [
     {"name": "Passport Photos",                  "category": "other",  "description": "Passport-style photos meeting USCIS/DOS photo requirements.",                        "is_optional": False, "accepted_formats": "JPG,PNG",      "max_file_size_mb": 5},
 
     # ── NEW: added to cover gaps found vs. US_Visa_Categories.docx / VISA_Type_Checklist.docx ──
-    {"name": "Labor Condition Application (LCA)", "category": "legal",      "description": "DOL-certified Labor Condition Application (Form ETA-9035) required for H-1B, H-1B1, and E-3 filings.", "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
+    {"name": "Labor Condition Application (LCA)", "category": "legal",      "ocr_slug": "lca", "description": "DOL-certified Labor Condition Application (Form ETA-9035) required for H-1B, H-1B1, and E-3 filings.", "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
     {"name": "DS-160 Confirmation",               "category": "legal",      "description": "Confirmation page from the DS-160 Online Nonimmigrant Visa Application.",                        "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
     {"name": "Credential Evaluation",             "category": "education", "description": "Course-by-course credential evaluation for degrees earned outside the U.S.",                        "is_optional": True,  "accepted_formats": "PDF",         "max_file_size_mb": 10},
     {"name": "Prevailing Wage Determination",     "category": "legal",      "description": "DOL Prevailing Wage Determination (PWD) obtained at the start of the PERM process.",             "is_optional": False, "accepted_formats": "PDF",         "max_file_size_mb": 10},
@@ -1122,9 +1122,6 @@ DOCUMENT_TYPES_SEED = [
 ]
 
 
-
-
-
 DOCUMENT_FIELD_CONFIG_SEED = [
     # ── Passport ──────────────────────────────────────────────────────────────
     {"ocr_slug": "passport", "field_name": "passport_number", "is_mandatory": True,  "is_expiry_field": False, "display_order": 0},
@@ -1134,38 +1131,37 @@ DOCUMENT_FIELD_CONFIG_SEED = [
     {"ocr_slug": "passport", "field_name": "date_of_birth",   "is_mandatory": True,  "is_expiry_field": False, "display_order": 4},
     {"ocr_slug": "passport", "field_name": "sex",             "is_mandatory": True,  "is_expiry_field": False, "display_order": 5},
     {"ocr_slug": "passport", "field_name": "expiry_date",     "is_mandatory": True,  "is_expiry_field": True,  "display_order": 6},
-    
- 
+
+
     # ── I-797 ─────────────────────────────────────────────────────────────────
     {"ocr_slug": "i797", "field_name": "receipt_number", "is_mandatory": True,  "is_expiry_field": False, "display_order": 0},
     {"ocr_slug": "i797", "field_name": "notice_type",    "is_mandatory": True,  "is_expiry_field": False, "display_order": 1},
     {"ocr_slug": "i797", "field_name": "case_type",      "is_mandatory": True,  "is_expiry_field": False, "display_order": 2},
     {"ocr_slug": "i797", "field_name": "valid_from",     "is_mandatory": True,  "is_expiry_field": False, "display_order": 3},
     {"ocr_slug": "i797", "field_name": "valid_to",       "is_mandatory": True,  "is_expiry_field": True,  "display_order": 4},
- 
+
     # ── I-94 ──────────────────────────────────────────────────────────────────
     {"ocr_slug": "i94", "field_name": "i94_number",         "is_mandatory": True,  "is_expiry_field": False, "display_order": 0},
     {"ocr_slug": "i94", "field_name": "class_of_admission", "is_mandatory": True,  "is_expiry_field": False, "display_order": 1},
     {"ocr_slug": "i94", "field_name": "admit_until",        "is_mandatory": True,  "is_expiry_field": True,  "display_order": 2},
- 
+
     # ── EAD ───────────────────────────────────────────────────────────────────
     {"ocr_slug": "ead", "field_name": "uscis_number",   "is_mandatory": True,  "is_expiry_field": False, "display_order": 0},
     {"ocr_slug": "ead", "field_name": "category_code",  "is_mandatory": True,  "is_expiry_field": False, "display_order": 1},
     {"ocr_slug": "ead", "field_name": "card_number",    "is_mandatory": True,  "is_expiry_field": False, "display_order": 2},
     {"ocr_slug": "ead", "field_name": "card_expires",   "is_mandatory": True,  "is_expiry_field": True,  "display_order": 3},
- 
+
     # ── LCA — no expiry field extracted yet (TODO) ───────────────────────────
     {"ocr_slug": "lca", "field_name": "case_number",    "is_mandatory": True,  "is_expiry_field": False, "display_order": 0},
     {"ocr_slug": "lca", "field_name": "employer_name",  "is_mandatory": True,  "is_expiry_field": False, "display_order": 1},
     {"ocr_slug": "lca", "field_name": "soc_code",       "is_mandatory": True,  "is_expiry_field": False, "display_order": 2},
- 
+
     # ── Aadhaar — no expiry concept ───────────────────────────────────────────
     {"ocr_slug": "aadhaar", "field_name": "aadhaar_number", "is_mandatory": True, "is_expiry_field": False, "display_order": 0},
- 
+
     # ── PAN — no expiry concept ───────────────────────────────────────────────
     {"ocr_slug": "pan", "field_name": "pan_number", "is_mandatory": True, "is_expiry_field": False, "display_order": 0},
 ]
-
 # =============================================================================
 # 6. SUBSCRIPTION_PLANS — 4 SaaS plans for admin billing dashboard
 # All amounts in US CENTS to avoid float rounding.
@@ -1615,18 +1611,6 @@ SYSTEM_SETTINGS_SEED = [
         "is_public": False,
         "is_readonly": False,
         "display_order": 3,
-    },
-    # ── Documents ─────────────────────────────────────────────────────────────
-    {
-        "key": "documents.expiry_reminder_thresholds",
-        "value": "90,60,30,14,7,1",
-        "value_type": "string",
-        "setting_group": "documents",
-        "label": "Expiry Reminder Thresholds (days)",
-        "description": "Comma-separated list of days-before-expiry to send document expiry reminders (e.g. passport, visa, EAD renewal alerts).",
-        "is_public": False,
-        "is_readonly": False,
-        "display_order": 0,
     },
     # ── Documents ─────────────────────────────────────────────────────────────
     {

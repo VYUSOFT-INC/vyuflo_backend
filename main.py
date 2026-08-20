@@ -20,6 +20,7 @@ from app.core.exceptions import register_exception_handlers
 # ✅ IMPORTANT: ensure all models are loaded
 from app.models.visamodels import *
 
+from app.routes.attorney.attorney_profile_router import attorney_profile_router
 from app.routes.employee import auth, onboarding
 from app.routes.employee.document import document_router
 from app.routes.employee.message import message_router
@@ -74,6 +75,7 @@ from app.routes.employee.security import employee_security_router
 from app.routes.hr.hr_document_request_routes import hr_document_request_router
 from app.routes.hr.hr_case_overview_routes import hr_case_overview_router
 from app.routes.hr.hr_case_letters_routes import hr_case_letters_router
+from app.routes.hr.company_profile_router import company_profile_router
 
 from app.ocr.ocr_service_router import ocr_router
 from fastapi.staticfiles import StaticFiles
@@ -191,7 +193,8 @@ async def lifespan(app: FastAPI):
         await seed_document_field_configurations(db)
     job = scheduler.add_job(
         _run_expiry_reminder_check,
-        trigger=CronTrigger(hour=12, minute=10, timezone=ZoneInfo("Asia/Kolkata")),
+        # trigger=CronTrigger(hour=12, minute=10, timezone=ZoneInfo("Asia/Kolkata")),
+        trigger=CronTrigger(hour=19, minute=7, timezone=ZoneInfo("Asia/Kolkata")),
         id="expiry_reminder_check",
         misfire_grace_time=3600,
         replace_existing=True,
@@ -246,7 +249,7 @@ register_exception_handlers(app)
 app.include_router(ocr_router,prefix="/api/v1", tags=["Ocr"]) 
 app.include_router(auth.router,                prefix="/api/v1/auth",       tags=["Authentication"])
 app.include_router(onboarding.router,          prefix="/api/v1/onboarding", tags=["Onboarding"])
-app.include_router(document_extra_router, prefix="/api/v1", tags=["Attroney-Documents"])
+app.include_router(document_extra_router, prefix="/api/v1/attorney", tags=["Attroney-Documents"])
 app.include_router(message_router,            prefix="/api/v1", tags=["Message"])
 app.include_router(application_router,         prefix="/api/v1", tags=["Applications"])
 app.include_router(application_history_router, prefix="/api/v1", tags=["Application History"])
@@ -262,6 +265,7 @@ app.include_router(consultation_router, prefix="/api/v1", tags=["consultations"]
 app.include_router(notification_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(attorney_router, prefix="/api/v1", tags=["attorneys"])
 app.include_router(new_case_router, prefix="/api/v1", tags=["Lawyer Cases"])   # NEW
+app.include_router(attorney_profile_router, prefix="/api/v1/attorney", tags=["attorney-profile"])
 # app.include_router(roles_router,       prefix="/api/v1")
 # app.include_router(user_roles_router,  prefix="/api/v1", tags=["User Roles"])
 
@@ -285,7 +289,7 @@ app.include_router(application_extra_router, prefix="/api/v1", tags=["Attroney-A
 app.include_router(help_router, prefix="/api/v1", tags=["Attroney-Help"])
 app.include_router(billing_router,prefix="/api/v1")
 app.include_router(secure_messages_router, prefix="/api/v1", tags=["Secure Messages"])
-app.include_router(profile_settings_router,prefix="/api/v1", tags=["Profile Settings"] )
+app.include_router(profile_settings_router,prefix="/api/v1/attorney", tags=["Profile Settings"] )
 app.include_router(invoice_detail_router, prefix="/api/v1", tags=["Invoice Detail"])
 app.include_router(template_library_router, prefix="/api/v1", tags=["Template Library"])
 app.include_router(notifications_reminders_router, prefix="/api/v1", tags=["Notification Reminders"])
@@ -301,7 +305,7 @@ app.include_router(employee_security_router,prefix="/api/v1/hr", tags=["Login_Hi
 app.include_router(hr_case_overview_router,prefix="/api/v1/hr", tags=["Case Overview"] )
 app.include_router(hr_document_request_router, prefix="/api/v1/hr", tags=["HR Document Request"])
 app.include_router(hr_case_letters_router,prefix="/api/v1/hr", tags=["Case Generated Letters"] )
-
+app.include_router(company_profile_router, prefix="/api/v1", tags=["company-profile"])
 
 
 

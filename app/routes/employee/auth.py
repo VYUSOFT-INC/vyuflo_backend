@@ -12,7 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, Request, Response, Cookie
 from app.core.dependencies import Current_User, DBSession
 from app.core.email import send_email
 from app.core.exceptions import NotFoundException, UnauthorizedException
-from app.core.security import create_access_token, decode_token
+from app.core.security import create_access_token, create_avatar_token, decode_token
 from app.models.visamodels import User, UserProfile
 from app.schemas.employee.auth import (
     AddPersonalEmailRequest,
@@ -37,7 +37,7 @@ from app.services.employee.auth_services import (
     service_sign_out_all_devices,
     service_signup,
     service_sso_login,
-    service_verify_personal_email,
+    service_verify_personal_email_otp,
     service_verify_reset_otp,
 )
 from app.services.employee.services import db_get_by_field, db_get_by_id, get_user_role
@@ -107,7 +107,7 @@ def _set_avatar_session_cookie(response: Response, user_id: str) -> None:
     Deliberately NOT the refresh token — narrow scope, low value if leaked
     (grants read access to one non-sensitive profile picture, nothing else).
     """
-    token = create_access_token(user_id, [], "", "", "", 0)  # minimal payload, just carries sub
+    token = create_avatar_token(user_id)
     response.set_cookie(
         key      = "avatar_session",
         value    = token,
@@ -115,11 +115,11 @@ def _set_avatar_session_cookie(response: Response, user_id: str) -> None:
         secure   = settings.COOKIE_SECURE,
         samesite = "lax",
         max_age  = 60 * 60 * 24 * 7,
-        path     = "/api/v1/users/me/avatar",   # scoped ONLY to this one route
+        path     = "/api/v1/users/",   # scoped ONLY to this one route
     )
 
 def _clear_avatar_session_cookie(response: Response) -> None:
-    response.delete_cookie(key="avatar_session", path="/api/v1/users/me/avatar")
+    response.delete_cookie(key="avatar_session", path="/api/v1/users/")
 
 def _clear_refresh_cookie(response: Response) -> None:
     response.delete_cookie(key="refresh_token", path="/api/v1/auth")
@@ -355,28 +355,35 @@ async def add_personal_email(
 ) -> MessageResponse:
     """
     Authenticated user (typically someone who joined via an org-issued
-    email) adds a personal email as a backup login. A verification link
-    is sent — the email only becomes the login email once clicked.
+    email) adds a personal email as a backup login. A 6-digit code is
+    sent — the email only becomes usable for login once that code is
+    confirmed back in the app.
     """
     await service_add_personal_email(
         db, user_id=current_user.user_id, personal_email=body.personal_email
     )
     await db.commit()
-    return MessageResponse(message="Verification email sent to your personal address.")
+    return MessageResponse(message="Verification code sent to your personal email.")
 
 
 @router.post("/account/verify-personal-email", response_model=MessageResponse)
 async def verify_personal_email(
-    body: VerifyPersonalEmailRequest,
-    db:   DBSession,
+    body:         VerifyPersonalEmailRequest,
+    db:           DBSession,
+    current_user: Current_User,
 ) -> MessageResponse:
     """
-    PUBLIC endpoint — the link is clicked from the person's email client,
-    so there's no active session yet. Token itself is the credential.
+    AUTHENTICATED endpoint — unlike a magic-link click (which must work
+    for someone with no active session), the code is entered directly in
+    the app by someone we already know is logged in. Scoping the lookup
+    to current_user.user_id means a code can never be checked against a
+    different account, even by accident.
     """
-    await service_verify_personal_email(db, token=body.token)
+    await service_verify_personal_email_otp(
+        db, user_id=current_user.user_id, otp_code=body.otp_code
+    )
     await db.commit()
-    return MessageResponse(message="Personal email verified and set as your login email.")
+    return MessageResponse(message="Personal email verified — it can now be used to log in.")
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗

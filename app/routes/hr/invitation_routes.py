@@ -10,6 +10,7 @@ from app.core.dependencies import get_current_user
 from app.core.email import send_invitation_email
 from app.models.visamodels import User
 from app.schemas.hr.invitation_schemas import (
+    EmployerDomainResponse,
     InviteByEmailRequest,
     InviteByCodeRequest,
     # InviteByLinkRequest,
@@ -33,14 +34,15 @@ from app.services.hr.invitation_service import (
     create_code_invite,
     # create_link_invite,
     get_employee_detail,
+    get_employer_domain,
     get_my_invitations,
     revoke_invitation,
     resend_email_invite,
     validate_invite,
     accept_invite,
-    # accept_invite_new_user,
-    # request_merge_otp,
-    # accept_invite_existing_user,
+    accept_invite_new_user,
+    request_merge_otp,
+    accept_invite_existing_user,
     get_my_employees,
     update_employee_info,
     deactivate_employee,
@@ -275,78 +277,86 @@ async def accept_invitation(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# @invitation_router.post(
-#     "/accept/new-user",
-#     response_model=AcceptInviteAuthResponse,
-#     summary="Public: Accept invite — no existing account (creates one)",
-# )
-# async def accept_invitation_new_user(
-#     data: AcceptInviteNewUserRequest,
-#     db:   AsyncSession = Depends(get_db),
-# ):
-#     """
-#     Use when `GET /hr/validate` returned `account_exists: false`.
-#     `data.email` is the person's PERSONAL email — mandatory field on this
-#     same form. Creates the account, links it to the employer, and logs
-#     the person in.
-#     """
-#     if not data.invite_token and not data.invite_code:
-#         raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
-#     try:
-#         result = await accept_invite_new_user(db, data)
-#         await db.commit()
-#         return result
-#     except ValueError as e:
-#         raise HTTPException(status_code=400, detail=str(e))
+# =============================================================================
+# EMPLOYEE — ACCEPT (public — new account, no existing account matched)
+# =============================================================================
+
+@invitation_router.post(
+    "/accept/new-user",
+    response_model=AcceptInviteAuthResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Public: Accept invite — no existing account (creates one)",
+)
+async def accept_invitation_new_user(
+    data: AcceptInviteNewUserRequest,
+    db:   AsyncSession = Depends(get_db),
+):
+    """
+    Use when `GET /hr/validate` returned `account_exists: false`.
+    Creates the account, links it to the employer, and logs the person in
+    — all in one call, since the passport check already confirmed identity.
+    """
+    if not data.invite_token and not data.invite_code:
+        raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
+    try:
+        result = await accept_invite_new_user(db, data)
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-# @invitation_router.post(
-#     "/accept/existing-user/request-otp",
-#     response_model=RequestMergeOtpResponse,
-#     summary="Public: Step 1 of merge — send login code to matched account",
-# )
-# async def request_merge_otp_route(
-#     data: RequestMergeOtpRequest,
-#     db:   AsyncSession = Depends(get_db),
-# ):
-#     """
-#     Use when `GET /hr/validate` returned `account_exists: true`. Sends a
-#     6-digit code to the matched account's personal email. Call
-#     `POST /hr/accept/existing-user` next with that code to complete the merge.
-#     """
-#     if not data.invite_token and not data.invite_code:
-#         raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
-#     try:
-#         result = await request_merge_otp(db, data)
-#         await db.commit()
-#         return result
-#     except ValueError as e:
-#         raise HTTPException(status_code=400, detail=str(e))
+# =============================================================================
+# EMPLOYEE — ACCEPT (public — existing account, merge via OTP)
+# =============================================================================
+
+@invitation_router.post(
+    "/accept/existing-user/request-otp",
+    response_model=RequestMergeOtpResponse,
+    summary="Public: Step 1 of merge — send login code to matched account",
+)
+async def request_merge_otp_route(
+    data: RequestMergeOtpRequest,
+    db:   AsyncSession = Depends(get_db),
+):
+    """
+    Use when `GET /hr/validate` returned `account_exists: true`. Sends a
+    6-digit code to the matched account's email. Call
+    `POST /hr/accept/existing-user` next with that code to complete the merge.
+    """
+    if not data.invite_token and not data.invite_code:
+        raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
+    try:
+        result = await request_merge_otp(db, data)
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-# @invitation_router.post(
-#     "/accept/existing-user",
-#     response_model=AcceptInviteAuthResponse,
-#     summary="Public: Step 2 of merge — confirm code, merge invite in",
-# )
-# async def accept_invitation_existing_user(
-#     data: AcceptInviteExistingUserRequest,
-#     db:   AsyncSession = Depends(get_db),
-# ):
-#     """
-#     Step 2 after `POST /hr/accept/existing-user/request-otp`. The 6-digit
-#     code confirms it's really them — no password involved — then the new
-#     employer link is merged into their existing account. All previous
-#     cases, documents, and history stay attached to that one account.
-#     """
-#     if not data.invite_token and not data.invite_code:
-#         raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
-#     try:
-#         result = await accept_invite_existing_user(db, data)
-#         await db.commit()
-#         return result
-#     except ValueError as e:
-#         raise HTTPException(status_code=400, detail=str(e))
+@invitation_router.post(
+    "/accept/existing-user",
+    response_model=AcceptInviteAuthResponse,
+    summary="Public: Step 2 of merge — confirm code, merge invite in",
+)
+async def accept_invitation_existing_user(
+    data: AcceptInviteExistingUserRequest,
+    db:   AsyncSession = Depends(get_db),
+):
+    """
+    Step 2 after `POST /hr/accept/existing-user/request-otp`. The 6-digit
+    code confirms it's really them — no password involved — then the new
+    employer link is merged into their existing account. All previous
+    cases, documents, and history stay attached to that one account.
+    """
+    if not data.invite_token and not data.invite_code:
+        raise HTTPException(status_code=400, detail="Provide either invite_token or invite_code.")
+    try:
+        result = await accept_invite_existing_user(db, data)
+        await db.commit()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # =============================================================================
@@ -430,3 +440,19 @@ async def get_employee_detail_route(
         return result
     except (ValueError, PermissionError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@invitation_router.get(
+    "/employer-domain",
+    response_model=EmployerDomainResponse,
+    summary="HR: Get my company's registered domain",
+)
+async def get_employer_domain_route(
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    """
+    Powers the domain-suffix picker on the invite form — lets HR type just
+    the prefix (e.g. "charansai") instead of the full address.
+    Returns domain: null if the employer hasn't set one yet.
+    """
+    return {"domain": await get_employer_domain(db, current_user.user_id)}
