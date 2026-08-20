@@ -573,6 +573,7 @@ async def request_merge_otp(db: AsyncSession, data: RequestMergeOtpRequest) -> d
             "Enter this code to confirm it's you and link this invitation to your account."
         ),
     )
+    await db_create(db, link)
 
     return {"message": "Verification code sent to your email."}
 
