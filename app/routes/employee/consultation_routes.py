@@ -9,12 +9,15 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.timeutils import format_in_timezone
+from app.services.employee.consultation_service import get_user_timezone
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
@@ -158,10 +161,13 @@ async def api_bulk_update_my_availability(
     profile = await _get_attorney_profile_for_user(db, current_user.user_id)
     if not profile:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not an attorney account.")
-    return await bulk_replace_availability(db, profile.id, body)
+    try:
+        return await bulk_replace_availability(db, profile.id, body)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
 
-@consultation_router.post(                                                      # NEW
+@consultation_router.post(                                                     
     "/attorneys/me/slots/generate",
     response_model=List[ConsultationSlotOut],
     status_code=status.HTTP_201_CREATED,
@@ -313,14 +319,21 @@ async def api_create_booking(
         await db.commit()
 
         # NEW — build the fields the Confirmation screen needs to show real date/time
-        start_dt = datetime.combine(booking.slot.slot_date, booking.slot.slot_time)
+
+        start_dt_utc = datetime.combine(
+            booking.slot.slot_date, booking.slot.slot_time, tzinfo=timezone.utc,
+        )
+        viewer_tz = await get_user_timezone(db, current_user.user_id, fallback=booking.slot.timezone)
+        scheduled_start_display = format_in_timezone(start_dt_utc, viewer_tz)
+
         confirmation_no = "VYU-" + str(booking.id)[:6].upper()
 
         return CreateConsultationBookingResponse(
             id=booking.id,
             status=booking.status,
             confirmation_no=confirmation_no,
-            scheduled_start_iso=start_dt,
+            scheduled_start_iso=start_dt_utc,
+            scheduled_start_display=scheduled_start_display,
             duration_minutes=booking.appointment_type.duration_minutes,
             zoho_meeting_id=booking.zoho_session_key,
             zoho_join_url=booking.meeting_link,

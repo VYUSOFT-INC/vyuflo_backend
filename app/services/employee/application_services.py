@@ -929,7 +929,11 @@ async def get_application(
 ) -> ApplicationResponse:
     result = await db.execute(
         select(Application)
-        .options(joinedload(Application.visa_type))
+        .options(
+            joinedload(Application.visa_type),
+            joinedload(Application.assigned_attorney),
+            joinedload(Application.assigned_hr),
+        )
         .where(Application.id == application_id)
     )
     app = result.scalars().first()
@@ -945,7 +949,16 @@ async def get_application(
             detail="You do not have access to this application.",
         )
 
-    return ApplicationResponse.model_validate(app)
+    resp = ApplicationResponse.model_validate(app)
+    resp.attorney_name = (
+        f"{app.assigned_attorney.first_name} {app.assigned_attorney.last_name}".strip()
+        if app.assigned_attorney else None
+    )
+    resp.hr_name = (
+        f"{app.assigned_hr.first_name} {app.assigned_hr.last_name}".strip()
+        if app.assigned_hr else None
+    )
+    return resp
 
 
 async def _can_access_application(db: AsyncSession, app: Application, user_id: uuid.UUID) -> bool:

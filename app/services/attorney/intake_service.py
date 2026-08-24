@@ -834,7 +834,7 @@ async def list_assigned_applications(
     if hasattr(Application, "assigned_attorney_id"):
         query = query.where(Application.assigned_attorney_id == attorney_id)
     # else: returns all apps until column is added (dev-only behavior)
-        query = query.where(Application.case_pipeline_stage.is_(None))   # new — once intake is accepted, case_pipeline_stage is set and it belongs in the main Cases section, not this queue
+        # query = query.where(Application.case_pipeline_stage.is_(None))   # new — once intake is accepted, case_pipeline_stage is set and it belongs in the main Cases section, not this queue
 
     result = await db.execute(query)
     applications = result.scalars().all()

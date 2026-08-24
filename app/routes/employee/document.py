@@ -24,9 +24,11 @@ from app.services.employee.document_service import (
     delete_document,
     get_document_by_id,
     get_document_file_url,
+    get_document_version_history,
     get_expected_ocr_slug,
     list_documents,
     list_hub_documents,
+    reupload_expired_document,
     reuse_document_for_case,
     upload_document,
 )
@@ -203,6 +205,7 @@ from app.services.employee import storage
 )
 async def api_view_document(
     document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
     current_user: Annotated[
         CurrentUserData,
         Depends(PermissionChecker(
@@ -214,8 +217,7 @@ async def api_view_document(
             ],
             require_all=False,   # holding ANY one of these passes the gate
         )),
-    ],
-    db: AsyncSession = Depends(get_db),
+    ] = None,
 ):
     # ── Layer 1 (PermissionChecker above): user holds SOME document-view capability ──
     # ── Layer 2 (inside get_document_file_url): is THIS document in scope for them? ──
@@ -414,4 +416,31 @@ async def get_expected_fields(
             for name in config.mandatory_fields
         ],
     )
- 
+
+
+
+@document_router.post(
+    "/documents/{document_id}/reupload",
+    response_model=DocumentResponse,
+    status_code=201,
+    summary="Re-upload a new version replacing an expired document",
+)
+async def api_reupload_document(
+    document_id: uuid.UUID,
+    file:        UploadFile = File(...),
+    db:          AsyncSession = Depends(get_db),
+    current_user               = Depends(get_current_user),
+) -> DocumentResponse:
+    return await reupload_expired_document(db, document_id, current_user.user_id, file)
+
+
+@document_router.get(
+    "/documents/{document_id}/versions",
+    summary="Get the full replacement history for a document",
+)
+async def api_get_document_versions(
+    document_id: uuid.UUID,
+    db:          AsyncSession = Depends(get_db),
+    current_user               = Depends(get_current_user),
+):
+    return await get_document_version_history(db, document_id, current_user.user_id)
