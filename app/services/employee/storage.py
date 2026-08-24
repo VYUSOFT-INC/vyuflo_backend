@@ -140,6 +140,7 @@ async def get_presigned_url(key: str, expires: int = 900) -> str:
 
 async def delete_file(key: str) -> None:
     """Delete an object by key."""
+    print(f"🔍 delete_file called — STORAGE_BACKEND={settings.STORAGE_BACKEND!r}, key={key!r}")
     if settings.STORAGE_BACKEND == "s3":
         async with _client() as s3:
             await s3.delete_object(Bucket=settings.S3_BUCKET, Key=key)

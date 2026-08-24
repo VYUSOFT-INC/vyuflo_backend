@@ -32,7 +32,6 @@ from app.core.security import (
     generate_otp,
     hash_otp,
     hash_password,
-    new_session_id,
     verify_password,
 )
 from app.models.visamodels import (
@@ -40,6 +39,7 @@ from app.models.visamodels import (
     PasswordResetToken,
     Role,
     User,
+    UserEmail,
     UserLoginHistory,
     UserOTP,
     UserProfile,
@@ -67,6 +67,7 @@ from app.services.employee.services import (
 )
 from app.core.config import settings
 from app.services.employee.storage import resolve_url
+from app.services.employee.user_profile_service import get_avatar_display_url
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -75,25 +76,31 @@ from app.services.employee.storage import resolve_url
 
 async def _find_user_by_login_identifier(db: AsyncSession, email: str) -> Optional[User]:
     """
-    Resolves a login email to a User, checking two sources in order:
+    Resolves a login email to a User, checking three sources in order:
 
-      1. User.email — the person's own permanent login (personal email or
-         an email they signed up with directly). Never affected by any
-         organization's status.
+      1. user_emails — ANY verified email on file for the account, not
+         just the original signup one. This is what makes "both emails
+         work for login" possible: a person can add a personal email
+         alongside their work email, verify it, and log in with either
+         one going forward — neither replaces the other. Replaces the old
+         approach of checking only User.email directly.
 
       2. EmployerEmployee.work_email — an org-issued login email, valid
          only while that membership is still active OR still inside its
-         grace period (access_revoked_at is null or in the future).
-
-    This is what lets an employee log in with either their personal email
-    or their company email, and keeps working after an org removes them
-    (via their personal email) or during the offboarding grace window
-    (via their work email, until access_revoked_at passes).
+         grace period (access_revoked_at is null or in the future). Kept
+         as a fallback for org-issued emails that were never separately
+         added to user_emails (shouldn't normally happen post-signup,
+         but covers older/edge-case rows).
     """
     normalized = email.lower().strip()
 
-    # ── 1. Personal / primary login email ───────────────────────────────────
-    user = await db_get_by_field(db, User, "email", normalized)
+    # ── 1. Any verified email on file (covers work + personal + signup) ─────
+    result = await db.execute(
+        select(User)
+        .join(UserEmail, UserEmail.user_id == User.id)
+        .where(UserEmail.email == normalized, UserEmail.is_verified == True)
+    )
+    user = result.scalar_one_or_none()
     if user:
         return user
 
@@ -180,6 +187,14 @@ async def service_signup(
         assigned_by = user.id,
         created_by  = user.id,
         modified_by = user.id,
+    ))
+
+    # NEW — every account gets its first row in user_emails, marked verified
+    # immediately (the password itself is the proof of ownership here —
+    # unlike the "add a personal email" flow later, which has no password
+    # check and requires an email-click confirmation instead).
+    await db_create(db, UserEmail(
+        user_id=user.id, email=email, is_verified=True, is_primary=True, source="signup",
     ))
 
     await send_email_verification_otp(db, user)
@@ -302,7 +317,7 @@ async def service_login(
         "access_token":    access_token,
         "refresh_token":   refresh_token,
         "roles":           roles,
-        "profile_picture": "/api/v1/users/me/avatar" if user_profile and user_profile.profile_picture_url else None,
+        "profile_picture": get_avatar_display_url(user_profile) if user_profile else None,
         "theme_color": user_profile.theme_color if user_profile else None,
         "tour_employee_seen": user_profile.tour_employee_seen  if user_profile else False,
         "tour_hr_seen":       user_profile.tour_hr_seen        if user_profile else False,
@@ -379,6 +394,13 @@ async def service_sso_login(
             assigned_by = user.id,
             created_by  = user.id,
             modified_by = user.id,
+        ))
+
+        # NEW — same treatment as email/password signup: first user_emails
+        # row, verified immediately (SSO providers already verify the
+        # email themselves before handing it to us).
+        await db_create(db, UserEmail(
+            user_id=user.id, email=email, is_verified=True, is_primary=True, source="signup",
         ))
     else:
         if user.auth_provider == "email":
@@ -457,6 +479,7 @@ async def service_refresh_token(db: AsyncSession, *, refresh_token: str) -> dict
 
     return {"access_token": new_access, "refresh_token": new_refresh}
 
+
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                       LOGOUT                                             ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
@@ -481,13 +504,6 @@ async def service_sign_out_all_devices(db: AsyncSession, user_id: uuid.UUID) -> 
 
     return len(keys)
 
-async def service_sign_out_all_devices(db: AsyncSession, user_id: uuid.UUID) -> int:
-    keys = await redis_scan_keys(f"refresh:{user_id}:*")
-    await redis_delete_many(keys)
-    user = await db_get_by_id(db, User, user_id)
-    if user:
-        await db_update(db, User, user.id, {"token_version": user.token_version + 1})
-    return len(keys)
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                  PERSONAL EMAIL — ADD + VERIFY                          ║
@@ -500,25 +516,37 @@ async def service_add_personal_email(
     personal_email: str,
 ) -> None:
     """
-    Employee (or anyone) adds a personal email as a backup login.
-    Does NOT change User.email yet — stores it as pending until the
-    verification link is clicked, so an unverified/mistyped address can
-    never become someone's login credential.
+    Adds a personal/backup email as an ADDITIONAL login credential — does
+    NOT replace or touch the account's existing email(s). Creates an
+    unverified row in user_emails; it only becomes usable for login once
+    the OTP code is confirmed. This is what makes "both emails log in"
+    possible: the original signup/work email keeps working exactly as
+    before, and this new one becomes a second valid path in once
+    verified — neither one displaces the other.
+
+    Pure OTP, no magic link — sends a 6-digit code the person types back
+    into the app while still in their authenticated session. Matches the
+    existing-user merge flow's verification model for consistency, and
+    avoids a magic link's actual weak point: the "someone with access to
+    this inbox could click this link" argument only holds if the person
+    reading the email is a stranger — but the code and a would-be link
+    both live in the same message either way, so a single, explicit
+    "type the code back into the app" step is the simpler, single
+    mechanism to reason about instead of two overlapping ones.
     """
     personal_email = personal_email.strip().lower()
 
-    existing = await db.scalar(select(User).where(User.email == personal_email))
+    existing = await db.scalar(select(UserEmail).where(UserEmail.email == personal_email))
     if existing:
         raise ConflictException("This email is already in use by another account.")
 
-    token   = secrets.token_urlsafe(32)
-    expires = utc_now() + timedelta(hours=24)
+    code    = f"{secrets.randbelow(1_000_000):06d}"
+    expires = utc_now() + timedelta(minutes=15)
 
-    await db_update(db, User, user_id, {
-        "pending_personal_email":        personal_email,
-        "personal_email_verify_token":   token,
-        "personal_email_verify_expires": expires,
-    })
+    await db_create(db, UserEmail(
+        user_id=user_id, email=personal_email, is_verified=False, is_primary=False,
+        source="personal", verify_token=code, verify_token_expires=expires,
+    ))
 
     await send_email(
         to=personal_email,
@@ -526,38 +554,44 @@ async def service_add_personal_email(
         body=(
             "You (or your organization) requested to add this email as a "
             "backup login for your Vyuflo account.\n\n"
-            f"Verify it here: {settings.FRONTEND_URL}/verify-personal-email?token={token}\n\n"
-            "This link expires in 24 hours. If you didn't request this, ignore this email."
+            f"Your verification code: {code}\n\n"
+            "Enter this code in Vyuflo to confirm. It expires in 15 minutes. "
+            "If you didn't request this, ignore this email."
         ),
     )
 
 
-async def service_verify_personal_email(db: AsyncSession, *, token: str) -> User:
+async def service_verify_personal_email_otp(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    otp_code: str,
+) -> None:
     """
-    Confirms the personal email and promotes it to User.email — the
-    permanent login field that survives any organization removing the user.
+    Confirms the code from service_add_personal_email while the person is
+    still in their authenticated session — no public token lookup, since
+    unlike a magic link (which must work for someone clicking from an
+    email client with no active session), this is entered directly in
+    the app by someone we already know is logged in. Scoping the lookup
+    to user_id also means a code can never be replayed against a
+    different account by mistake or malice.
     """
-    user = await db.scalar(
-        select(User).where(User.personal_email_verify_token == token)
+    row = await db.scalar(
+        select(UserEmail).where(
+            UserEmail.user_id == user_id,
+            UserEmail.verify_token == otp_code.strip(),
+            UserEmail.is_verified == False,
+        )
     )
-    if not user:
-        raise BadRequestException("Invalid or expired verification link.")
+    if not row:
+        raise BadRequestException("Invalid verification code.")
 
-    if not user.personal_email_verify_expires or user.personal_email_verify_expires < utc_now():
-        raise BadRequestException("This verification link has expired. Please request a new one.")
+    if not row.verify_token_expires or row.verify_token_expires < utc_now():
+        raise BadRequestException("This code has expired. Please request a new one.")
 
-    if not user.pending_personal_email:
-        raise BadRequestException("No pending personal email found for this request.")
-
-    await db_update(db, User, user.id, {
-        "email":                         user.pending_personal_email,
-        "pending_personal_email":        None,
-        "personal_email_verify_token":   None,
-        "personal_email_verify_expires": None,
-        "is_verified":                   True,
+    await db_update(db, UserEmail, row.id, {
+        "is_verified": True, "verify_token": None, "verify_token_expires": None,
     })
-
-    return user
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗

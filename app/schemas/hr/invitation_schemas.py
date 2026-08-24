@@ -13,6 +13,9 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 class InviteByEmailRequest(BaseModel):
     """HR invites a specific employee by email."""
     email:             EmailStr
+    # MANDATORY — identity verification. The employee must correctly
+    # re-enter this exact number before their acceptance is allowed.
+    # Only a hash is ever stored server-side (see invited_passport_hash).
     passport_number:   str = Field(..., min_length=6, max_length=20)
     personal_message:  Optional[str] = Field(None, max_length=500)
     expires_days:      int            = Field(7, ge=1, le=30)
@@ -32,6 +35,7 @@ class InviteByEmailRequest(BaseModel):
 class InviteByCodeRequest(BaseModel):
     """HR generates a reusable company code to share offline."""
     max_uses:         Optional[int]  = Field(None, ge=1, le=500)
+    # NULL = unlimited — good for large companies
     personal_message: Optional[str]  = Field(None, max_length=500)
 
 
@@ -49,6 +53,7 @@ class AcceptInviteRequest(BaseModel):
     invite_token:     Optional[str] = None   # link method
     invite_code:      Optional[str] = None   # code method
     passport_number:  Optional[str] = None   # required only for email-method invites
+    # email method uses invite_token from the email link
 
 
 class ValidateTokenRequest(BaseModel):
@@ -71,6 +76,7 @@ class AcceptInviteNewUserRequest(BaseModel):
     email:            EmailStr
     other_email:      Optional[EmailStr] = None
     password:         str = Field(..., min_length=8)
+    passport_number:  Optional[str] = None
     terms_accepted:   bool
 
 
@@ -95,6 +101,7 @@ class AcceptInviteExistingUserRequest(BaseModel):
     login_email:  EmailStr
     otp_code:     str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
     other_email:  Optional[EmailStr] = None
+    passport_number: Optional[str] = None
 
 
 class UpdateEmployeeRequest(BaseModel):
@@ -192,7 +199,11 @@ class ValidateTokenResponse(BaseModel):
     hr_name:       Optional[str] = None
     invite_method: Optional[str] = None
     message:       str
-    # "Valid invite from TechCorp" or "This invite has expired"
+
+    # The email the invite was actually sent to — exposed so the frontend
+    # can prefill the signup/merge forms. Safe to expose publicly since
+    # the person already received it in their inbox.
+    invited_email: Optional[str] = None
 
     # True → the accept screen must show a blank passport number field and
     # block acceptance until it's correctly filled in. Always true for
@@ -200,8 +211,8 @@ class ValidateTokenResponse(BaseModel):
     requires_passport_verification: bool = False
 
     # Tells the frontend which screen to show next —
-    # True  → "Welcome back! Log in to link this invite to your account."
-    # False → "Create your account to get started."
+    # True  → merge-via-OTP flow (existing account)
+    # False → new-account creation flow
     account_exists: bool = False
 
     # Only present once the frontend has answered the "another email?" /
@@ -221,6 +232,13 @@ class AcceptInviteAuthResponse(BaseModel):
     roles:         list[str]
     company_name:  str
     employer_id:   uuid.UUID
+    # True → the account's primary email matches the employer's registered
+    # domain AND no second verified email is on file yet. Frontend should
+    # show the "add a personal email" prompt even if `other_email` wasn't
+    # filled in during signup/merge — this is the same domain-match check
+    # used by the authenticated accept path, ported here so someone who
+    # skips the optional field still gets asked once, right after joining.
+    needs_personal_email: bool = False
     linked_email:  Optional[str] = None
     message:       str
 
@@ -237,3 +255,6 @@ class InvitationListResponse(BaseModel):
 class EmployeeListResponse(BaseModel):
     items: list[EmployeeResponse]
     total: int
+
+class EmployerDomainResponse(BaseModel):
+    domain: Optional[str] = None

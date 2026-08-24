@@ -2,16 +2,16 @@
 # app/routers/profile_settings_router.py
 # Screen 13 — Profile & Settings
 #
-# Register in main.py:
-#   from app.routers.profile_settings_router import profile_settings_router
-#   app.include_router(profile_settings_router, prefix="/api/v1", tags=["Screen 13 - Profile & Settings"])
-#
-# Endpoints (new — Section A: Profile Information):
-#   GET    /users/me/profile              — load full profile info
-#   PATCH  /users/me/profile              — "Save Changes" button
-#   PATCH  /users/me/attorney-profile     — Bar Association ID
-#   PATCH  /users/me/avatar               — "Change Avatar" camera icon
-#   DELETE /users/me/avatar               — "Remove" link
+# MOUNT: app.include_router(profile_settings_router, prefix="/api/v1/attorney", tags=["Profile Settings"])
+# (Moved from /api/v1 to /api/v1/attorney — the old mount collided with
+# user_profile_router's GET /api/v1/users/me/profile, same method+path,
+# registered earlier in main.py, which silently shadowed this router's
+# aggregated response for every single request. Full paths are now:
+#   GET    /api/v1/attorney/users/me/profile
+#   PATCH  /api/v1/attorney/users/me/profile
+#   PATCH  /api/v1/attorney/users/me/attorney-profile
+#   PATCH  /api/v1/attorney/users/me/avatar
+#   DELETE /api/v1/attorney/users/me/avatar
 #
 # Section B — Notification Preferences:
 #   REUSED AS-IS — no new endpoints here.
@@ -100,7 +100,7 @@ async def api_update_my_profile(
         user_id            = current_user.user_id,
         first_name         = payload.first_name,
         last_name          = payload.last_name,
-        timezone           = payload.timezone,
+        tz                 = payload.timezone,   # FIXED: matches renamed `tz` param
         preferred_language = payload.preferred_language,
     )
     return ProfileResponse(**data)
@@ -130,7 +130,6 @@ async def api_update_attorney_profile(
         law_firm_name = payload.law_firm_name,
         bio           = payload.bio,
         monthly_billing_target_cents = payload.monthly_billing_target_cents,
-
     )
     return ProfileResponse(**data)
 
@@ -143,7 +142,9 @@ async def api_update_attorney_profile(
     description=(
         "Multipart/form-data. Field name: file. "
         "Allowed: jpg, jpeg, png, webp. Max: 5MB. "
-        "Returns new profile_picture_url."
+        "Returns new profile_picture_url. "
+        "Now delegates to the shared S3/Spaces-backed avatar pipeline "
+        "(user_profile_service.upload_profile_picture) — see profile_settings_service.py."
     ),
 )
 async def api_update_avatar(
@@ -160,7 +161,7 @@ async def api_update_avatar(
     response_model=AvatarUpdateResponse,
     status_code=status.HTTP_200_OK,
     summary="Remove avatar — Screen 13 'Remove' link",
-    description="Sets profile_picture_url to null. File is not deleted from storage.",
+    description="Sets profile_picture_url to null and deletes the underlying S3/Spaces object.",
 )
 async def api_remove_avatar(
     db:           AsyncSession = Depends(get_db),
