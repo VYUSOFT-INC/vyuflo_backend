@@ -7,12 +7,12 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Date, Time,
+    Column, Float, String, Boolean, DateTime, Date, Time,
     Integer, Enum, Text, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from sqlalchemy.orm import  relationship
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB  
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -475,7 +475,12 @@ class UserLoginHistory(Base):
     is_current_session = Column(Boolean, default=False, nullable=False)
     session_token      = Column(String(500), nullable=True)
     logged_out_at      = Column(DateTime(timezone=True), nullable=True)
-
+    latitude      = Column(Float, nullable=True)
+    longitude     = Column(Float, nullable=True)
+    is_vpn        = Column(Boolean, default=False, nullable=False)
+    is_unusual    = Column(Boolean, default=False, nullable=False)
+    risk_score    = Column(Integer, default=0, nullable=False)
+    
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -708,6 +713,11 @@ class Application(Base):
         "ApplicationGeneratedLetter",
         back_populates="application",
         order_by="ApplicationGeneratedLetter.generated_at.desc()",
+    )
+    employee_forms = relationship(         
+        "EmployeeForm",
+        back_populates="application",
+        cascade="all, delete-orphan",
     )
 
 
@@ -3146,6 +3156,9 @@ class ConsultationBooking(Base):
 
     meeting_link         = Column(String(1000), nullable=True)
 
+    zoho_session_key     = Column(String(200),  nullable=True)
+
+
     employee_notes       = Column(Text, nullable=True)
     attorney_notes       = Column(Text, nullable=True)
     cancellation_reason  = Column(String(500), nullable=True)
@@ -3434,6 +3447,13 @@ class IntakeImmigrationHistory(Base):
     date_of_birth        = Column(Date,        nullable=True)
     gender               = Column(String(20),  nullable=True)
     nationality          = Column(String(100), nullable=True)
+    phone            = Column(String(30),  nullable=True)   # new
+    is_student       = Column(Boolean,     nullable=True)   # new
+    company_name     = Column(String(200), nullable=True)   # new
+    job_title        = Column(String(200), nullable=True)   # new
+    start_date       = Column(Date,        nullable=True)   # new
+    annual_salary    = Column(String(30),  nullable=True)   # new
+    visa_type_code   = Column(String(30),  nullable=True)   # new
     passport_number      = Column(String(50),  nullable=True)
     passport_expiry_date = Column(Date,        nullable=True)
     email                = Column(String(255), nullable=True)
@@ -3925,3 +3945,45 @@ class EmployerFirmConnection(Base):
     __table_args__ = (
         UniqueConstraint("employer_profile_id", "firm_id", name="uq_employer_firm"),
     )
+
+
+# =============================================================================
+# TABLE — 76
+# EmployeeForm  ← NEW
+#
+# Stores employee-filled USCIS forms (I-9, I-983, ...). form_response is
+# JSONB — each form's field shape lives client-side and can change without
+# a migration.
+#
+# =============================================================================
+
+class EmployeeForm(Base):
+    __tablename__ = "employee_forms"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    application_id = Column(UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"),
+                            nullable=False, index=True)
+    employee_id    = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+
+    form_type     = Column(String(20), nullable=False)                   # 'i9' | 'i983'
+    status        = Column(String(20), nullable=False, default="draft") # 'draft' | 'submitted' | 'archived'
+    form_response = Column(JSONB, nullable=False, default=dict, server_default="{}")  # NEW name, per manager
+
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("application_id", "form_type", name="uq_employee_form_app_type"),
+        Index("ix_employee_forms_employee_type", "employee_id", "form_type"),
+    )
+
+    application = relationship("Application", foreign_keys=[application_id],
+                               back_populates="employee_forms")
+    employee    = relationship("User", foreign_keys=[employee_id])

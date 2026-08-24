@@ -25,6 +25,7 @@ from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete as sa_delete   # new
 
 from app.services.employee.services import db_create, db_get_by_id, db_update
 from app.models.visamodels import CalendarEvent, Notification, Application, User 
@@ -420,6 +421,125 @@ async def get_event(
         updated_at       = event.updated_at,
     )
 
+async def _fanout_calendar_event(
+    db: AsyncSession,
+    event: CalendarEvent,
+    attorney_id: uuid.UUID,
+    is_time_change: bool = False,
+) -> None:
+    """
+    Creates/refreshes a Notification (+ email) for the linked case's
+    employee and assigned HR user. Safe to call again for the same
+    event — old entries are cleared first, so nothing duplicates.
+    """
+    if not event.application_id:
+        return
+
+    app_row = await db_get_by_id(db, Application, event.application_id)
+    if not app_row:
+        return
+
+    # Clear any previous fan-out rows for this exact event before re-creating them
+    await db.execute(
+        sa_delete(Notification).where(
+            Notification.dedup_key.like(f"calendar_event:{event.id}:%")
+        )
+    )
+
+    attorney_user = await db_get_by_id(db, User, attorney_id)
+    attorney_name = (
+        f"{attorney_user.first_name} {attorney_user.last_name}".strip()
+        if attorney_user else "Your attorney"
+    )
+    when_str = f"{event.event_date}" + (
+        f" at {event.start_time.strftime('%H:%M')}" if event.start_time else ""
+    )
+    priority = "urgent" if "court" in (event.event_type or "").lower() else "high"
+    verb     = "moved" if is_time_change else "scheduled"
+
+    recipients = []
+    if app_row.user_id:        recipients.append(app_row.user_id)
+    if app_row.assigned_hr_id: recipients.append(app_row.assigned_hr_id)
+
+    for recipient_id in recipients:
+        await db_create(db, Notification(
+            user_id           = recipient_id,
+            notification_type = "calendar_event_reminder",
+            category          = "deadline",
+            priority          = priority,
+            title             = f"Upcoming: {event.title}",
+            body              = f"{event.event_type} {verb} by {attorney_name} on {when_str}.",
+            application_id    = app_row.id,
+            actor_id          = attorney_id,
+            cta_primary_label = "View details",
+            cta_primary_url   = "/calendar",
+            dedup_key         = f"calendar_event:{event.id}:{recipient_id}",
+        ))
+        try:
+            recipient_user = await db_get_by_id(db, User, recipient_id)
+            if recipient_user and recipient_user.email:
+                await send_email(
+                    to=recipient_user.email,
+                    subject=f"[Vyuflo] {event.event_type}: {event.title} — {event.event_date}",
+                    body=(
+                        f"Hi {recipient_user.first_name or 'there'},\n\n"
+                        f"{attorney_name} {verb} a {event.event_type} for your case:\n\n"
+                        f"  {event.title}\n"
+                        f"  {when_str}\n\n"
+                        f"{event.notes or ''}\n\n"
+                        f"— Vyuflo"
+                    ),
+                )
+        except Exception as e:
+            print(f"[calendar fan-out] email failed for {recipient_id}: {e}")
+
+
+async def _cancel_fanout_calendar_event(
+    db: AsyncSession,
+    event: CalendarEvent,
+    attorney_id: uuid.UUID,
+) -> None:
+    """Removes fan-out notifications for a cancelled event and emails a short heads-up."""
+    if not event.application_id:
+        return
+
+    app_row = await db_get_by_id(db, Application, event.application_id)
+    if not app_row:
+        return
+
+    await db.execute(
+        sa_delete(Notification).where(
+            Notification.dedup_key.like(f"calendar_event:{event.id}:%")
+        )
+    )
+
+    attorney_user = await db_get_by_id(db, User, attorney_id)
+    attorney_name = (
+        f"{attorney_user.first_name} {attorney_user.last_name}".strip()
+        if attorney_user else "Your attorney"
+    )
+
+    recipients = []
+    if app_row.user_id:        recipients.append(app_row.user_id)
+    if app_row.assigned_hr_id: recipients.append(app_row.assigned_hr_id)
+
+    for recipient_id in recipients:
+        try:
+            recipient_user = await db_get_by_id(db, User, recipient_id)
+            if recipient_user and recipient_user.email:
+                await send_email(
+                    to=recipient_user.email,
+                    subject=f"[Vyuflo] Cancelled: {event.title} — {event.event_date}",
+                    body=(
+                        f"Hi {recipient_user.first_name or 'there'},\n\n"
+                        f"{attorney_name} cancelled the following event for your case:\n\n"
+                        f"  {event.title}\n"
+                        f"  {event.event_date}\n\n"
+                        f"— Vyuflo"
+                    ),
+                )
+        except Exception as e:
+            print(f"[calendar fan-out cancel] email failed for {recipient_id}: {e}")
 
 # ===========================================================================
 # CREATE EVENT — Screen 18 Save Event button
@@ -463,54 +583,8 @@ async def create_event(
     )
     new_event = await db_create(db, new_event)
 
-    # new — notify the linked case's employee + HR that an event was scheduled
-    if new_event.application_id:
-        app_row = await db_get_by_id(db, Application, new_event.application_id)
-        if app_row:
-            attorney_user = await db_get_by_id(db, User, attorney_id)
-            attorney_name = (
-                f"{attorney_user.first_name} {attorney_user.last_name}".strip()
-                if attorney_user else "Your attorney"
-            )
-            when_str = f"{new_event.event_date}" + (
-                f" at {new_event.start_time.strftime('%H:%M')}" if new_event.start_time else ""
-            )
-            priority = "urgent" if "court" in (new_event.event_type or "").lower() else "high"
-
-            recipients = []
-            if app_row.user_id:        recipients.append(app_row.user_id)
-            if app_row.assigned_hr_id: recipients.append(app_row.assigned_hr_id)
-
-            for recipient_id in recipients:
-                await db_create(db, Notification(
-                    user_id           = recipient_id,
-                    notification_type = "calendar_event_reminder",   # note: must be this exact value — "calendar_event" is NOT a valid option in this database
-                    category          = "deadline",
-                    priority          = priority,
-                    title             = f"Upcoming: {new_event.title}",
-                    body              = f"{new_event.event_type} scheduled by {attorney_name} on {when_str}.",
-                    application_id    = app_row.id,
-                    actor_id          = attorney_id,
-                    cta_primary_label = "View details",
-                    cta_primary_url   = "/calendar",
-                ))
-                try:
-                    recipient_user = await db_get_by_id(db, User, recipient_id)
-                    if recipient_user and recipient_user.email:
-                        await send_email(
-                            to=recipient_user.email,
-                            subject=f"[Vyuflo] {new_event.event_type}: {new_event.title} — {new_event.event_date}",
-                            body=(
-                                f"Hi {recipient_user.first_name or 'there'},\n\n"
-                                f"{attorney_name} scheduled a {new_event.event_type} for your case:\n\n"
-                                f"  {new_event.title}\n"
-                                f"  {when_str}\n\n"
-                                f"{new_event.notes or ''}\n\n"
-                                f"— Vyuflo"
-                            ),
-                        )
-                except Exception as e:
-                    print(f"[calendar create_event] email fan-out failed: {e}")
+    if new_event.reminder_enabled and (new_event.reminder_minutes or 0) > 0:   
+        await _fanout_calendar_event(db, new_event, attorney_id)              
 
     return await get_event(db, new_event.id, attorney_id)
 
@@ -547,6 +621,13 @@ async def update_event(
 
     data["modified_by"] = attorney_id
     await db_update(db, CalendarEvent, event_id, data)
+
+    updated_event = await db_get_by_id(db, CalendarEvent, event_id)                          
+    is_time_change = "event_date" in data or "start_time" in data                             
+    if updated_event.reminder_enabled and (updated_event.reminder_minutes or 0) > 0:           
+        await _fanout_calendar_event(db, updated_event, attorney_id, is_time_change=is_time_change)  
+
+
     return await get_event(db, event_id, attorney_id)
 
 
@@ -566,6 +647,8 @@ async def cancel_event(
             status_code=status.HTTP_409_CONFLICT,
             detail="Event is already cancelled.",
         )
+    
+    await _cancel_fanout_calendar_event(db, event, attorney_id)   # new — remove reminders + notify recipients
 
     await db_update(db, CalendarEvent, event_id, {
         "status":      "cancelled",

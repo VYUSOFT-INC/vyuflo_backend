@@ -9,12 +9,15 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.timeutils import format_in_timezone
+from app.services.employee.consultation_service import get_user_timezone
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
@@ -26,8 +29,10 @@ from app.schemas.employee.consultation_schemas import (
     AppointmentTypeCreateRequest,
     AttorneyAvailabilityOut,
     AttorneyAvailabilityCreateRequest,
+    SaveAvailabilityRequest,          
     ConsultationSlotOut,
     SlotGenerateRequest,
+    GenerateMySlotsRequest,
     ConsultationBookingOut,
     CreateConsultationBookingRequest,
     CreateConsultationBookingResponse,
@@ -41,6 +46,8 @@ from app.services.employee.consultation_service import (
     create_appointment_type,
     list_attorney_availability,
     set_attorney_availability,
+    bulk_replace_availability,        
+    _get_attorney_profile_for_user,  
     generate_slots,
     list_slots_for_attorney,
     get_book_page_data,
@@ -117,6 +124,69 @@ async def api_create_appointment_type(
     current_user: User         = Depends(get_current_user),
 ):
     return await create_appointment_type(db, body, created_by=current_user.user_id)
+# =============================================================================
+# ── ATTORNEY SELF-SERVICE ("me") ─────────────────────────────────────────────  # NEW
+# IMPORTANT: these 3 routes MUST be registered BEFORE the
+# /attorneys/{attorney_id}/... routes below. FastAPI tries routes in the
+# order they're registered — if the {attorney_id} routes came first, a
+# request to /attorneys/me/availability would try to parse "me" as a UUID
+# and fail with a 422, instead of ever reaching these handlers.
+# =============================================================================
+
+@consultation_router.get(                                                       # NEW
+    "/attorneys/me/availability",
+    response_model=List[AttorneyAvailabilityOut],
+    summary="Get MY (logged-in attorney's) weekly availability rules",
+)
+async def api_get_my_availability(
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    profile = await _get_attorney_profile_for_user(db, current_user.user_id)
+    if not profile:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not an attorney account.")
+    return await list_attorney_availability(db, profile.id)
+
+
+@consultation_router.put(                                                       # NEW
+    "/attorneys/me/availability",
+    response_model=List[AttorneyAvailabilityOut],
+    summary="Bulk-replace MY weekly availability (Set Availability modal)",
+)
+async def api_bulk_update_my_availability(
+    body:         SaveAvailabilityRequest,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    profile = await _get_attorney_profile_for_user(db, current_user.user_id)
+    if not profile:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not an attorney account.")
+    try:
+        return await bulk_replace_availability(db, profile.id, body)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+
+
+@consultation_router.post(                                                     
+    "/attorneys/me/slots/generate",
+    response_model=List[ConsultationSlotOut],
+    status_code=status.HTTP_201_CREATED,
+    summary="Generate slots from MY availability rules for a date range",
+)
+async def api_generate_my_slots(
+    body:         GenerateMySlotsRequest,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    profile = await _get_attorney_profile_for_user(db, current_user.user_id)
+    if not profile:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not an attorney account.")
+    gen_request = SlotGenerateRequest(
+        attorney_id=profile.id, from_date=body.from_date, to_date=body.to_date,
+    )
+    slots = await generate_slots(db, gen_request)
+    await db.commit()
+    return slots
 
 
 # =============================================================================
@@ -220,7 +290,7 @@ async def api_book_page(
     Frontend calls:
         GET /api/v1/consultations/book-page?attorney_id=<uuid>
     """
-    return await get_book_page_data(db, attorney_id)
+    return await get_book_page_data(db, attorney_id, viewer_id=current_user.user_id)
 
 
 # =============================================================================
@@ -249,17 +319,24 @@ async def api_create_booking(
         await db.commit()
 
         # NEW — build the fields the Confirmation screen needs to show real date/time
-        start_dt = datetime.combine(booking.slot.slot_date, booking.slot.slot_time)
+
+        start_dt_utc = datetime.combine(
+            booking.slot.slot_date, booking.slot.slot_time, tzinfo=timezone.utc,
+        )
+        viewer_tz = await get_user_timezone(db, current_user.user_id, fallback=booking.slot.timezone)
+        scheduled_start_display = format_in_timezone(start_dt_utc, viewer_tz)
+
         confirmation_no = "VYU-" + str(booking.id)[:6].upper()
 
         return CreateConsultationBookingResponse(
             id=booking.id,
             status=booking.status,
             confirmation_no=confirmation_no,
-            scheduled_start_iso=start_dt,
+            scheduled_start_iso=start_dt_utc,
+            scheduled_start_display=scheduled_start_display,
             duration_minutes=booking.appointment_type.duration_minutes,
-            zoho_meeting_id=None,
-            zoho_join_url=None,
+            zoho_meeting_id=booking.zoho_session_key,
+            zoho_join_url=booking.meeting_link,
             message="Booking confirmed. Meeting link will be sent by email.",
         )
     except ValueError as e:

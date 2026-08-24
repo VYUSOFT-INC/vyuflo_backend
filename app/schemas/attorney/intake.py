@@ -88,6 +88,13 @@ class IntakeDataResponse(BaseModel):
     passport_number:      Optional[str]
     passport_expiry_date: Optional[date]
     email:                Optional[str]
+    phone:                Optional[str] = None
+    is_student:           Optional[bool] = None
+    company_name:         Optional[str]  = None
+    job_title:            Optional[str]  = None
+    start_date:           Optional[date] = None
+    annual_salary:        Optional[str]  = None
+
 
     # Step 3
     current_visa_status:  Optional[str]
@@ -96,6 +103,9 @@ class IntakeDataResponse(BaseModel):
     visa_denial_details:  Optional[str]
     has_overstay:         Optional[bool]
     previous_visas:       List[PreviousVisaItem] = Field(default_factory=list)
+
+    # Step 4 — Case Type 
+    visa_type_code:       Optional[str] = None
 
     created_at: datetime
     updated_at: datetime
