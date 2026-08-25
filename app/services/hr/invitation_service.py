@@ -24,6 +24,7 @@ from app.schemas.hr.invitation_schemas import (
     InviteByEmailRequest,
     InviteByCodeRequest,
     AcceptInviteRequest,
+    AcceptInviteExistingUserRequest,
     UpdateEmployeeRequest,
 )
 from app.services.employee.message_service import get_or_create_thread_for_participants
