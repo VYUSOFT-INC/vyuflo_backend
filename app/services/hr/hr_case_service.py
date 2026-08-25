@@ -882,7 +882,6 @@ async def hr_list_case_history(
     return [HRCaseStatusHistoryResponse.model_validate(r) for r in rows]
 
 
-
 async def hr_connect_firm(   # new
     db: AsyncSession,
     hr_user_id: uuid.UUID,
@@ -935,5 +934,4 @@ async def hr_connect_firm(   # new
         "firm_name": firm.name,
         "message":   f"Connected to {firm.name}.",
     }
-
 

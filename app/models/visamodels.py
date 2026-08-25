@@ -7,7 +7,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Date, Time,
+    Column, Float, String, Boolean, DateTime, Date, Time,
     Integer, Enum, Text, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy import text
@@ -32,10 +32,6 @@ class User(Base):
     email        = Column(String(255), nullable=False, unique=True, index=True)
     phone        = Column(String(20),  nullable=True)
     country_code = Column(String(10),  nullable=True)
-
-    # linked_emails = Column(ARRAY(String), nullable=False, default=list, server_default="{}")
-    # email_is_active = Column(Boolean, default=True, nullable=False)
-
     password_hash    = Column(String(255), nullable=True)
     auth_provider    = Column(
         Enum("email", "google", "microsoft", "apple",
@@ -43,10 +39,8 @@ class User(Base):
         nullable=False, default="email"
     )
     auth_provider_id = Column(String(255), nullable=True)
-
-    is_active   = Column(Boolean, default=True,  nullable=False)    
+    is_active   = Column(Boolean, default=True,  nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
-
     terms_accepted    = Column(Boolean,  nullable=False, default=False)
     terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
     marketing_opt_in  = Column(Boolean,  default=False, nullable=False)
@@ -66,6 +60,10 @@ class User(Base):
     otp_records          = relationship("UserOTP",
                                         foreign_keys="UserOTP.user_id",
                                         back_populates="user")
+    linked_emails        = relationship("UserEmail",
+                                        foreign_keys="UserEmail.user_id",
+                                        back_populates="user",
+                                        order_by="UserEmail.created_at")
     login_history        = relationship("UserLoginHistory",
                                         foreign_keys="UserLoginHistory.user_id",
                                         back_populates="user",
@@ -194,6 +192,41 @@ class User(Base):
     )
 
 
+class UserEmail(Base):
+    __tablename__ = "user_emails"
+ 
+    id      = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"),
+                     nullable=False, index=True)
+ 
+    email       = Column(String(255), nullable=False, unique=True, index=True)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    # is_primary marks which email is currently the "main" one shown in the
+    # UI — does NOT affect login; ANY verified row for this user_id can be
+    # used to log in, per the dual-login design.
+    is_primary  = Column(Boolean, default=False, nullable=False)
+ 
+    source = Column(
+        Enum("signup", "personal", "work", name="user_email_source_enum"),
+        nullable=False, default="personal"
+    )
+ 
+    # Set while awaiting email-click confirmation; cleared once verified.
+    verify_token         = Column(String(128), nullable=True, unique=True)
+    verify_token_expires = Column(DateTime(timezone=True), nullable=True)
+ 
+    created_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+ 
+    __table_args__ = (
+        Index("ix_user_emails_user_verified", "user_id", "is_verified"),
+    )
+ 
+    user = relationship("User", foreign_keys=[user_id], back_populates="linked_emails")
+
 # =============================================================================
 # TABLE 02 — roles
 # =============================================================================
@@ -316,7 +349,7 @@ class UserOTP(Base):
     otp_code   = Column(String(10), nullable=False)
     otp_type   = Column(
         Enum("email_verification", "phone_verification",
-             "password_reset", "two_factor_auth",
+             "password_reset", "two_factor_auth", "merge_invite",
              name="otp_type_enum"),
         nullable=False
     )
@@ -442,7 +475,12 @@ class UserLoginHistory(Base):
     is_current_session = Column(Boolean, default=False, nullable=False)
     session_token      = Column(String(500), nullable=True)
     logged_out_at      = Column(DateTime(timezone=True), nullable=True)
-
+    latitude      = Column(Float, nullable=True)
+    longitude     = Column(Float, nullable=True)
+    is_vpn        = Column(Boolean, default=False, nullable=False)
+    is_unusual    = Column(Boolean, default=False, nullable=False)
+    risk_score    = Column(Integer, default=0, nullable=False)
+    
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -741,6 +779,8 @@ class ApplicationTask(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
     completed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     document_id  = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
+    is_renewal             = Column(Boolean, nullable=False, server_default="false")
+    renewal_of_document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -861,7 +901,7 @@ class Document(Base):
     status           = Column(
                           Enum("required", "uploaded", "pending_review",
                                "verified", "rejected", "missing",
-                               "pending_hr_release",
+                               "pending_hr_release","expired", "superseded",
                                name="document_status_enum"),
                           nullable=False, default="uploaded"
                        )
@@ -883,6 +923,7 @@ class Document(Base):
     ocr_confidence   = Column(Integer, nullable=True)
     expiry_date      = Column(Date, nullable=True)
     is_draft         = Column(Boolean, default=False, nullable=False)
+    activates_on     = Column(Date, nullable=True)
 
     created_by       = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by      = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -2077,6 +2118,10 @@ class EmployerProfile(Base):
     )
     industry       = Column(String(100),  nullable=True)
     website        = Column(String(500),  nullable=True)
+    # Company's official email domain, e.g. "vyusoft.com" — set once during
+    # employer profile setup. Used to verify whether an invite's email is
+    # a genuine company domain email (invited_email.endswith('@' + domain)).
+    domain         = Column(String(255),  nullable=True, index=True)
     ein            = Column(String(20),   nullable=True)
     address_line1  = Column(String(300),  nullable=True)
     address_line2  = Column(String(300),  nullable=True)
@@ -3243,7 +3288,14 @@ class EmployerEmployee(Base):
                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("employer_id", "employee_id", name="uq_employer_employee_pair"),
+        # NOTE: no UniqueConstraint on (employer_id, employee_id) here —
+        # deliberately removed. It blocked an employee from ever
+        # reconnecting to the same employer a second time (leaves, then
+        # rejoins later): the old, now-inactive row would still occupy
+        # that pair, so the next INSERT on rejoin would violate the
+        # constraint even though accept_invite() only checks for an
+        # *active* duplicate. Uniqueness of the active relationship is
+        # enforced at the application layer instead.
         Index("ix_employer_employees_employer",  "employer_id"),
         Index("ix_employer_employees_employee",  "employee_id"),
         Index("ix_employer_employees_active",    "employer_id", "is_active"),

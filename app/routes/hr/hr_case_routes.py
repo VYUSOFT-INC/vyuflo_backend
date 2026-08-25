@@ -41,6 +41,7 @@ from app.schemas.hr.hr_case_schemas import (
     HRFirmConnectResponse, 
 )
 from app.services.hr.hr_case_service import (
+    hr_connect_firm,
     hr_create_case,
     hr_get_case,
     hr_list_case_history,
@@ -48,7 +49,7 @@ from app.services.hr.hr_case_service import (
     hr_update_approval,
     hr_update_case,
     hr_update_case_status,
-    hr_connect_firm,   # new
+    # hr_connect_firm,   # new
 
 )
 

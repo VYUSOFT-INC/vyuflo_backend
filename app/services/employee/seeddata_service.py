@@ -295,19 +295,22 @@ async def seed_visa_types(db: AsyncSession):
 # seed_document_types
 # Seeds: document_types
 # =============================================================================
-
 async def seed_document_types(db: AsyncSession):
     for doc_data in DOCUMENT_TYPES_SEED:
         result = await db.execute(
             select(DocumentType).where(DocumentType.name == doc_data["name"])
         )
-        if result.scalar_one_or_none():
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            existing.ocr_slug = doc_data.get("ocr_slug")
             continue
 
         db.add(DocumentType(
             id=uuid.uuid4(),
             name=doc_data["name"],
             category=doc_data["category"],
+            ocr_slug=doc_data.get("ocr_slug"),
             description=doc_data.get("description"),
             is_optional=doc_data.get("is_optional", False),
             accepted_formats=doc_data.get("accepted_formats", "PDF,JPG,PNG"),
@@ -319,7 +322,6 @@ async def seed_document_types(db: AsyncSession):
 
     await db.commit()
     print("✅ Document types seeded")
-
 
 # =============================================================================
 # seed_subscription_plans
