@@ -7,7 +7,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Date, Time,
+    Column, Float, String, Boolean, DateTime, Date, Time,
     Integer, Enum, Text, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy import text
@@ -475,7 +475,12 @@ class UserLoginHistory(Base):
     is_current_session = Column(Boolean, default=False, nullable=False)
     session_token      = Column(String(500), nullable=True)
     logged_out_at      = Column(DateTime(timezone=True), nullable=True)
-
+    latitude      = Column(Float, nullable=True)
+    longitude     = Column(Float, nullable=True)
+    is_vpn        = Column(Boolean, default=False, nullable=False)
+    is_unusual    = Column(Boolean, default=False, nullable=False)
+    risk_score    = Column(Integer, default=0, nullable=False)
+    
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
