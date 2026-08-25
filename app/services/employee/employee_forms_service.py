@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenException, ConflictException, NotFoundException
-from app.models.visamodels import Application, AuditLog, EmployeeForm, Notification
+from app.models.visamodels import Application, AuditLog, EmployeeForm,EmployeeFormVersion, FormCorrection,Notification
 from app.schemas.employee.employee_forms import EmployeeFormSave
 from app.services.employee.services import db_create
 
@@ -61,8 +61,8 @@ async def create_or_upsert_employee_form(
     existing = result.scalar_one_or_none()
 
     if existing:
-        if existing.status == "submitted":
-            raise ConflictException("Form already submitted — cannot edit.")
+        if existing.status in ("submitted", "hr_approved", "approved", "completed"):
+           raise ConflictException("Form is locked — cannot edit.")
         existing.form_response = payload.form_response
         existing.modified_by = employee_id
         await db.flush()
@@ -94,17 +94,18 @@ async def save_employee_form_draft(
     """Used by both the 'Draft' button and 'Save & Continue' button."""
     form = await _get_owned_form(db, employee_id, form_type, form_id)
 
-    if form.status == "submitted":
-        raise ConflictException("Form is locked — already submitted.")
+    if form.status in ("submitted", "hr_approved", "approved", "completed"):
+        raise ConflictException("Form is locked")
 
     form.form_response = payload.form_response
     form.modified_by = employee_id
+    form.last_action_by = employee_id            
+    form.last_action_by_role = "employee"         
+    form.last_action_at = datetime.now(timezone.utc)  
     await db.flush()
     await db.refresh(form)
     await _log_form_event(db, form, employee_id, "employee_form.saved")
     return form
-
-
 async def submit_employee_form(
     db: AsyncSession,
     employee_id: uuid.UUID,
@@ -113,35 +114,46 @@ async def submit_employee_form(
 ) -> EmployeeForm:
     form = await _get_owned_form(db, employee_id, form_type, form_id)
 
-    if form.status == "submitted":
-        raise ConflictException("Already submitted.")
+    if form.status in ("submitted","hr_approved" , "approved", "completed"):
+        raise ConflictException("Form is already submitted, hr_approved, approved or completed.")
+
+    await _snapshot_version(db, form, employee_id)  
 
     form.status = "submitted"
     form.submitted_at = datetime.now(timezone.utc)
     form.modified_by = employee_id
+    form.last_action_by = employee_id            
+    form.last_action_by_role = "employee"         
+    form.last_action_at = datetime.now(timezone.utc)  
+
     await db.flush()
     await db.refresh(form)
     await _log_form_event(db, form, employee_id, "employee_form.submitted")
 
-    # Notify the assigned attorney — best-effort, doesn't block the submit
+    # NEW — stamp who acted (employee), so all 3 roles see it
+    form.last_action_by = employee_id
+    form.last_action_by_role = "employee"
+    form.last_action_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    # CHANGED — notify HR first (not attorney) — HR reviews before it goes to attorney
     app_result = await db.execute(select(Application).where(Application.id == form.application_id))
     application = app_result.scalar_one_or_none()
-    if application and application.assigned_attorney_id:
+    if application and application.assigned_hr_id:
         notification = Notification(
-            user_id=application.assigned_attorney_id,
+            user_id=application.assigned_hr_id,
             notification_type="case_status_updated",
             category="case_update",
             priority="medium",
-            title=f"Client submitted their {form_type.upper()}",
-            body=f"Your client has submitted Form {form_type.upper()} for case {application.application_number}.",
+            title=f"Employee submitted their {form_type.upper()}",
+            body=f"An employee has submitted Form {form_type.upper()} for case {application.application_number}. Please review.",
             application_id=application.id,
             actor_id=employee_id,
             cta_primary_label="Review form",
-            cta_primary_url=f"/lawyer/applications/{application.id}/forms/{form_type}",
+            cta_primary_url=f"/hr/applications/{application.id}/forms/{form_type}",
             created_by=employee_id,
         )
         await db_create(db, notification)
-
     return form
 
 
@@ -212,3 +224,28 @@ async def _log_form_event(
         severity="info",
     )
     await db_create(db, log)
+
+async def _snapshot_version(
+    db: AsyncSession,
+    form: EmployeeForm,
+    saved_by: uuid.UUID,
+) -> None:
+    """Takes a version snapshot before status changes — called on submit."""
+    version = EmployeeFormVersion(
+        employee_form_id=form.id,
+        version_number=form.current_version,
+        form_response=form.form_response,
+        status_at_snapshot=form.status,
+        saved_by=saved_by,
+    )
+    await db_create(db, version)
+    form.current_version += 1
+
+
+async def _get_open_corrections(db: AsyncSession, form_id: uuid.UUID) -> list[FormCorrection]:
+    result = await db.execute(
+        select(FormCorrection)
+        .where(FormCorrection.form_id == form_id, FormCorrection.resolved_at.is_(None))
+        .order_by(FormCorrection.created_at.desc())
+    )
+    return list(result.scalars().all())

@@ -880,7 +880,6 @@ async def hr_list_case_history(
     )
     rows = result.scalars().all()
     return [HRCaseStatusHistoryResponse.model_validate(r) for r in rows]
-    return [HRCaseStatusHistoryResponse.model_validate(r) for r in rows]
 
 
 async def hr_connect_firm(   # new
@@ -902,11 +901,13 @@ async def hr_connect_firm(   # new
             detail="Complete your employer profile before connecting a firm.",
         )
 
+
     firm = await db.scalar(select(LawFirm).where(LawFirm.name == firm_name))
     if not firm:
         firm = LawFirm(id=uuid.uuid4(), name=firm_name, is_active=True)
         db.add(firm)
         await db.flush()
+
 
     existing_connection = await db.scalar(
         select(EmployerFirmConnection).where(
@@ -924,10 +925,13 @@ async def hr_connect_firm(   # new
         )
         db.add(connection)
 
+
     await db.commit()
+
 
     return {
         "firm_id":   firm.id,
         "firm_name": firm.name,
         "message":   f"Connected to {firm.name}.",
     }
+

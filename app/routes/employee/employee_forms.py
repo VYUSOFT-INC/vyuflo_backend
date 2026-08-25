@@ -15,7 +15,8 @@ from app.schemas.employee.employee_forms import (
 from app.services.employee.employee_forms_service import (
     create_or_upsert_employee_form,
     list_employee_forms,
-    get_employee_form_by_id,  
+    get_employee_form_by_id, 
+    _get_open_corrections, 
     save_employee_form_draft,
     submit_employee_form,
 )
@@ -90,10 +91,14 @@ async def api_submit_employee_form(
     status_code=status.HTTP_200_OK,
     summary="Get a single form by ID — used by Editor and Preview screens",
 )
+
 async def api_get_employee_form(
     form_type: str,
     form_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUserData = Depends(get_current_user),
 ) -> EmployeeFormResponse:
-    return await get_employee_form_by_id(db, current_user.user_id, form_type, form_id)
+    form = await get_employee_form_by_id(db, current_user.user_id, form_type, form_id)
+    response = EmployeeFormResponse.model_validate(form)               # NEW
+    response.open_corrections = await _get_open_corrections(db, form.id)  # NEW
+    return response
