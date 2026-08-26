@@ -127,5 +127,8 @@ class Settings(BaseSettings):
     VAPID_PUBLIC_KEY:   str = ""
     VAPID_PRIVATE_KEY:  str = ""
     VAPID_CLAIMS_EMAIL: str = "admin@visaflow.com"
+
+    SENDGRID_API_KEY: str | None = None
+    SENDGRID_FROM_EMAIL: str = "charansai@vyusoft.com"
     
 settings = Settings()
