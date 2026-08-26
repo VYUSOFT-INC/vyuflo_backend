@@ -37,4 +37,4 @@ paddleocr==3.7.0
 paddlepaddle==3.2.2
 user_agents==2.2.0
 apscheduler==3.10.4
-pywebpush
+pywebpush==2.4.0
