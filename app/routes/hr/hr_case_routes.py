@@ -247,7 +247,7 @@ in the HR Case Detail screen.
 async def get_hr_case_history(
     application_id: uuid.UUID,
     db:             AsyncSession = Depends(get_db),
-    current_user:   User         = Depends(get_current_user),
+    current_user:   User         = Depends(get_current_user), 
 ) -> List[HRCaseStatusHistoryResponse]:
     return await hr_list_case_history(db, application_id, current_user.user_id)
 
