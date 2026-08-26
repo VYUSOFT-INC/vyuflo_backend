@@ -14,7 +14,7 @@
 # still returns the deterministic result.
 
 from typing import Optional
-
+import traceback
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -101,7 +101,15 @@ async def run_extraction(
     try:
         ocr = await run_in_threadpool(run_ocr, content, ext)
     except Exception as e:
-        raise HTTPException(500, f"OCR failed: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        print("=" * 80)
+        print(repr(e))
+        print("=" * 80)
+
+        raise HTTPException(
+        status_code=500,
+        detail=f"OCR failed: {type(e).__name__}: {e}",
+    )
 
     # 2) Structured extraction
     if ocr.passport_fields:

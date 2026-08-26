@@ -40,6 +40,10 @@ aioboto3
 
 pymupdf
 passporteye    
-paddleocr 
-paddlepaddle
+
+numpy==1.26.4
+opencv-python-headless==4.10.0.82
+
+paddleocr==2.7.3
+paddlepaddle==2.6.2
 user_agents 
