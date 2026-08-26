@@ -130,5 +130,5 @@ class Settings(BaseSettings):
 
     SENDGRID_API_KEY: str | None = None
     SENDGRID_FROM_EMAIL: str = "charansai@vyusoft.com"
-    
+
 settings = Settings()

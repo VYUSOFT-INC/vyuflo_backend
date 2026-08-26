@@ -33,7 +33,7 @@ from app.models.visamodels import (
     EmployerEmployee,
     EmployerProfile,
     EmployerFirmConnection,
-    AttorneyProfile,
+    AttorneyProfile, 
     LawFirm,
     User,
     UserProfile,

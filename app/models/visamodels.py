@@ -601,8 +601,8 @@ class Application(Base):
     visa_type_id = Column(UUID(as_uuid=True), ForeignKey("visa_types.id"),
                           nullable=False)
     case_origin = Column(
-        Enum("employer_sponsored", "self_petition","lawyer_initiated", name="case_origin_enum"),
-        nullable=False, default="employer_sponsored"
+        Enum("employer_sponsored", "self_petition", "lawyer_initiated", name="case_origin_enum"),
+        nullable=True, default="employer_sponsored"
     )
 
     sponsor_employer = Column(String(200), nullable=True)
