@@ -15,17 +15,20 @@ from app.core.core_permissions import PermissionChecker
 from app.core.database import get_db
 from app.core.dependencies import CurrentUserData, get_current_user
 from app.models.visamodels import User
-from app.ocr.ocr_service_router import run_extraction
+from app.ocr.ocr_service_router import OCRField, OCRResponse, run_extraction
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
 from app.schemas.employee.ocr import OCRFieldResponse, OCRFieldUpdate, SaveOCRFieldsRequest
+from app.services.employee.document_field_config_service import get_document_field_config
 from app.services.employee.document_service import (
     confirm_document_ocr,
     delete_document,
     get_document_by_id,
     get_document_file_url,
+    get_document_version_history,
     get_expected_ocr_slug,
     list_documents,
     list_hub_documents,
+    reupload_expired_document,
     reuse_document_for_case,
     upload_document,
 )
@@ -247,12 +250,30 @@ async def ocr_extract_for_document(
     current_user: User = Depends(get_current_user),
 ):
     expected_slug = await get_expected_ocr_slug(db, doc_id)
+    print(f"🔍 DEBUG expected_slug = {expected_slug!r}")
     filename = file.filename or "upload"
     ext = filename.rsplit(".", 1)[-1].lower()
     content = await file.read()
 
     result = await run_extraction(content, ext, expected_slug)
     result.filename = filename
+    if expected_slug:
+        config = await get_document_field_config(db, expected_slug)
+        print(f"🔍 DEBUG expected_slug = {expected_slug!r}")
+        if config and config.mandatory_fields:
+            existing_names = {f.field_name for f in result.fields}
+            for f in result.fields:
+                f.is_mandatory = f.field_name in config.mandatory_fields
+            for missing_name in config.mandatory_fields:
+                if missing_name in existing_names:
+                    continue
+                result.fields.append(OCRField(
+                    field_name=missing_name,
+                    extracted_value="",
+                    confidence_score=0,
+                    needs_review=True,
+                    is_mandatory=True,
+                ))
     return result
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -351,3 +372,75 @@ async def api_update_ocr_field(
         payload.extracted_value or "",
         payload.is_confirmed or False,
     )
+
+
+
+from pydantic import BaseModel
+ 
+class ExpectedFieldItem(BaseModel):
+    field_name:   str
+    is_mandatory: bool
+ 
+class ExpectedFieldsResponse(BaseModel):
+    ocr_slug: str | None
+    fields:   list[ExpectedFieldItem]
+ 
+ 
+@document_router.get(
+    "/documents/{doc_id}/expected-fields",
+    response_model=ExpectedFieldsResponse,
+)
+async def get_expected_fields(
+    doc_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Fast, OCR-free lookup: what fields SHOULD this document type have,
+    per admin config? Returns an empty fields list for fuzzy/VLM types
+    (Offer Letter, Organizational Chart, etc.) that have no fixed config —
+    the frontend should fall back to a plain loading spinner in that case.
+    """
+    expected_slug = await get_expected_ocr_slug(db, doc_id)
+    if not expected_slug:
+        return ExpectedFieldsResponse(ocr_slug=None, fields=[])
+ 
+    config = await get_document_field_config(db, expected_slug)
+    if not config:
+        return ExpectedFieldsResponse(ocr_slug=expected_slug, fields=[])
+ 
+    return ExpectedFieldsResponse(
+        ocr_slug=expected_slug,
+        fields=[
+            ExpectedFieldItem(field_name=name, is_mandatory=True)
+            for name in config.mandatory_fields
+        ],
+    )
+
+
+
+@document_router.post(
+    "/documents/{document_id}/reupload",
+    response_model=DocumentResponse,
+    status_code=201,
+    summary="Re-upload a new version replacing an expired document",
+)
+async def api_reupload_document(
+    document_id: uuid.UUID,
+    file:        UploadFile = File(...),
+    db:          AsyncSession = Depends(get_db),
+    current_user               = Depends(get_current_user),
+) -> DocumentResponse:
+    return await reupload_expired_document(db, document_id, current_user.user_id, file)
+
+
+@document_router.get(
+    "/documents/{document_id}/versions",
+    summary="Get the full replacement history for a document",
+)
+async def api_get_document_versions(
+    document_id: uuid.UUID,
+    db:          AsyncSession = Depends(get_db),
+    current_user               = Depends(get_current_user),
+):
+    return await get_document_version_history(db, document_id, current_user.user_id)

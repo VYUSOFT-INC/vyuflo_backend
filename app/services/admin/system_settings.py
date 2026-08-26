@@ -297,21 +297,3 @@ SETTINGS_SEED = [
     {"key": "maintenance.enabled",       "value": "false",                 "value_type": "boolean", "setting_group": "maintenance",   "label": "Maintenance Mode",               "is_public": False, "is_readonly": False, "display_order": 1},
     {"key": "maintenance.message",       "value": "We are performing scheduled maintenance. We'll be back shortly.", "value_type": "string", "setting_group": "maintenance", "label": "Maintenance Banner Message", "is_public": True, "is_readonly": False, "display_order": 2},
 ]
-
-
-async def seed_system_settings(db: AsyncSession) -> None:
-    """Idempotent — safe to call every startup. Skips already-seeded keys."""
-    for item in SETTINGS_SEED:
-        exists = (await db.execute(
-            select(SystemSetting).where(SystemSetting.key == item["key"])
-        )).scalar_one_or_none()
-        if not exists:
-            db.add(SystemSetting(
-                key=item["key"], value=item["value"],
-                value_type=item["value_type"], setting_group=item["setting_group"],
-                label=item["label"], description=item.get("description"),
-                is_public=item.get("is_public", False),
-                is_readonly=item.get("is_readonly", False),
-                display_order=item.get("display_order", 0),
-            ))
-    await db.commit()

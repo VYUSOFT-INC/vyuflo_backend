@@ -22,6 +22,7 @@ from app.core.dependencies import get_current_user
 from app.models.visamodels import (
     Document, DocumentType, Application, DocumentActivity,
 )
+from app.schemas.attorney.document_request import DocumentRequestCreate, DocumentRequestPriority
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
 from app.services.employee import storage
 from app.services.employee.document_service import (

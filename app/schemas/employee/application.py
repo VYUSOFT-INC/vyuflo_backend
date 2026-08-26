@@ -1,4 +1,3 @@
-
 """
 schemas.py — Pydantic v2 schemas for:
   • Application
@@ -128,10 +127,11 @@ class ApplicationResponse(BaseModel):
     modified_by: Optional[uuid.UUID]
     created_at: datetime
     updated_at: datetime
-    visa_type: Optional[VisaTypeBasic] = None   # ← ADD THIS ONE LINE
+    visa_type: Optional[VisaTypeBasic] = None
+    attorney_name: Optional[str] = None   # ← ADD — populated from assigned_attorney relationship
+    hr_name: Optional[str] = None         # ← ADD — populated from assigned_hr relationship
 
     model_config = ConfigDict(from_attributes=True)
-
 
 class ApplicationListResponse(BaseModel):
     items:         List[ApplicationResponse]
@@ -264,6 +264,12 @@ class TaskResponse(BaseModel):
     document_name:        Optional[str]       = None   # file_name from Document
     document_size_bytes:  Optional[int]       = None   # file_size_kb * 1024
     document_uploaded_at: Optional[datetime]  = None   # document.created_at
+    # ADDED: mirrors backend Document.status ("uploaded" | "pending_review" |
+    # "verified" | "rejected" | "missing" | "pending_hr_release" | "expired").
+    # Needed so ApplicationDetail.tsx's TaskRow can detect an expired linked
+    # document and show the Re-upload UI instead of View/Delete. Populated in
+    # _build_task_response() via doc.status if doc else None.
+    document_status:      Optional[str]       = None
 
     model_config = ConfigDict(from_attributes=True)
 

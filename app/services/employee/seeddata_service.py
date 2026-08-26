@@ -161,6 +161,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.visamodels import (
+    DocumentFieldConfiguration,
     NotificationTemplate,
     Role,
     Permission,
@@ -175,6 +176,7 @@ from app.models.visamodels import (
 )
 
 from app.models.seeds import (
+    DOCUMENT_FIELD_CONFIG_SEED,
     NOTIFICATION_TEMPLATES_SEED,
     ROLES_SEED,
     PERMISSIONS_SEED,
@@ -293,19 +295,22 @@ async def seed_visa_types(db: AsyncSession):
 # seed_document_types
 # Seeds: document_types
 # =============================================================================
-
 async def seed_document_types(db: AsyncSession):
     for doc_data in DOCUMENT_TYPES_SEED:
         result = await db.execute(
             select(DocumentType).where(DocumentType.name == doc_data["name"])
         )
-        if result.scalar_one_or_none():
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            existing.ocr_slug = doc_data.get("ocr_slug")
             continue
 
         db.add(DocumentType(
             id=uuid.uuid4(),
             name=doc_data["name"],
             category=doc_data["category"],
+            ocr_slug=doc_data.get("ocr_slug"),
             description=doc_data.get("description"),
             is_optional=doc_data.get("is_optional", False),
             accepted_formats=doc_data.get("accepted_formats", "PDF,JPG,PNG"),
@@ -317,7 +322,6 @@ async def seed_document_types(db: AsyncSession):
 
     await db.commit()
     print("✅ Document types seeded")
-
 
 # =============================================================================
 # seed_subscription_plans
@@ -459,11 +463,14 @@ async def seed_system_settings(db: AsyncSession):
 async def seed_support_articles(db: AsyncSession):
     for article_data in SUPPORT_ARTICLES_SEED:
         result = await db.execute(
-            select(SupportArticle).where(
-                SupportArticle.title == article_data["title"]
-            )
+            select(SupportArticle)
+            .where(SupportArticle.title == article_data["title"])
+            .limit(1)
         )
-        if result.scalar_one_or_none():
+        # scalars().first() just checks "does at least one exist?" and never
+        # raises, even if duplicates are already in the table (unlike
+        # scalar_one_or_none(), which crashes the whole app startup on 2+ rows).
+        if result.scalars().first():
             continue
 
         db.add(SupportArticle(
@@ -537,3 +544,28 @@ async def seed_notification_templates(db: AsyncSession) -> None:
         await db.rollback()
         logger.exception("Failed to seed notification templates")
         raise
+
+
+
+async def seed_document_field_configurations(db: AsyncSession) -> None:
+    """Idempotent — skips any (ocr_slug, field_name) pair that already exists."""
+    for row in DOCUMENT_FIELD_CONFIG_SEED:
+        result = await db.execute(
+            select(DocumentFieldConfiguration).where(
+                DocumentFieldConfiguration.ocr_slug == row["ocr_slug"],
+                DocumentFieldConfiguration.field_name == row["field_name"],
+            ).limit(1)
+        )
+        if result.scalars().first():
+            continue
+ 
+        db.add(DocumentFieldConfiguration(
+            ocr_slug=row["ocr_slug"],
+            field_name=row["field_name"],
+            is_mandatory=row["is_mandatory"],
+            is_expiry_field=row["is_expiry_field"],
+            display_order=row["display_order"],
+        ))
+ 
+    await db.commit()
+    print("✅ Document field configurations seeded")

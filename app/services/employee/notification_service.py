@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import asyncio
@@ -1286,6 +1285,8 @@ async def fire_new_device_login(
     try:
         location = ", ".join(filter(None, [city, country])) or "Unknown location"
         device_str = f"{browser or 'Unknown browser'} on {os_name or 'Unknown OS'} ({device_type})"
+        # ADDED — matches the {{login_time}} placeholder in the seeded template
+        login_time_str = datetime.now(timezone.utc).strftime("%b %d, %Y at %I:%M %p UTC")
 
         notif = await _create_notification(
             db, user_id=user_id, notification_type="new_device_login",
@@ -1299,7 +1300,8 @@ async def fire_new_device_login(
             subject="VyuFlo — New Device Login Detected",
             body_text=(
                 f"Hi,\n\nA new sign-in to your VyuFlo account was detected:\n\n"
-                f"  Device: {device_str}\n  Location: {location}\n  IP: {ip_address or 'Unknown'}\n\n"
+                f"  Device: {device_str}\n  Location: {location}\n  IP: {ip_address or 'Unknown'}\n"
+                f"  Time: {login_time_str}\n\n"
                 f"If this was you, no action is needed. If not, change your password immediately "
                 f"and review your login history at: {settings.FRONTEND_URL}/profile/login-history\n\nVyuFlo Team"
             ),
@@ -1308,18 +1310,23 @@ async def fire_new_device_login(
             sms_pref_field="notify_new_device_login_sms",
             event_key="new_device_login",
             cta_label="Review Login History", cta_url="/profile/login-history",
-            template_context={"device": device_str, "location": location, "ip": ip_address or "Unknown"},
+            template_context={
+                "device": device_str,
+                "location": location,
+                "login_time": login_time_str,      # FIXED — was completely missing
+                "ip_address": ip_address or "Unknown",   # FIXED — was "ip", template expects "ip_address"
+            },
         )
     except Exception:
         logger.exception("fire_new_device_login failed for user %s", user_id)
         await db.rollback()
-
-
 async def fire_failed_login_alert(
     db: AsyncSession, *, user_id: uuid.UUID,
     ip_address: Optional[str], attempt_count: int,
 ) -> None:
     try:
+        last_attempt_time_str = datetime.now(timezone.utc).strftime("%b %d, %Y at %I:%M %p UTC")
+
         notif = await _create_notification(
             db, user_id=user_id, notification_type="failed_login_alert",
             category="security", priority="urgent",
@@ -1340,15 +1347,24 @@ async def fire_failed_login_alert(
             sms_pref_field="notify_failed_login_sms",
             event_key="failed_login_alert",
             cta_label="Review Login History", cta_url="/profile/login-history",
-            template_context={"attempt_count": str(attempt_count), "ip": ip_address or "Unknown"},
+            template_context={
+                "attempt_count": str(attempt_count),
+                "ip_address": ip_address or "Unknown",       # FIXED — was "ip"
+                "last_attempt_time": last_attempt_time_str,  # FIXED — was missing
+            },
         )
     except Exception:
         logger.exception("fire_failed_login_alert failed for user %s", user_id)
         await db.rollback()
-
-
-async def fire_password_changed(db: AsyncSession, *, user_id: uuid.UUID) -> None:
+        
+async def fire_password_changed(
+    db: AsyncSession, *, user_id: uuid.UUID,
+    ip_address: Optional[str] = None,
+    device_str: Optional[str] = None,
+) -> None:
     try:
+        changed_at_str = datetime.now(timezone.utc).strftime("%b %d, %Y at %I:%M %p UTC")
+
         notif = await _create_notification(
             db, user_id=user_id, notification_type="password_changed",
             category="security", priority="high",
@@ -1359,7 +1375,8 @@ async def fire_password_changed(db: AsyncSession, *, user_id: uuid.UUID) -> None
             db, notif_id=notif.id, user_id=user_id,
             subject="VyuFlo — Your Password Was Changed",
             body_text=(
-                "Hi,\n\nYour VyuFlo account password was just changed.\n\n"
+                "Hi,\n\nYour VyuFlo account password was just changed"
+                f"{f' from {device_str}' if device_str else ''} on {changed_at_str}.\n\n"
                 "If you made this change, no action is needed. If you didn't, contact support immediately "
                 "and reset your password.\n\nVyuFlo Team"
             ),
@@ -1367,17 +1384,24 @@ async def fire_password_changed(db: AsyncSession, *, user_id: uuid.UUID) -> None
             email_pref_field="notify_password_changed_email",
             sms_pref_field="notify_password_changed_sms",
             event_key="password_changed",
-            template_context={},
+            template_context={
+                "changed_at": changed_at_str,
+                "device": device_str or "Unknown device",
+                "ip_address": ip_address or "Unknown",
+            },
         )
     except Exception:
         logger.exception("fire_password_changed failed for user %s", user_id)
         await db.rollback()
 
-
 async def fire_unusual_activity(
     db: AsyncSession, *, user_id: uuid.UUID, description: str,
+    ip_address: Optional[str] = None,
+    location: Optional[str] = None,
 ) -> None:
     try:
+        login_time_str = datetime.now(timezone.utc).strftime("%b %d, %Y at %I:%M %p UTC")
+
         notif = await _create_notification(
             db, user_id=user_id, notification_type="unusual_activity",
             category="security", priority="urgent",
@@ -1394,8 +1418,74 @@ async def fire_unusual_activity(
             sms_pref_field="notify_unusual_activity_sms",
             event_key="unusual_activity",
             cta_label="Review Account", cta_url="/profile/security-alerts",
-            template_context={"description": description},
+            template_context={
+                "risk_reason": description,
+                "location": location or "Unknown location",
+                "login_time": login_time_str,
+                "ip_address": ip_address or "Unknown",
+            },
         )
     except Exception:
         logger.exception("fire_unusual_activity failed for user %s", user_id)
+        await db.rollback()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADD TO notification_service.py, alongside the other fire_* functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def fire_document_expiring(
+    db: AsyncSession, *,
+    user_id: uuid.UUID,
+    document_id: uuid.UUID,
+    document_name: str,
+    expiry_date_str: str,
+    days_remaining: int,
+    application_id: Optional[uuid.UUID] = None,
+) -> None:
+    try:
+        # FIXED: was always f"/documents/{document_id}" — a route that
+        # doesn't exist in the frontend router (no /documents/:id page).
+        # Now routes to the case's tasks tab — where the expired-document
+        # re-upload UI already lives in TaskRow — if this document belongs
+        # to a case; otherwise to the Document Hub with ?reupload= so the
+        # Hub can auto-open the matching document's preview/re-upload modal.
+        doc_url = (
+            f"/applications/{application_id}?tab=tasks"
+            if application_id
+            else f"/documents?reupload={document_id}"
+        )
+        priority = "urgent" if days_remaining <= 14 else "high" if days_remaining <= 30 else "medium"
+ 
+        title = f"{document_name} expires in {days_remaining} day{'s' if days_remaining != 1 else ''}"
+        body  = (
+            f"Your document \"{document_name}\" expires on {expiry_date_str}. "
+            f"Please upload a renewed version before it expires."
+        )
+ 
+        notif = await _create_notification(
+            db, user_id=user_id, notification_type="document_expiring",
+            category="document", priority=priority, title=title, body=body,
+            application_id=application_id, document_id=document_id,
+            cta_primary_label="View Document", cta_primary_url=doc_url,
+        )
+        await dispatch_notification(
+            db, notif_id=notif.id, user_id=user_id,
+            subject=f"VyuFlo — {title}",
+            body_text=(
+                f"Hi,\n\n{body}\n\n"
+                f"View it at: {settings.FRONTEND_URL}{doc_url}\n\nVyuFlo Team"
+            ),
+            category_pref_field="notify_document_updates",
+            cta_label="View Document", cta_url=doc_url,
+            event_key="document_expiring",
+            template_context={
+                "document_name":   document_name,
+                "expiry_date":     expiry_date_str,
+                "days_remaining":  str(days_remaining),
+                "action_url":      f"{settings.FRONTEND_URL}{doc_url}",
+            },
+        )
+    except Exception:
+        logger.exception("fire_document_expiring failed for document %s", document_id)
         await db.rollback()

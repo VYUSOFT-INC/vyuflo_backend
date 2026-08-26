@@ -108,6 +108,60 @@ async def api_list_attorneys(
     )
     return await list_attorneys(db, params)
 
+# =============================================================================
+# GET /api/v1/attorneys/marketplace
+# Same data as /attorneys — separate URL so HR's case-assignment screen
+# (which calls /attorneys) is never affected by consultation-screen changes.
+# MUST stay defined before /attorneys/{attorney_id} below, or FastAPI will
+# match "marketplace" as if it were an attorney_id and 422 the request.
+# =============================================================================
+
+@attorney_router.get(
+    "/attorneys/marketplace",
+    response_model=AttorneyListResponse,
+    summary="List attorneys — consultation booking marketplace",
+)
+async def api_list_attorneys_marketplace(
+    zip_code:      Optional[str]        = Query(None),
+    radius_miles:  Optional[int]        = Query(25),
+    visa_types:    Optional[List[str]]  = Query(None),
+    languages:     Optional[List[str]]  = Query(None),
+    min_rating:    Optional[float]      = Query(None, ge=0.0, le=5.0),
+    max_fee_cents: Optional[int]        = Query(None, ge=0),
+    availability:  Optional[str]        = Query(None),
+    sort_by:       Optional[str]        = Query("rating"),
+    page:          int                  = Query(1, ge=1),
+    page_size:     int                  = Query(20, ge=1, le=100),
+    db:            AsyncSession         = Depends(get_db),
+    current_user:  User                 = Depends(get_current_user),
+):
+    params = AttorneySearchParams(
+        zip_code=zip_code, radius_miles=radius_miles,
+        visa_types=visa_types, languages=languages,
+        min_rating=min_rating, max_fee_cents=max_fee_cents,
+        availability=availability, sort_by=sort_by,
+        page=page, page_size=page_size,
+    )
+    return await list_attorneys(db, params)
+
+
+@attorney_router.get(
+    "/attorneys/marketplace/{attorney_id}",
+    response_model=AttorneyListItem,
+    summary="Get single attorney — consultation booking marketplace",
+)
+async def api_get_attorney_marketplace(
+    attorney_id:  uuid.UUID,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+):
+    attorney = await get_attorney_by_id(db, attorney_id)
+    if not attorney:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Attorney not found or not currently accepting cases.",
+        )
+    return attorney
 
 # =============================================================================
 # GET /api/v1/attorneys/{attorney_id}

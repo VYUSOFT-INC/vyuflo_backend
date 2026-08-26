@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict
 from enum import Enum
@@ -11,6 +11,8 @@ class DocumentStatus(str, Enum):
     verified       = "verified"
     rejected       = "rejected"
     missing        = "missing"
+    expired        = "expired"
+    superseded     = "superseded"
 
 class DocumentResponse(BaseModel):
     id:              uuid.UUID
@@ -30,6 +32,8 @@ class DocumentResponse(BaseModel):
     total_pages:     Optional[int]
     ocr_status:      str
     version:         int
+    in_use: bool = False
+    activates_on: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
 

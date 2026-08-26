@@ -1,3 +1,4 @@
+
 """
 router.py — FastAPI APIRouter for Applications, Status History, and Tasks.
 
@@ -5,8 +6,6 @@ Mount in main.py:
     from app.api.applications.router import router as applications_router
     app.include_router(applications_router, prefix="/api/v1", tags=["Applications"])
 """
-
-from __future__ import annotations
 
 import uuid
 from typing import Annotated, List, Optional
@@ -24,9 +23,9 @@ from app.schemas.employee.application import (
     ApplicationCreate,
     ApplicationListResponse,
     ApplicationResponse,
-    ApplicationStatus,
     ApplicationStatusUpdate,
     ApplicationUpdate,
+    ApplicationStatus,
     StatusHistoryCreate,
     StatusHistoryResponse,
     TaskCompleteRequest,
@@ -104,19 +103,6 @@ async def api_list_applications(
     )
 
 
-# @application_router.get(
-#     "/applications/{application_id}",
-#         response_model=ApplicationResponse,
-#         status_code=status.HTTP_200_OK,
-#         summary="Get a single application by ID",
-#     )
-# async def api_get_application(
-#         application_id: uuid.UUID,
-#         db: AsyncSession = Depends(get_db),
-#         current_user_id: uuid.UUID = Depends(get_current_user),
-#     ) -> ApplicationResponse:
-#         return await get_application(db, application_id, current_user_id.user_id)
-
 @application_router.get(
     "/applications/{application_id}",
     response_model=ApplicationResponse,
@@ -125,14 +111,14 @@ async def api_list_applications(
 )
 async def api_get_application(
     application_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
     current_user: Annotated[
         CurrentUserData,
         Depends(PermissionChecker(
             ["applications.view_own", "applications.view_all"],
             require_all=False,
         )),
-    ] = None,
+    ],
+    db: AsyncSession = Depends(get_db),
 ) -> ApplicationResponse:
     return await get_application(db, application_id, current_user.user_id)
 
@@ -198,7 +184,9 @@ async def api_delete_application(
 #  Base path: /applications/{application_id}/status-history
 # ===========================================================================
 
-application_history_router = APIRouter() 
+application_history_router = APIRouter()
+
+
 @application_history_router.get(
     "/applications/{application_id}/status-history",
     response_model=List[StatusHistoryResponse],
@@ -235,6 +223,7 @@ async def api_create_status_history(
 #  Base path: /applications/{application_id}/tasks
 # ===========================================================================
 application_task_router = APIRouter()
+
 
 @application_task_router.get(
     "/applications/{application_id}/tasks",

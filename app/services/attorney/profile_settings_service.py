@@ -1,27 +1,10 @@
 # =============================================================================
-# app/services/screen13_service.py
+# app/services/attorney/profile_settings.py
 # Screen 13 — Profile & Settings
-#
-# Functions:
-#   service_get_my_profile()              → GET  /users/me/profile
-#   service_update_my_profile()           → PATCH /users/me/profile
-#   service_update_my_attorney_profile()  → PATCH /users/me/attorney-profile
-#   service_update_avatar()               → PATCH /users/me/avatar
-#   service_remove_avatar()               → DELETE /users/me/avatar
-#
-# Notification Preferences (Section B):
-#   NOT here — reuse existing service functions in notification_service.py:
-#     get_preferences(db, user_id)
-#     update_preferences(db, user_id, body)
-#   Called via existing GET/PATCH /notifications/preferences endpoints.
-#
-# AI Extraction Settings (Section C):
-#   Skipped — already done by colleague.
 # =============================================================================
 
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -37,6 +20,17 @@ from app.models.visamodels import (
     User,
     UserProfile,
     UserRole,
+)
+# FIXED: delegate avatar handling to the ALREADY-CORRECT, S3/Spaces-backed
+# functions in user_profile_service.py instead of duplicating (badly) the
+# upload logic here. This file's previous version saved to local disk and
+# wrote a "/static/avatars/..." path into the same column the S3-based
+# GET /users/me/avatar endpoint reads from expecting an S3 key — guaranteed
+# NoSuchKey on every read, confirmed in production logs.
+from app.services.employee.user_profile_service import (
+    upload_profile_picture,
+    remove_profile_picture,
+    get_avatar_display_url,
 )
 
 
@@ -114,18 +108,20 @@ async def service_get_my_profile(db: AsyncSession, user_id: uuid.UUID) -> dict:
 
     role_name = await _get_role_name(db, user_id)
 
+    # FIXED: profile_picture_url now goes through get_avatar_display_url()
+    # so this endpoint returns the same versioned "/api/v1/users/me/avatar?v=..."
+    # URL every other part of the app expects, instead of the raw column value.
     return {
         "id":                  user.id,
         "first_name":          user.first_name,
         "last_name":           user.last_name,
         "email":               user.email,
-        "profile_picture_url": profile.profile_picture_url if profile else None,
+        "profile_picture_url": get_avatar_display_url(profile) if profile else None,
         "timezone":            profile.timezone            if profile else None,
         "preferred_language":  profile.preferred_language  if profile else None,
         "bar_number":          attorney.bar_number         if attorney else None,
         "bar_state":           attorney.bar_state          if attorney else None,
         "law_firm_name":       attorney.law_firm_name      if attorney else None,
-          # ── ADDED: Screen 25 - Lawyer Dashboard ──────────────────────────────
         "monthly_billing_target_cents": (
             getattr(attorney, "monthly_billing_target_cents", None)
             if attorney else None
@@ -143,7 +139,12 @@ async def service_update_my_profile(
     user_id:            uuid.UUID,
     first_name:         Optional[str] = None,
     last_name:          Optional[str] = None,
-    timezone:           Optional[str] = None,
+    tz:                 Optional[str] = None,   # FIXED: renamed from `timezone` —
+                                                  # was shadowing the datetime.timezone
+                                                  # import, causing datetime.now(timezone.utc)
+                                                  # to crash with AttributeError whenever
+                                                  # a caller didn't pass a timezone value
+                                                  # (i.e. every name-only save).
     preferred_language: Optional[str] = None,
 ) -> dict:
     """
@@ -151,16 +152,16 @@ async def service_update_my_profile(
     Writes to users (name) and user_profiles (timezone, language).
     """
     user = await _get_user(db, user_id)
-    now  = datetime.now(timezone.utc)
+    now  = datetime.now(timezone.utc)   # `timezone` now correctly refers to the datetime module
 
     if first_name is not None: user.first_name = first_name
     if last_name  is not None: user.last_name  = last_name
     user.modified_by = user_id
     user.updated_at  = now
 
-    if timezone is not None or preferred_language is not None:
+    if tz is not None or preferred_language is not None:
         profile = await _get_or_create_user_profile(db, user_id)
-        if timezone           is not None: profile.timezone           = timezone
+        if tz is not None:                 profile.timezone           = tz
         if preferred_language is not None: profile.preferred_language = preferred_language
         profile.modified_by = user_id
         profile.updated_at  = now
@@ -180,7 +181,6 @@ async def service_update_my_attorney_profile(
     bar_state:     Optional[str] = None,
     law_firm_name: Optional[str] = None,
     bio:           Optional[str] = None,
-     # ── ADDED: Screen 25 - Lawyer Dashboard ──────────────────────────────────
     monthly_billing_target_cents: Optional[int] = None,
 ) -> dict:
     """
@@ -194,6 +194,8 @@ async def service_update_my_attorney_profile(
     if bar_state     is not None: attorney.bar_state     = bar_state
     if law_firm_name is not None: attorney.law_firm_name = law_firm_name
     if bio           is not None: attorney.bio           = bio
+    if monthly_billing_target_cents is not None:
+        attorney.monthly_billing_target_cents = monthly_billing_target_cents
 
     attorney.modified_by = user_id
     attorney.updated_at  = now
@@ -206,51 +208,33 @@ async def service_update_my_attorney_profile(
 # PATCH /users/me/avatar
 # =============================================================================
 
-_ALLOWED_EXTS   = {"jpg", "jpeg", "png", "webp"}
-_MAX_SIZE_BYTES = 5 * 1024 * 1024   # 5 MB
-
-
 async def service_update_avatar(
     db:      AsyncSession,
     user_id: uuid.UUID,
     file:    UploadFile,
 ) -> dict:
     """
-    Saves uploaded avatar and writes URL to user_profiles.profile_picture_url.
-    Replace the file-write block with S3/GCS upload in production.
+    FIXED: previously saved to local disk and wrote a "/static/avatars/..."
+    path directly into user_profiles.profile_picture_url — a value the
+    S3-based GET /users/me/avatar endpoint could never resolve (NoSuchKey,
+    confirmed in production). Now delegates to the same
+    upload_profile_picture() used by every other avatar-upload path in the
+    app (Sidebar, HREmployees, ProfileSecurity, etc.), so attorneys write
+    to the same S3/Spaces key convention and the same column, and every
+    avatar-reading endpoint resolves it identically with no special-casing.
+
+    NOTE: upload_profile_picture() raises 404 if no UserProfile row exists
+    yet for this user (unlike this file's previous auto-create-on-upload
+    behavior). In practice this should never trigger, since the Profile
+    tab always calls GET /users/me/profile first (which auto-creates the
+    row) before the avatar picker is ever shown — flagging only so it's
+    understood as an intentional behavior narrowing, not silently dropped.
     """
-    filename = file.filename or ""
-    ext      = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-
-    if ext not in _ALLOWED_EXTS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid file type '{ext}'. Allowed: jpg, jpeg, png, webp.",
-        )
-
-    content = await file.read()
-    if len(content) > _MAX_SIZE_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Avatar must be under 5MB.",
-        )
-
-    # ── Save file (replace with S3 in production) ─────────────────────────────
-    upload_dir = "./uploads/avatars"
-    os.makedirs(upload_dir, exist_ok=True)
-    with open(f"{upload_dir}/{user_id}.{ext}", "wb") as f:
-        f.write(content)
-
-    avatar_url = f"/static/avatars/{user_id}.{ext}"
-
-    # ── Persist URL ────────────────────────────────────────────────────────────
-    profile                     = await _get_or_create_user_profile(db, user_id)
-    profile.profile_picture_url = avatar_url
-    profile.modified_by         = user_id
-    profile.updated_at          = datetime.now(timezone.utc)
-
-    await db.commit()
-    return {"profile_picture_url": avatar_url, "message": "Avatar updated successfully."}
+    updated_profile = await upload_profile_picture(db, user_id, file)
+    return {
+        "profile_picture_url": get_avatar_display_url(updated_profile),
+        "message": "Avatar updated successfully.",
+    }
 
 
 # =============================================================================
@@ -258,11 +242,11 @@ async def service_update_avatar(
 # =============================================================================
 
 async def service_remove_avatar(db: AsyncSession, user_id: uuid.UUID) -> dict:
-    """Sets profile_picture_url to None (does not delete file from disk)."""
-    profile                     = await _get_or_create_user_profile(db, user_id)
-    profile.profile_picture_url = None
-    profile.modified_by         = user_id
-    profile.updated_at          = datetime.now(timezone.utc)
-
-    await db.commit()
+    """
+    FIXED: previously only nulled the DB column, leaving the actual file
+    (wherever it was) orphaned. Now delegates to remove_profile_picture(),
+    which also calls storage.delete_file() to remove the real S3/Spaces
+    object, matching cleanup behavior used everywhere else.
+    """
+    await remove_profile_picture(db, user_id)
     return {"profile_picture_url": None, "message": "Avatar removed successfully."}
