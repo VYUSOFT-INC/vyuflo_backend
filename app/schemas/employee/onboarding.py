@@ -141,6 +141,7 @@ class HRProfileRequest(BaseModel):
     company_size:   Optional[str] = None  # "1_10"|"11_50"|"51_200"|"201_500"|"501_1000"|"1000_plus"
     industry:       Optional[str] = None
     website:        Optional[str] = None
+    domain:         Optional[str] = None
     ein:            Optional[str] = None  # Employer Identification Number
     address_line1:  Optional[str] = None
     address_line2:  Optional[str] = None

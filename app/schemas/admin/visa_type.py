@@ -42,7 +42,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ── allowed enum values (mirrored from visamodels.py) ────────────────────────
 VALID_CATEGORIES = {
-    "employment", "student", "visitor", "permanent_resident", "exchange"
+    "employment", "student", "visitor", "permanent_resident", "exchange",
+    "dependent", "family_based",
 }
 VALID_STATUSES = {"active", "inactive", "pending_review"}
 

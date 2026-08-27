@@ -14,6 +14,7 @@ class OCRFieldResponse(BaseModel):
     needs_review:     bool
     is_confirmed:     bool
     confirmed_at:     Optional[datetime]
+    is_mandatory: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

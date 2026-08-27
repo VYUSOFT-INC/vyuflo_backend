@@ -36,10 +36,15 @@ async def service_create_template(
     category: str, is_active: bool, created_by: uuid.UUID,
 ) -> NotificationTemplate:
     exists = (await db.execute(
-        select(NotificationTemplate).where(NotificationTemplate.event_key == event_key)
+        select(NotificationTemplate).where(
+            NotificationTemplate.event_key == event_key,
+            NotificationTemplate.channel == channel,
+        )
     )).scalar_one_or_none()
     if exists:
-        raise ConflictException(f"Template '{event_key}' already exists.")
+        raise ConflictException(
+            f"Template '{event_key}' for channel '{channel}' already exists."
+        )
 
     t = NotificationTemplate(
         event_key=event_key, name=name, description=description,
@@ -136,11 +141,17 @@ async def service_get_template(
 # GET BY EVENT KEY  (used by dispatch and /by-key/ route)
 # =============================================================================
 async def service_get_template_by_event_key(
-    db: AsyncSession, event_key: str
+    db: AsyncSession, event_key: str, channel: Optional[str] = None,
 ) -> NotificationTemplate:
-    t = (await db.execute(
-        select(NotificationTemplate).where(NotificationTemplate.event_key == event_key)
-    )).scalar_one_or_none()
+    stmt = select(NotificationTemplate).where(
+        NotificationTemplate.event_key == event_key
+    )
+    if channel is not None:
+        stmt = stmt.where(NotificationTemplate.channel == channel)
+    else:
+        # Prefer email when multiple channels share the same event_key
+        stmt = stmt.order_by(NotificationTemplate.channel.asc())
+    t = (await db.execute(stmt)).scalars().first()
     if not t:
         raise NotFoundException(f"Template with event_key '{event_key}' not found.")
     return t

@@ -10,8 +10,6 @@
 #   app.include_router(application_extra_router, prefix="/api/v1", tags=["Applications"])
 # =============================================================================
 
-from __future__ import annotations
-
 import uuid
 from typing import List
 

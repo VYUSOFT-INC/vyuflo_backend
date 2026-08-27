@@ -20,7 +20,7 @@ visa_type_router = APIRouter()
     summary="List visa types",
 )
 async def list_visa_types_endpoint(
-    category: Optional[str] = Query(None, description="employment | student | visitor | permanent_resident | exchange |  dependent | family_based"),
+    category: Optional[str] = Query(None, description="employment | student | visitor | permanent_resident | exchange"),
     codes: Optional[list[str]] = Query(None, description="Filter to specific visa codes, e.g. H-1B, L-1A"),  # ← add
     active_only: bool = Query(True),
     limit: int = Query(100, ge=1, le=500),

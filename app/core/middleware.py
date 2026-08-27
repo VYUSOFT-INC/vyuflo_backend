@@ -33,7 +33,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     Simple IP-based rate limiting using Redis counters.
     Only applied to /api/v1/auth/* endpoints.
     """
-    AUTH_PATHS = {"/api/v1/auth/login", "/api/v1/auth/signup"}
+    # AUTH_PATHS = {"/api/v1/auth/login", "/api/v1/auth/signup"}
+    AUTH_PATHS = {
+    "/api/v1/auth/login",
+    "/api/v1/auth/signup",
+    "/api/v1/auth/password-reset/request",
+    "/api/v1/auth/password-reset/verify-otp",
+    "/api/v1/auth/password-reset/complete",
+    }
 
     async def dispatch(self, request: Request, call_next) -> Response:
         if request.url.path in self.AUTH_PATHS:

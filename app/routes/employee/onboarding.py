@@ -75,7 +75,7 @@ async def verify_email(
     _set_ui_cookie(
         response,
         user=result["user"],
-        profile=result.get("profile"),
+        # profile=result.get("profile"),
         theme_color=result.get("theme_color"),
         roles=result["roles"],
     )
@@ -201,6 +201,7 @@ async def save_hr_profile(
         company_size         = body.company_size,
         industry             = body.industry,
         website              = body.website,
+        domain               = body.domain,
         ein                  = body.ein,
         address_line1        = body.address_line1,
         address_line2        = body.address_line2,

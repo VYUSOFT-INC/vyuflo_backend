@@ -11,7 +11,7 @@ from app.core.config import settings
 
 # ── Engine ────────────────────────────────────────────────────────────────────
 # PostgreSQL connect_args
-pg_connect_args = {"server_settings": {"application_name": "visaflow"}}
+pg_connect_args = {"server_settings": {"application_name": "vyuflo"}}
 
 # MySQL connect_args
 mysql_connect_args = {"charset": "utf8mb4"}

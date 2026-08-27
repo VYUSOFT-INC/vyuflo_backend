@@ -895,6 +895,33 @@ async def create_application(
     return ApplicationResponse.model_validate(refreshed)
 
 
+# async def get_application(
+#     db: AsyncSession,
+#     application_id: uuid.UUID,
+#     current_user_id: uuid.UUID,
+# ) -> ApplicationResponse:
+#     result = await db.execute(
+#         select(Application)
+#         .options(joinedload(Application.visa_type))
+#         .where(Application.id == application_id)
+#     )
+#     app = result.scalars().first()
+#     if not app:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail=f"Application {application_id} not found.",
+#         )
+#     if app.user_id != current_user_id:
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="You do not have access to this application.",
+#         )
+#     return ApplicationResponse.model_validate(app)
+
+from app.core.core_permissions import get_effective_permissions
+from app.models.visamodels import Application, EmployerEmployee
+
+
 async def get_application(
     db: AsyncSession,
     application_id: uuid.UUID,
@@ -902,7 +929,11 @@ async def get_application(
 ) -> ApplicationResponse:
     result = await db.execute(
         select(Application)
-        .options(joinedload(Application.visa_type))
+        .options(
+            joinedload(Application.visa_type),
+            joinedload(Application.assigned_attorney),
+            joinedload(Application.assigned_hr),
+        )
         .where(Application.id == application_id)
     )
     app = result.scalars().first()
@@ -911,12 +942,56 @@ async def get_application(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Application {application_id} not found.",
         )
-    if app.user_id != current_user_id:
+
+    if not await _can_access_application(db, app, current_user_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have access to this application.",
         )
-    return ApplicationResponse.model_validate(app)
+
+    resp = ApplicationResponse.model_validate(app)
+    resp.attorney_name = (
+        f"{app.assigned_attorney.first_name} {app.assigned_attorney.last_name}".strip()
+        if app.assigned_attorney else None
+    )
+    resp.hr_name = (
+        f"{app.assigned_hr.first_name} {app.assigned_hr.last_name}".strip()
+        if app.assigned_hr else None
+    )
+    return resp
+
+
+async def _can_access_application(db: AsyncSession, app: Application, user_id: uuid.UUID) -> bool:
+    perms = await get_effective_permissions(user_id, db)
+
+    if "applications.view_all" in perms:
+        return True
+
+    if "applications.view_own" in perms and app.user_id == user_id:
+        return True
+
+    # HR — linked as this employee's employer, OR explicitly assigned to the case
+    if await _is_my_employee(db, hr_user_id=user_id, employee_id=app.user_id):
+        return True
+    if app.assigned_hr_id == user_id:
+        return True
+
+    # Attorney — assigned to the case
+    if app.assigned_attorney_id == user_id:
+        return True
+
+    return False
+
+
+async def _is_my_employee(db: AsyncSession, hr_user_id: uuid.UUID, employee_id: uuid.UUID) -> bool:
+    row = await db.execute(
+        select(EmployerEmployee.id).where(
+            EmployerEmployee.employer_id == hr_user_id,
+            EmployerEmployee.employee_id == employee_id,
+            EmployerEmployee.is_active == True,  # noqa: E712
+        ).limit(1)
+    )
+    return row.scalar_one_or_none() is not None
 
 
 async def list_applications(

@@ -7,14 +7,15 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Date, Time,
+    Column, Float, String, Boolean, DateTime, Date, Time,
     Integer, Enum, Text, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB  
+from sqlalchemy.orm import relationship
 
-Base = declarative_base()
+from app.core.database import Base
+
 
 
 # =============================================================================
@@ -31,7 +32,6 @@ class User(Base):
     email        = Column(String(255), nullable=False, unique=True, index=True)
     phone        = Column(String(20),  nullable=True)
     country_code = Column(String(10),  nullable=True)
-
     password_hash    = Column(String(255), nullable=True)
     auth_provider    = Column(
         Enum("email", "google", "microsoft", "apple",
@@ -39,16 +39,14 @@ class User(Base):
         nullable=False, default="email"
     )
     auth_provider_id = Column(String(255), nullable=True)
-
     is_active   = Column(Boolean, default=True,  nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
-
     terms_accepted    = Column(Boolean,  nullable=False, default=False)
     terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
     marketing_opt_in  = Column(Boolean,  default=False, nullable=False)
     newsletter_opt_in = Column(Boolean,  default=False, nullable=False)
     referral_source   = Column(String(100), nullable=True)
-
+    token_version = Column(Integer, default=0, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at    = Column(DateTime(timezone=True),
                            default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -62,6 +60,10 @@ class User(Base):
     otp_records          = relationship("UserOTP",
                                         foreign_keys="UserOTP.user_id",
                                         back_populates="user")
+    linked_emails        = relationship("UserEmail",
+                                        foreign_keys="UserEmail.user_id",
+                                        back_populates="user",
+                                        order_by="UserEmail.created_at")
     login_history        = relationship("UserLoginHistory",
                                         foreign_keys="UserLoginHistory.user_id",
                                         back_populates="user",
@@ -190,6 +192,41 @@ class User(Base):
     )
 
 
+class UserEmail(Base):
+    __tablename__ = "user_emails"
+ 
+    id      = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"),
+                     nullable=False, index=True)
+ 
+    email       = Column(String(255), nullable=False, unique=True, index=True)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    # is_primary marks which email is currently the "main" one shown in the
+    # UI — does NOT affect login; ANY verified row for this user_id can be
+    # used to log in, per the dual-login design.
+    is_primary  = Column(Boolean, default=False, nullable=False)
+ 
+    source = Column(
+        Enum("signup", "personal", "work", name="user_email_source_enum"),
+        nullable=False, default="personal"
+    )
+ 
+    # Set while awaiting email-click confirmation; cleared once verified.
+    verify_token         = Column(String(128), nullable=True, unique=True)
+    verify_token_expires = Column(DateTime(timezone=True), nullable=True)
+ 
+    created_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+ 
+    __table_args__ = (
+        Index("ix_user_emails_user_verified", "user_id", "is_verified"),
+    )
+ 
+    user = relationship("User", foreign_keys=[user_id], back_populates="linked_emails")
+
 # =============================================================================
 # TABLE 02 — roles
 # =============================================================================
@@ -312,7 +349,7 @@ class UserOTP(Base):
     otp_code   = Column(String(10), nullable=False)
     otp_type   = Column(
         Enum("email_verification", "phone_verification",
-             "password_reset", "two_factor_auth",
+             "password_reset", "two_factor_auth", "merge_invite",
              name="otp_type_enum"),
         nullable=False
     )
@@ -355,7 +392,10 @@ class UserProfile(Base):
     onboarding_step      = Column(Integer, default=1,     nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
     theme_color = Column(String(7), nullable=True, default="#4f46e5")
-
+    tour_employee_seen   = Column(Boolean, default=False, nullable=False)
+    tour_hr_seen         = Column(Boolean, default=False, nullable=False)
+    tour_attorney_seen   = Column(Boolean, default=False, nullable=False)
+    tour_admin_seen      = Column(Boolean, default=False, nullable=False)
     # ── Employer Link (set when employee accepts HR invitation) ───────────────
     employer_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
                          nullable=True, index=True)
@@ -435,7 +475,12 @@ class UserLoginHistory(Base):
     is_current_session = Column(Boolean, default=False, nullable=False)
     session_token      = Column(String(500), nullable=True)
     logged_out_at      = Column(DateTime(timezone=True), nullable=True)
-
+    latitude      = Column(Float, nullable=True)
+    longitude     = Column(Float, nullable=True)
+    is_vpn        = Column(Boolean, default=False, nullable=False)
+    is_unusual    = Column(Boolean, default=False, nullable=False)
+    risk_score    = Column(Integer, default=0, nullable=False)
+    
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -555,8 +600,26 @@ class Application(Base):
                           nullable=False, index=True)
     visa_type_id = Column(UUID(as_uuid=True), ForeignKey("visa_types.id"),
                           nullable=False)
+    case_origin = Column(
+        Enum("employer_sponsored", "self_petition", "lawyer_initiated", name="case_origin_enum"),
+        nullable=True, default="employer_sponsored"
+    )
 
     sponsor_employer = Column(String(200), nullable=True)
+
+    job_title        = Column(String(200), nullable=True)
+    annual_salary    = Column(String(50),  nullable=True)   # free text, e.g. "$135,000"
+    department       = Column(String(200), nullable=True)
+    worksite_address = Column(Text,        nullable=True)
+
+# ── LCA gate (minimal status flag — not full LCA case tracking) ──────────
+    lca_status = Column(
+        Enum("not_filed", "filed", "certified", "denied",
+            name="lca_status_enum"),
+        nullable=True, default="not_filed"
+    )
+    lca_case_number  = Column(String(50), nullable=True)
+    lca_certified_at = Column(DateTime(timezone=True), nullable=True)
 
     status = Column(
         Enum("draft", "in_progress", "action_needed", "rfe_response",
@@ -595,6 +658,27 @@ class Application(Base):
     hr_approved_at = Column(DateTime(timezone=True), nullable=True)
     hr_approved_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
+    intake_accepted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    intake_accepted_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+ 
+    # ── Filing pipeline (client-facing case lifecycle) ───────────────────────
+    # Deliberately separate from `current_stage` above, which tracks the
+    # attorney's internal prep workflow (profile_eligibility → ... →
+    # uscis_submission). This field is the Intake → Filed → RFE → Decision
+    # timeline your colleague described — set to 'intake' the moment
+    # intake_accepted_at is populated, then advanced by the attorney as the
+    # case actually moves (filing, RFE, decision).
+    case_pipeline_stage = Column(
+        Enum("intake", "filed", "rfe", "decision",
+             name="case_pipeline_stage_enum"),
+        nullable=True   # NULL until intake is accepted — not yet a "case"
+    )
+ 
+    # ── Filed-case identifiers — shown front-and-center once populated ───────
+    receipt_number = Column(String(50), nullable=True, index=True)   # e.g. "WAC-24-123-45678"
+    priority_date  = Column(Date, nullable=True)
+
+
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -625,6 +709,16 @@ class Application(Base):
                                      back_populates="application",
                                      order_by="ApplicationComment.created_at.desc()")
     fees              = relationship("Fee", back_populates="application")
+    generated_letters = relationship(
+        "ApplicationGeneratedLetter",
+        back_populates="application",
+        order_by="ApplicationGeneratedLetter.generated_at.desc()",
+    )
+    employee_forms = relationship(         
+        "EmployeeForm",
+        back_populates="application",
+        cascade="all, delete-orphan",
+    )
 
 
 # =============================================================================
@@ -685,6 +779,8 @@ class ApplicationTask(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
     completed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     document_id  = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
+    is_renewal             = Column(Boolean, nullable=False, server_default="false")
+    renewal_of_document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -766,7 +862,7 @@ class DocumentType(Base):
     accepted_formats = Column(String(100), nullable=True, default="PDF,JPG,PNG")
     max_file_size_mb = Column(Integer, default=10, nullable=False)
     is_active        = Column(Boolean, default=True, nullable=False)
-
+    ocr_slug = Column(String(50), nullable=True, index=True)
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -797,7 +893,7 @@ class Document(Base):
     file_size_kb     = Column(Integer, nullable=False)
     file_format      = Column(
                           Enum("pdf", "jpg", "png", "docx", "jpeg", "gif",
-                               name="file_format_enum"),
+                               name="file_format_enum"),    
                           nullable=False
                        )
     total_pages      = Column(Integer, nullable=True)
@@ -805,6 +901,7 @@ class Document(Base):
     status           = Column(
                           Enum("required", "uploaded", "pending_review",
                                "verified", "rejected", "missing",
+                               "pending_hr_release","expired", "superseded",
                                name="document_status_enum"),
                           nullable=False, default="uploaded"
                        )
@@ -824,8 +921,9 @@ class Document(Base):
                           nullable=False, default="not_started"
                        )
     ocr_confidence   = Column(Integer, nullable=True)
-
+    expiry_date      = Column(Date, nullable=True)
     is_draft         = Column(Boolean, default=False, nullable=False)
+    activates_on     = Column(Date, nullable=True)
 
     created_by       = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by      = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -842,6 +940,7 @@ class Document(Base):
                                     remote_side="Document.id")
     pages            = relationship("DocumentPage", back_populates="document")
     activity_log     = relationship("DocumentActivity", back_populates="document")
+
 
 
 # =============================================================================
@@ -939,7 +1038,54 @@ class DocumentActivity(Base):
 
     document = relationship("Document", back_populates="activity_log")
 
+ 
+class DocumentExpiryReminder(Base):
+    """
+    One row per (document, threshold) reminder that has actually been sent.
+    Existence of a row = "don't send this threshold again" — the daily
+    check queries this table to skip thresholds already fired.
+    """
+    __tablename__ = "document_expiry_reminders"
+    __table_args__ = (
+        UniqueConstraint("document_id", "threshold_days", name="uq_document_reminder_threshold"),
+    )
+ 
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id    = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    threshold_days = Column(Integer, nullable=False)
+    sent_at        = Column(DateTime(timezone=True),
+                             default=lambda: datetime.now(timezone.utc),
+                             nullable=False, index=True)
+ 
+    document = relationship("Document")
 
+class DocumentFieldConfiguration(Base):
+    """
+    Configures, per fixed-format document type (ocr_slug), which OCR
+    fields are mandatory and which field represents the expiry date.
+    Admin-editable via /admin/document-field-configs.
+    """
+    __tablename__ = "document_field_configurations"
+    __table_args__ = (
+        UniqueConstraint("ocr_slug", "field_name", name="uq_field_config_slug_field"),
+    )
+ 
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ocr_slug        = Column(String(50), nullable=False, index=True)
+    field_name      = Column(String(100), nullable=False)
+    is_mandatory    = Column(Boolean, default=True, nullable=False)
+    is_expiry_field = Column(Boolean, default=False, nullable=False)
+    display_order   = Column(Integer, default=0, nullable=False)
+ 
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                          default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                          default=lambda: datetime.now(timezone.utc),
+                          onupdate=lambda: datetime.now(timezone.utc))
+    
 # =============================================================================
 # TABLE 21 — deadlines
 # Merged: includes DeadlineExtensionRequest from the 66-table version.
@@ -1206,13 +1352,19 @@ class Notification(Base):
              "document_uploaded",
              "chat_message_received",
              "deadline_missed",
-             "calendar_event_reminder",      
-             name="notification_type_enum"),
+             "calendar_event_reminder", 
+             # ── NEW — HR-relay workflow ──
+            "document_request_needs_hr_review",
+            "document_request_declined",
+            "document_needs_hr_release",
+            "document_release_declined",
+            'document_expiring',
+            name="notification_type_enum"),
         nullable=False
     )
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
-             "approval", "compliance", "employee",
+             "approval", "compliance", "employee","document",
              name="notification_category_enum"),
         nullable=False
     )
@@ -1362,7 +1514,7 @@ class NotificationTemplate(Base):
 
     category = Column(
         Enum("case_update", "deadline", "news", "security", "billing",
-              "approval", "compliance", "employee",
+                "approval", "compliance", "employee",
              name="notification_category_enum",
              create_type=False),
         nullable=False
@@ -1966,6 +2118,10 @@ class EmployerProfile(Base):
     )
     industry       = Column(String(100),  nullable=True)
     website        = Column(String(500),  nullable=True)
+    # Company's official email domain, e.g. "vyusoft.com" — set once during
+    # employer profile setup. Used to verify whether an invite's email is
+    # a genuine company domain email (invited_email.endswith('@' + domain)).
+    domain         = Column(String(255),  nullable=True, index=True)
     ein            = Column(String(20),   nullable=True)
     address_line1  = Column(String(300),  nullable=True)
     address_line2  = Column(String(300),  nullable=True)
@@ -2014,6 +2170,8 @@ class AttorneyProfile(Base):
     bar_state          = Column(String(50),  nullable=True)
     years_experience   = Column(Integer,     nullable=True)
     law_firm_name      = Column(String(300), nullable=True)
+    firm_id            = Column(UUID(as_uuid=True), ForeignKey("law_firms.id"),
+                                nullable=True, index=True)      # NEW 
     specialisations    = Column(Text, nullable=True)
     languages          = Column(Text, nullable=True)
     availability_note  = Column(String(300), nullable=True)
@@ -2041,7 +2199,24 @@ class AttorneyProfile(Base):
 
     user = relationship("User", foreign_keys=[user_id],
                         back_populates="attorney_profile")
+    firm = relationship("LawFirm", back_populates="attorneys")
 
+# TABLE 42 a — LawFirm
+
+class LawFirm(Base):
+    __tablename__ = "law_firms"
+
+    id   = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(300), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    created_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    attorneys = relationship("AttorneyProfile", back_populates="firm")
 
 # =============================================================================
 # TABLE 43 — fee_templates
@@ -2732,11 +2907,10 @@ class SystemSetting(Base):
     )
     setting_group = Column(
         Enum("general", "security", "email", "sms",
-             "notifications", "features", "maintenance",
+             "notifications", "features", "maintenance","documents",
              name="setting_group_enum"),
         nullable=False
     )
-
     label         = Column(String(255), nullable=False)
     description   = Column(Text, nullable=True)
     is_public     = Column(Boolean, default=False, nullable=False)
@@ -2961,6 +3135,9 @@ class ConsultationBooking(Base):
     appointment_type_id  = Column(UUID(as_uuid=True), ForeignKey("appointment_types.id"),
                                   nullable=False)
 
+    application_id       = Column(UUID(as_uuid=True), ForeignKey("applications.id"),
+                                  nullable=True, index=True)
+    
     consultation_format  = Column(
         Enum("virtual", "in_person", name="consultation_format_enum"),
         nullable=False, default="virtual"
@@ -2979,6 +3156,9 @@ class ConsultationBooking(Base):
 
     meeting_link         = Column(String(1000), nullable=True)
 
+    zoho_session_key     = Column(String(200),  nullable=True)
+
+
     employee_notes       = Column(Text, nullable=True)
     attorney_notes       = Column(Text, nullable=True)
     cancellation_reason  = Column(String(500), nullable=True)
@@ -2995,6 +3175,7 @@ class ConsultationBooking(Base):
 
     employee         = relationship("User", foreign_keys=[employee_id])
     attorney         = relationship("AttorneyProfile", foreign_keys=[attorney_id])
+    application      = relationship("Application", foreign_keys=[application_id])
     slot             = relationship("ConsultationSlot", back_populates="booking")
     appointment_type = relationship("AppointmentType", back_populates="bookings")
     payment          = relationship("Payment", foreign_keys=[payment_id])
@@ -3028,7 +3209,7 @@ class EmployerInvitation(Base):
     invited_email    = Column(String(255), nullable=True)
     invite_code      = Column(String(30),  nullable=True, unique=True)
     invite_token     = Column(String(128), nullable=True, unique=True)
-
+    invited_passport_hash = Column(String(64), nullable=True)
     max_uses         = Column(Integer, nullable=True)
     used_count       = Column(Integer, default=0, nullable=False)
 
@@ -3091,7 +3272,7 @@ class EmployerEmployee(Base):
                                  nullable=False)
     invitation_id       = Column(UUID(as_uuid=True), ForeignKey("employer_invitations.id"),
                                  nullable=True)
-
+    access_revoked_at = Column(DateTime(timezone=True), nullable=True)
     is_active    = Column(Boolean, default=True,  nullable=False)
     job_title    = Column(String(200), nullable=True)
     department   = Column(String(200), nullable=True)
@@ -3107,7 +3288,14 @@ class EmployerEmployee(Base):
                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("employer_id", "employee_id", name="uq_employer_employee_pair"),
+        # NOTE: no UniqueConstraint on (employer_id, employee_id) here —
+        # deliberately removed. It blocked an employee from ever
+        # reconnecting to the same employer a second time (leaves, then
+        # rejoins later): the old, now-inactive row would still occupy
+        # that pair, so the next INSERT on rejoin would violate the
+        # constraint even though accept_invite() only checks for an
+        # *active* duplicate. Uniqueness of the active relationship is
+        # enforced at the application layer instead.
         Index("ix_employer_employees_employer",  "employer_id"),
         Index("ix_employer_employees_employee",  "employee_id"),
         Index("ix_employer_employees_active",    "employer_id", "is_active"),
@@ -3208,6 +3396,19 @@ class ClientIntakeSession(Base):
     is_submitted  = Column(Boolean, default=False, nullable=False)
     submitted_at  = Column(DateTime(timezone=True), nullable=True)
 
+    # ── Attorney Review Fields (mirrors Application.hr_approval_status) ──────
+    review_status = Column(
+        Enum("not_submitted", "pending_review", "changes_requested", "accepted",
+             name="intake_review_status_enum"),
+        nullable=False, default="not_submitted"
+    )
+    review_note   = Column(Text, nullable=True)   # whole-form correction note or acceptance note
+    reviewed_by   = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    reviewed_at   = Column(DateTime(timezone=True), nullable=True)
+    # Bumped every time employee is sent back for corrections and resubmits —
+    # lets the attorney/UI show "resubmission #2" instead of losing that history.
+    revision_count = Column(Integer, default=0, nullable=False)
+
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -3246,6 +3447,13 @@ class IntakeImmigrationHistory(Base):
     date_of_birth        = Column(Date,        nullable=True)
     gender               = Column(String(20),  nullable=True)
     nationality          = Column(String(100), nullable=True)
+    phone            = Column(String(30),  nullable=True)   # new
+    is_student       = Column(Boolean,     nullable=True)   # new
+    company_name     = Column(String(200), nullable=True)   # new
+    job_title        = Column(String(200), nullable=True)   # new
+    start_date       = Column(Date,        nullable=True)   # new
+    annual_salary    = Column(String(30),  nullable=True)   # new
+    visa_type_code   = Column(String(30),  nullable=True)   # new
     passport_number      = Column(String(50),  nullable=True)
     passport_expiry_date = Column(Date,        nullable=True)
     email                = Column(String(255), nullable=True)
@@ -3625,12 +3833,19 @@ class DocumentRequest(Base):
     due_date = Column(Date, nullable=True)
 
     status = Column(
-        Enum("pending", "fulfilled", "cancelled", name="doc_request_status_enum"),
+        Enum("pending", "fulfilled", "cancelled",
+                "pending_hr_approval", "declined",        # ← NEW
+                name="doc_request_status_enum"),
         nullable=False, default="pending"
     )
 
     document_id  = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)  # filled in once uploaded
     fulfilled_at = Column(DateTime(timezone=True), nullable=True)
+
+    # ── NEW — HR-relay tracking, only populated for attorney-originated requests ──
+    hr_reviewed_by     = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    hr_reviewed_at     = Column(DateTime(timezone=True), nullable=True)
+    hr_decision_reason = Column(Text, nullable=True)
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -3647,3 +3862,194 @@ class DocumentRequest(Base):
     requester   = relationship("User", foreign_keys=[requested_by])
     client      = relationship("User", foreign_keys=[requested_from])
     document    = relationship("Document", foreign_keys=[document_id])
+
+# =============================================================================
+# TABLE — 74 
+# application_generated_letters
+#
+# Actual immigration letters produced for a specific case. Distinct from
+# LetterTemplate (the stationery/template library) — this is a generated
+# INSTANCE. No FK to LetterTemplate yet; if letters are always generated
+# from a template, add template_id: Optional[UUID] here later so a letter
+# can be traced back to the template that produced it.
+# =============================================================================
+
+class ApplicationGeneratedLetter(Base):
+    __tablename__ = "application_generated_letters"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    application_id = Column(UUID(as_uuid=True), ForeignKey("applications.id"),
+                            nullable=False, index=True)
+
+    name        = Column(String(300), nullable=False)   # e.g. "H-1B Support Letter"
+    letter_type = Column(
+        Enum("offer", "support", "employment_verification", "lca_posting", "other",
+             name="generated_letter_type_enum"),
+        nullable=False
+    )
+    status = Column(
+        Enum("draft", "pending_hr_signature", "signed", "sent", "filed",
+             name="generated_letter_status_enum"),
+        nullable=False, default="draft"
+    )
+
+    generated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    generated_at         = Column(DateTime(timezone=True),
+                                  default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    signed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    signed_at         = Column(DateTime(timezone=True), nullable=True)
+
+    file_path = Column(Text, nullable=True)   # S3 key or local path
+
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    application  = relationship("Application", back_populates="generated_letters")
+    generated_by = relationship("User", foreign_keys=[generated_by_user_id])
+    signed_by    = relationship("User", foreign_keys=[signed_by_user_id])
+
+
+# =============================================================================
+# TABLE — 75 
+# EmployerFirmConnection
+# =============================================================================
+class EmployerFirmConnection(Base):
+    """
+    Represents 'this employer's company has an established relationship
+    with this law firm.' HR can only assign attorneys who belong to a
+    firm listed here.
+    """
+    __tablename__ = "employer_firm_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    employer_profile_id = Column(UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
+                                 nullable=False, index=True)
+    firm_id              = Column(UUID(as_uuid=True), ForeignKey("law_firms.id"),
+                                 nullable=False, index=True)
+
+    is_active    = Column(Boolean, default=True, nullable=False)
+    connected_at = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_by   = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    employer = relationship("EmployerProfile", foreign_keys=[employer_profile_id])
+    firm     = relationship("LawFirm", foreign_keys=[firm_id])
+
+    __table_args__ = (
+        UniqueConstraint("employer_profile_id", "firm_id", name="uq_employer_firm"),
+    )
+
+
+# =============================================================================
+# TABLE — 76
+# EmployeeForm  ← NEW
+#
+# Stores employee-filled USCIS forms (I-9, I-983, ...). form_response is
+# JSONB — each form's field shape lives client-side and can change without
+# a migration.
+#
+# =============================================================================
+
+class EmployeeForm(Base):
+    __tablename__ = "employee_forms"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    application_id = Column(UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"),
+                            nullable=False, index=True)
+    employee_id    = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+
+    form_type     = Column(String(20), nullable=False)                  
+    status        = Column(String(20), nullable=False, default="draft") # 'draft' | 'submitted' | 'archived'
+    form_response = Column(JSONB, nullable=False, default=dict, server_default="{}")  # NEW name, per manager
+
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+
+    review_note = Column(Text, nullable=True)
+    reviewed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+
+    current_version = Column(Integer, nullable=False, default=1)
+
+    last_action_by      = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    last_action_by_role = Column(String(20), nullable=True)   # 'employee' | 'hr' | 'attorney'
+    last_action_at      = Column(DateTime(timezone=True), nullable=True)
+
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("application_id", "form_type", name="uq_employee_form_app_type"),
+        Index("ix_employee_forms_employee_type", "employee_id", "form_type"),
+    )
+
+    application = relationship("Application", foreign_keys=[application_id],
+                               back_populates="employee_forms")
+    employee    = relationship("User", foreign_keys=[employee_id])
+
+
+# =============================================================================
+# TABLE — 77
+# EmployeeFormVersion  ← NEW
+#
+# Snapshot taken every time a form is submitted or resubmitted, so a prior
+# submission is never silently lost when the employee corrects and resends.
+# EmployeeForm.form_response always holds the CURRENT version; this table is
+# the history.
+# =============================================================================
+
+class EmployeeFormVersion(Base):
+    __tablename__ = "employee_form_versions"
+
+    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_form_id  = Column(UUID(as_uuid=True), ForeignKey("employee_forms.id", ondelete="CASCADE"),
+                               nullable=False, index=True)
+    version_number    = Column(Integer, nullable=False)
+    form_response     = Column(JSONB, nullable=False)
+    status_at_snapshot = Column(String(20), nullable=False)
+
+    saved_by   = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("employee_form_id", "version_number", name="uq_form_version"),
+    )
+
+    employee_form = relationship("EmployeeForm", foreign_keys=[employee_form_id])
+
+# =============================================================================
+# TABLE — 78
+# FormCorrection  ← NEW
+#
+# One row per correction request. Replaces the single overwritable
+# EmployeeForm.review_note — supports multiple open corrections at once,
+# each targeted at a specific party (employee or HR) and optionally
+# specific fields.
+# =============================================================================
+
+class FormCorrection(Base):
+    __tablename__ = "form_corrections"
+
+    id           = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    form_type    = Column(String(8), nullable=False)                 # 'i9' | 'i983'
+    form_id      = Column(UUID(as_uuid=True), ForeignKey("employee_forms.id", ondelete="CASCADE"),
+                          nullable=False, index=True)
+    target       = Column(String(16), nullable=False)                # 'employee' | 'hr'
+    fields       = Column(ARRAY(String), nullable=False, default=list, server_default="{}")
+    note         = Column(Text, nullable=False)
+    requested_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    resolved_at  = Column(DateTime(timezone=True), nullable=True)
+    created_at   = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    form = relationship("EmployeeForm", foreign_keys=[form_id])

@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, NotFoundException
-from app.core.security import create_access_token, create_refresh_token
+from app.core.security import create_access_token, create_refresh_token, new_session_id
 from app.models.visamodels import (
     User,
     UserOTP,
@@ -23,9 +23,11 @@ from app.models.visamodels import (
     VisaType,
     AttorneyProfile,
     EmployerProfile,
+    LawFirm,
 )
 from app.services.employee.otp_service import send_email_verification_otp
 from app.services.employee.services import (
+    _store_refresh_token,
     db_create,
     db_delete,
     db_get_by_field,
@@ -118,23 +120,30 @@ async def service_verify_email(
     profile_picture = getattr(profile, "profile_picture_url", None)
     theme_color = getattr(profile, "theme_color", None) or "#4f46e5"
 
+    # ── Tokens — session_id ties this refresh token to one device/browser ──
+    session_id    = new_session_id()
+    access_token  = create_access_token(
+        str(user.id),
+        roles,
+        user.email,
+        user.first_name or "",
+        user.last_name or "",
+        user.token_version,
+    )
+    refresh_token = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id), session_id, refresh_token)
+
     return {
-        "access_token": create_access_token(
-            str(user.id),
-            roles,
-            user.email,
-            user.first_name or "",
-            user.last_name or "",
-        ),
-        "refresh_token": create_refresh_token(str(user_id)),
-        "roles": roles,
-        "profile": profile_picture,
-        "theme_color": theme_color,
+        "access_token":  access_token,
+        "refresh_token": refresh_token,
+        "roles":         roles,
+        "profile":       profile_picture,
+        "theme_color":   theme_color,
         "user": {
-            "id": str(user.id),
+            "id":         str(user.id),
             "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": user.email,
+            "last_name":  user.last_name,
+            "email":      user.email,
         },
         "onboarding_step": 2,
     }
@@ -268,6 +277,21 @@ async def service_save_profile(
 # NEW — Attorney profile (Step 2 for Lawyer role)
 # POST /onboarding/attorney-profile
 # =============================================================================
+async def _get_or_create_law_firm(db: AsyncSession, firm_name: str) -> uuid.UUID:   # new
+    """
+    Looks up a LawFirm by name. If it doesn't exist yet, creates it.
+    Returns the firm's id either way.
+    """
+    existing = await db.scalar(
+        select(LawFirm).where(LawFirm.name == firm_name)
+    )
+    if existing:
+        return existing.id
+
+    new_firm = LawFirm(id=uuid.uuid4(), name=firm_name, is_active=True)
+    db.add(new_firm)
+    await db.flush()   # writes it to the DB and gives us new_firm.id right away
+    return new_firm.id
 
 async def service_save_attorney_profile(
     db: AsyncSession,
@@ -338,7 +362,9 @@ async def service_save_attorney_profile(
         professional_update: dict = {}
         if bar_number        is not None: professional_update["bar_number"]        = bar_number
         if bar_state         is not None: professional_update["bar_state"]         = bar_state
-        if law_firm_name     is not None: professional_update["law_firm_name"]     = law_firm_name
+        if law_firm_name     is not None: 
+            professional_update["law_firm_name"]     = law_firm_name
+            professional_update["firm_id"] = await _get_or_create_law_firm(db, law_firm_name)   # new
         if years_experience  is not None: professional_update["years_experience"]  = years_experience
         if specialisations_json:          professional_update["specialisations"]   = specialisations_json
         if languages_json:                professional_update["languages"]          = languages_json
@@ -354,6 +380,7 @@ async def service_save_attorney_profile(
             bar_number        = bar_number,
             bar_state         = bar_state,
             law_firm_name     = law_firm_name,
+            # firm_id           = firm_id,
             years_experience  = years_experience,
             specialisations   = specialisations_json,
             languages         = languages_json,
@@ -402,6 +429,7 @@ async def service_save_hr_profile(
     company_size:   str | None = None,   # "1_10"|"11_50"|"51_200"|"201_500"|"501_1000"|"1000_plus"
     industry:       str | None = None,
     website:        str | None = None,
+    domain:         str | None = None,
     ein:            str | None = None,
     address_line1:  str | None = None,
     address_line2:  str | None = None,
@@ -453,6 +481,7 @@ async def service_save_hr_profile(
             "industry":      industry,
             "website":       website,
             "ein":           ein,
+            "domain":domain,
             "address_line1": address_line1,
             "address_line2": address_line2,
             "city":          city,

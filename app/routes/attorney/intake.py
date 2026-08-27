@@ -258,21 +258,26 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter ,Body, Depends, Query, status
 from fastapi.responses import Response
+from pydantic import BaseModel, Field                                 # NEW
 from sqlalchemy.ext.asyncio import AsyncSession
+
 
 from app.core.core_permissions import get_current_user, get_db
 from app.models.visamodels import User
 from app.services.attorney import intake_service
 from app.schemas.attorney.intake import (
-    AssignedApplicationResponse,        # NEW — must exist in schemas
+    AcceptIntakeRequest,
+    AssignedApplicationResponse,        
     ClientProfileResponse,
     GenerateLinkResponse,
     IntakeDataResponse,
     IntakeDataSave,
+    IntakeReviewDecisionResponse,
     IntakeSessionCreate,
     IntakeSessionResponse,
+    RequestIntakeChangesRequest,         # NEW
     SaveDraftResponse,
     SubmitIntakeResponse,
     VisaStatusOptionsResponse,
@@ -383,6 +388,8 @@ async def get_session(
     """Returns session + embedded intake_data (null if not yet saved)."""
     return await intake_service.get_session(db, session_id, current_user.user_id)
 
+class GenerateLinkRequest(BaseModel):                                        # NEW
+    note: Optional[str] = Field(default=None, max_length=2000)     
 
 @intake_router.post(
     "/intake/sessions/{session_id}/generate-link",
@@ -391,6 +398,8 @@ async def get_session(
 )
 async def generate_client_link(
     session_id: uuid.UUID,
+    payload: GenerateLinkRequest = Body(default=GenerateLinkRequest()),      # NEW
+
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -398,7 +407,7 @@ async def generate_client_link(
     Rotates token each call. Token valid 7 days.
     Returns full client URL for emailing.
     """
-    return await intake_service.generate_client_link(db, session_id, current_user.user_id)
+    return await intake_service.generate_client_link(db, session_id, current_user.user_id, note=payload.note,)
 
 
 @intake_router.post(
@@ -428,7 +437,62 @@ async def submit_intake(
     """Locks the session. Returns 409 if already submitted."""
     return await intake_service.submit_intake(db, session_id, current_user.user_id)
 
-
+ 
+# ===========================================================================
+# ATTORNEY REVIEW — accept / request changes  (NEW)
+# ===========================================================================
+ 
+@intake_router.post(
+    "/intake/sessions/{session_id}/accept",
+    response_model=IntakeReviewDecisionResponse,
+    summary="Attorney accepts a submitted intake — converts it into an active case",
+)
+async def accept_intake(
+    session_id: uuid.UUID,
+    payload: AcceptIntakeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Requires the intake to be submitted (review_status == pending_review).
+    On success: Application.intake_accepted_at / intake_accepted_by are set,
+    case_pipeline_stage is set to 'intake', and the row disappears from
+    GET /lawyer/applications (the Client Intake queue) since it now belongs
+    in the main Cases section.
+ 
+    Returns:
+      403 — attorney not assigned to this application
+      404 — session or application not found
+      409 — not yet submitted, or already accepted
+    """
+    return await intake_service.accept_intake(db, session_id, payload, current_user.user_id)
+ 
+ 
+@intake_router.post(
+    "/intake/sessions/{session_id}/request-changes",
+    response_model=IntakeReviewDecisionResponse,
+    summary="Attorney sends a submitted intake back for corrections (whole-form)",
+)
+async def request_intake_changes(
+    session_id: uuid.UUID,
+    payload: RequestIntakeChangesRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Reopens the entire wizard for the employee — all 5 step-completion flags
+    are cleared, current_step resets to 1, is_submitted/is_draft reset.
+    correction_note is required and is what the employee sees explaining
+    what to fix. revision_count increments each time this is called.
+ 
+    Returns:
+      403 — attorney not assigned to this application
+      404 — session or application not found
+      409 — not yet submitted, or already accepted (can't send back a
+            session that already became an active case)
+    """
+    return await intake_service.request_intake_changes(db, session_id, payload, current_user.user_id)
+ 
 # ===========================================================================
 # INTAKE DATA — Step 1 (Personal Info) + Step 3 (Immigration) fields
 # ===========================================================================

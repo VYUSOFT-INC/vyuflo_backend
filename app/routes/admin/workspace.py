@@ -76,7 +76,7 @@ async def get_workspace_dashboard(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
-    return await workspace_service.service_get_workspace_dashboard(db, current_user.id)
+    return await workspace_service.service_get_workspace_dashboard(db, current_user.user_id)
 
 
 # ===========================================================================
@@ -100,7 +100,7 @@ async def get_workspace_kpi(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
-    return await workspace_service.service_get_workspace_kpi(db, current_user.id)
+    return await workspace_service.service_get_workspace_kpi(db, current_user.user_id)
 
 
 # ===========================================================================
@@ -143,7 +143,7 @@ async def get_recent_applications(
 ):
     return await workspace_service.service_get_recent_applications(
         db,
-        current_user_id=current_user.id,
+        current_user_id=current_user.user_id,
         page=page,
         limit=limit,
         status_filter=status,
@@ -183,7 +183,7 @@ async def get_my_tasks(
 ):
     return await workspace_service.service_get_my_tasks(
         db,
-        current_user_id=current_user.id,
+        current_user_id=current_user.user_id,
         page=page,
         limit=limit,
         completed=completed,
@@ -230,7 +230,7 @@ async def get_upcoming_deadlines(
 ):
     return await workspace_service.service_get_upcoming_deadlines(
         db,
-        current_user_id=current_user.id,
+        current_user_id=current_user.user_id,
         page=page,
         limit=limit,
         urgency=urgency,
@@ -280,7 +280,7 @@ async def get_activity_feed(
 ):
     return await workspace_service.service_get_activity_feed(
         db,
-        current_user_id=current_user.id,
+        current_user_id=current_user.user_id,
         page=page,
         limit=limit,
         severity=severity,
@@ -307,7 +307,7 @@ async def get_case_pipeline(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
-    return await workspace_service.service_get_case_pipeline(db, current_user.id)
+    return await workspace_service.service_get_case_pipeline(db, current_user.user_id)
 
 
 # ===========================================================================
@@ -338,7 +338,7 @@ async def get_pending_documents(
 ):
     return await workspace_service.service_get_pending_documents(
         db,
-        current_user_id=current_user.id,
+        current_user_id=current_user.user_id,
         page=page,
         limit=limit,
     )
@@ -371,4 +371,4 @@ async def get_team_workload(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
 ):
-    return await workspace_service.service_get_team_workload(db, current_user.id)
+    return await workspace_service.service_get_team_workload(db, current_user.user_id)

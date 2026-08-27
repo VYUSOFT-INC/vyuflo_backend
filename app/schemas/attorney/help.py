@@ -150,3 +150,6 @@ class NotificationListResponse(BaseModel):
     items:       List[NotificationResponse]
     total:       int
     unread_count: int    # for badge on bell icon
+
+
+

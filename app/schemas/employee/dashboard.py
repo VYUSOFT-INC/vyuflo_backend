@@ -24,6 +24,7 @@ class CaseSummary(BaseModel):
     visa_type: str                       # "H-1B"
     visa_label: str                      # "H-1B Specialty Occupation"
     case_number: Optional[str] = None    # USCIS receipt number
+    priority_date: Optional[str] = None  # NEW — ISO date string, set once filed
     filed_date: Optional[str] = None
     current_stage: str
     stages: list[CaseStage]
