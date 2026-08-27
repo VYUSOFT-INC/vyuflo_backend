@@ -7,7 +7,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Date, Time,
+    Column, Float, String, Boolean, DateTime, Date, Time,
     Integer, Enum, Text, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy import text
@@ -475,7 +475,12 @@ class UserLoginHistory(Base):
     is_current_session = Column(Boolean, default=False, nullable=False)
     session_token      = Column(String(500), nullable=True)
     logged_out_at      = Column(DateTime(timezone=True), nullable=True)
-
+    latitude      = Column(Float, nullable=True)
+    longitude     = Column(Float, nullable=True)
+    is_vpn        = Column(Boolean, default=False, nullable=False)
+    is_unusual    = Column(Boolean, default=False, nullable=False)
+    risk_score    = Column(Integer, default=0, nullable=False)
+    
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -596,8 +601,8 @@ class Application(Base):
     visa_type_id = Column(UUID(as_uuid=True), ForeignKey("visa_types.id"),
                           nullable=False)
     case_origin = Column(
-        Enum("employer_sponsored", "self_petition","lawyer_initiated", name="case_origin_enum"),
-        nullable=False, default="employer_sponsored"
+        Enum("employer_sponsored", "self_petition", "lawyer_initiated", name="case_origin_enum"),
+        nullable=True, default="employer_sponsored"
     )
 
     sponsor_employer = Column(String(200), nullable=True)
@@ -3960,11 +3965,21 @@ class EmployeeForm(Base):
                             nullable=False, index=True)
     employee_id    = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
 
-    form_type     = Column(String(20), nullable=False)                   # 'i9' | 'i983'
+    form_type     = Column(String(20), nullable=False)                  
     status        = Column(String(20), nullable=False, default="draft") # 'draft' | 'submitted' | 'archived'
     form_response = Column(JSONB, nullable=False, default=dict, server_default="{}")  # NEW name, per manager
 
     submitted_at = Column(DateTime(timezone=True), nullable=True)
+
+    review_note = Column(Text, nullable=True)
+    reviewed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+
+    current_version = Column(Integer, nullable=False, default=1)
+
+    last_action_by      = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    last_action_by_role = Column(String(20), nullable=True)   # 'employee' | 'hr' | 'attorney'
+    last_action_at      = Column(DateTime(timezone=True), nullable=True)
 
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -3982,3 +3997,59 @@ class EmployeeForm(Base):
     application = relationship("Application", foreign_keys=[application_id],
                                back_populates="employee_forms")
     employee    = relationship("User", foreign_keys=[employee_id])
+
+
+# =============================================================================
+# TABLE — 77
+# EmployeeFormVersion  ← NEW
+#
+# Snapshot taken every time a form is submitted or resubmitted, so a prior
+# submission is never silently lost when the employee corrects and resends.
+# EmployeeForm.form_response always holds the CURRENT version; this table is
+# the history.
+# =============================================================================
+
+class EmployeeFormVersion(Base):
+    __tablename__ = "employee_form_versions"
+
+    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_form_id  = Column(UUID(as_uuid=True), ForeignKey("employee_forms.id", ondelete="CASCADE"),
+                               nullable=False, index=True)
+    version_number    = Column(Integer, nullable=False)
+    form_response     = Column(JSONB, nullable=False)
+    status_at_snapshot = Column(String(20), nullable=False)
+
+    saved_by   = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("employee_form_id", "version_number", name="uq_form_version"),
+    )
+
+    employee_form = relationship("EmployeeForm", foreign_keys=[employee_form_id])
+
+# =============================================================================
+# TABLE — 78
+# FormCorrection  ← NEW
+#
+# One row per correction request. Replaces the single overwritable
+# EmployeeForm.review_note — supports multiple open corrections at once,
+# each targeted at a specific party (employee or HR) and optionally
+# specific fields.
+# =============================================================================
+
+class FormCorrection(Base):
+    __tablename__ = "form_corrections"
+
+    id           = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    form_type    = Column(String(8), nullable=False)                 # 'i9' | 'i983'
+    form_id      = Column(UUID(as_uuid=True), ForeignKey("employee_forms.id", ondelete="CASCADE"),
+                          nullable=False, index=True)
+    target       = Column(String(16), nullable=False)                # 'employee' | 'hr'
+    fields       = Column(ARRAY(String), nullable=False, default=list, server_default="{}")
+    note         = Column(Text, nullable=False)
+    requested_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    resolved_at  = Column(DateTime(timezone=True), nullable=True)
+    created_at   = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    form = relationship("EmployeeForm", foreign_keys=[form_id])

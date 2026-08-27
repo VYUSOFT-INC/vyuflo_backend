@@ -420,15 +420,19 @@ async def verify_reset_otp(
     )
     return MessageResponse(message="OTP verified. You may now set a new password.")
 
-
 @router.post("/password-reset/complete", response_model=MessageResponse)
 async def complete_password_reset(
-    body: PasswordResetComplete, db: DBSession
+    body: PasswordResetComplete, request: Request, db: DBSession
 ) -> MessageResponse:
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent")
+
     await service_complete_password_reset(
         db,
         reset_token_id = body.reset_token_id,
         new_password   = body.new_password,
+        ip_address     = ip,
+        user_agent     = ua,
     )
     return MessageResponse(message="Password updated successfully. Please log in.")
 

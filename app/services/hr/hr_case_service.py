@@ -33,7 +33,7 @@ from app.models.visamodels import (
     EmployerEmployee,
     EmployerProfile,
     EmployerFirmConnection,
-    AttorneyProfile,
+    AttorneyProfile, 
     LawFirm,
     User,
     UserProfile,
@@ -148,7 +148,7 @@ async def _resolve_visa_type(db: AsyncSession, code: str) -> VisaType:
     return vt
 
 
-async def _resolve_employee_link(
+async def _resolve_employee_link( 
     db: AsyncSession,
     employee_link_id: uuid.UUID,
     hr_user_id: uuid.UUID,
@@ -879,7 +879,6 @@ async def hr_list_case_history(
         .order_by(ApplicationStatusHistory.created_at.asc())
     )
     rows = result.scalars().all()
-    return [HRCaseStatusHistoryResponse.model_validate(r) for r in rows]
     return [HRCaseStatusHistoryResponse.model_validate(r) for r in rows]
 
 

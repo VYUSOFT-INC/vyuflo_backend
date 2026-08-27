@@ -52,6 +52,7 @@ from app.services.employee.notification_service import (
     fire_new_device_login,
     fire_failed_login_alert,
     fire_password_changed,
+    fire_unusual_activity,
 )
 from app.services.employee.otp_service import send_email_verification_otp
 from app.services.employee.services import (
@@ -286,6 +287,9 @@ async def service_login(
     location    = await get_ip_location(ip_address)
 
     await db_update(db, User, user.id, {"last_login_at": utc_now()})
+
+    # ── 1. Gather signals BEFORE writing this login's own history row ───────
+    # (so "seen_before" and "unusual" compare against PAST logins only)
     seen_before = (await db.execute(
         select(UserLoginHistory.id).where(
             UserLoginHistory.user_id == user.id,
@@ -295,14 +299,65 @@ async def service_login(
         ).limit(1)
     )).scalar_one_or_none()
 
+    recent_failures = (await db.execute(
+        select(func.count(UserLoginHistory.id)).where(
+            UserLoginHistory.user_id == user.id,
+            UserLoginHistory.status == "failed",
+            UserLoginHistory.created_at >= utc_now() - timedelta(minutes=15),
+        )
+    )).scalar_one()
+
+    # reputation = await check_ip_reputation(ip_address)
+    unusual    = await _is_unusual_location(db, user.id, location["country"])
+    risk_score = _calculate_risk_score(
+        unusual=unusual,
+        # is_vpn=reputation["is_vpn"],
+        is_new_device=(seen_before is None),
+        recent_failures=recent_failures,
+    )
+
+    # ── 2. High risk → block outright (write the row first so it's on record) ─
+    if risk_score >= 70:
+        await db_create(db, UserLoginHistory(
+            user_id=user.id, status="blocked", auth_method="email_password",
+            ip_address=ip_address, user_agent=user_agent,
+            browser=device_info["browser"], os=device_info["os"], device_type=device_info["device_type"],
+            city=location["city"], country=location["country"],
+            latitude=location["lat"], longitude=location["lon"],
+            # is_vpn=reputation["is_vpn"], is_unusual=unusual, risk_score=risk_score,
+            failure_reason="High-risk login blocked",
+        ))
+        await db.commit()
+        risk_reasons = []
+        if unusual: risk_reasons.append("sign-in from a new location")
+        # if reputation["is_vpn"]: risk_reasons.append("VPN/proxy usage")
+        if seen_before is None: risk_reasons.append("an unrecognized device")
+        reason_str = " and ".join(risk_reasons) or "unusual account activity"
+
+        await fire_unusual_activity(
+            db, user_id=user.id,
+            description=f"A login attempt was blocked due to {reason_str}.",
+            ip_address=ip_address,
+            location=", ".join(filter(None, [location["city"], location["country"]])) or "Unknown location",
+        )
+        await db.commit()
+        raise UnauthorizedException(
+            "This login was blocked for your security due to unusual activity. "
+            "Please reset your password or contact support."
+        )
+
+    # ── 3. Record the successful login WITH the new risk fields ─────────────
     await db_create(db, UserLoginHistory(
         user_id=user.id, status="success", auth_method="email_password",
         ip_address=ip_address, user_agent=user_agent,
         browser=device_info["browser"], os=device_info["os"], device_type=device_info["device_type"],
         city=location["city"], country=location["country"],
+        latitude=location["lat"], longitude=location["lon"],
+        # is_vpn=reputation["is_vpn"], is_unusual=unusual, risk_score=risk_score,
     ))
 
-    if not seen_before:
+    # ── 4. Medium risk OR new device → alert once, not twice ────────────────
+    if risk_score >= 40 or seen_before is None:
         await fire_new_device_login(
             db, user_id=user.id, ip_address=ip_address,
             city=location["city"], country=location["country"],
@@ -331,8 +386,6 @@ async def service_login(
             "phone":      user.phone,
         },
     }
-
-
 # ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                       SSO LOGIN                                          ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
@@ -600,11 +653,9 @@ async def service_verify_personal_email_otp(
 
 async def service_change_password(
     db: AsyncSession, *, user_id: uuid.UUID, new_password: str,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
 ) -> None:
-    """
-    Authenticated 'change password' flow. Bumps token_version so all other
-    sessions/devices are signed out immediately, and fires the security alert.
-    """
     user = await db_get_by_id(db, User, user_id)
     if not user:
         raise NotFoundException("User not found")
@@ -613,7 +664,9 @@ async def service_change_password(
         "password_hash": hash_password(new_password),
         "token_version": user.token_version + 1,
     })
-    await fire_password_changed(db, user_id=user.id)
+    device_info = parse_device(user_agent)
+    device_str = f"{device_info['browser']} on {device_info['os']}" if user_agent else None
+    await fire_password_changed(db, user_id=user.id, ip_address=ip_address, device_str=device_str)
 
 
 async def service_request_password_reset(
@@ -644,6 +697,28 @@ async def service_request_password_reset(
     return token
 
 
+# async def service_verify_reset_otp(
+#     db: AsyncSession,
+#     *,
+#     reset_token_id: str,
+#     otp_code: str,
+# ) -> PasswordResetToken:
+#     token = await db_get_by_id(db, PasswordResetToken, uuid.UUID(reset_token_id))
+#     if not token or token.status not in ("pending",):
+#         raise BadRequestException("Invalid or expired reset request")
+
+#     cached_otp = await redis_get(f"pwd_reset:{reset_token_id}")
+#     if not cached_otp or cached_otp != otp_code:
+#         raise BadRequestException("Invalid or expired OTP code")
+
+#     token = await db_update(db, PasswordResetToken, token.id, {
+#         "otp_verified":    True,
+#         "otp_verified_at": utc_now(),
+#         "status":          "verified",
+#     })
+#     await redis_delete(f"pwd_reset:{reset_token_id}")
+#     return token
+
 async def service_verify_reset_otp(
     db: AsyncSession,
     *,
@@ -654,8 +729,13 @@ async def service_verify_reset_otp(
     if not token or token.status not in ("pending",):
         raise BadRequestException("Invalid or expired reset request")
 
+    if token.failed_attempts >= settings.OTP_MAX_ATTEMPTS:
+        await db_update(db, PasswordResetToken, token.id, {"status": "locked"})
+        raise BadRequestException("Too many incorrect attempts. Please request a new code.")
+
     cached_otp = await redis_get(f"pwd_reset:{reset_token_id}")
     if not cached_otp or cached_otp != otp_code:
+        await db_update(db, PasswordResetToken, token.id, {"failed_attempts": token.failed_attempts + 1})
         raise BadRequestException("Invalid or expired OTP code")
 
     token = await db_update(db, PasswordResetToken, token.id, {
@@ -666,12 +746,10 @@ async def service_verify_reset_otp(
     await redis_delete(f"pwd_reset:{reset_token_id}")
     return token
 
-
 async def service_complete_password_reset(
-    db: AsyncSession,
-    *,
-    reset_token_id: str,
-    new_password: str,
+    db: AsyncSession, *, reset_token_id: str, new_password: str,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
 ) -> User:
     token = await db_get_by_id(db, PasswordResetToken, uuid.UUID(reset_token_id))
     if not token or token.status != "verified":
@@ -686,12 +764,14 @@ async def service_complete_password_reset(
         "token_version": user.token_version + 1,
     })
     await db_update(db, PasswordResetToken, token.id, {
-        "status":                      "completed",
-        "password_reset_completed":    True,
+        "status": "completed",
+        "password_reset_completed": True,
         "password_reset_completed_at": utc_now(),
     })
 
-    await fire_password_changed(db, user_id=user.id)
+    device_info = parse_device(user_agent)
+    device_str = f"{device_info['browser']} on {device_info['os']}" if user_agent else None
+    await fire_password_changed(db, user_id=user.id, ip_address=ip_address, device_str=device_str)
 
     return user
 
@@ -785,3 +865,30 @@ async def _exchange_linkedin_code(code: str) -> dict:
         "last_name":   last_name,
         "provider_id": data.get("sub", ""),
     }
+
+
+async def _is_unusual_location(db: AsyncSession, user_id: uuid.UUID, country: str | None) -> bool:
+    if not country:
+        return False
+    has_history = (await db.execute(
+        select(UserLoginHistory.id).where(
+            UserLoginHistory.user_id == user_id, UserLoginHistory.status == "success",
+        ).limit(1)
+    )).scalar_one_or_none() is not None
+    seen_country = (await db.execute(
+        select(UserLoginHistory.id).where(
+            UserLoginHistory.user_id == user_id,
+            UserLoginHistory.status == "success",
+            UserLoginHistory.country == country,
+        ).limit(1)
+    )).scalar_one_or_none() is not None
+    return has_history and not seen_country
+
+
+def _calculate_risk_score(unusual: bool, is_new_device: bool, recent_failures: int) -> int:
+    score = 0
+    if unusual: score += 30
+    # if is_vpn: score += 25
+    if is_new_device: score += 20
+    if recent_failures >= 2: score += 25
+    return score
