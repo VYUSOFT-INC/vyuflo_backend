@@ -199,7 +199,8 @@ from app.models.visamodels import User, UserProfile
 from app.schemas.employee.user_profile import UserProfileResponse, UserProfileUpdate
 from app.services.employee import storage
 from app.services.employee.services import db_create, db_get_by_id, db_update, db_get_by_field
-
+from app.models.visamodels import UserEmail
+from sqlalchemy import select
 
 # FIXED: the avatar was always exposed at the same literal URL
 # ("/api/v1/users/me/avatar"), and that route sets a 1-hour Cache-Control
@@ -217,13 +218,36 @@ def _avatar_display_url(profile: UserProfile) -> Optional[str]:
     return f"/api/v1/users/me/avatar?v={version}"
 
 
+# async def _to_profile_response(db: AsyncSession, profile: UserProfile) -> UserProfileResponse:
+#     user = await db_get_by_id(db, User, profile.user_id)
+#     resp = UserProfileResponse.model_validate(profile)
+#     resp.email = user.email if user else None
+#     resp.profile_picture_url = _avatar_display_url(profile)
+#     return resp
+
+
 async def _to_profile_response(db: AsyncSession, profile: UserProfile) -> UserProfileResponse:
     user = await db_get_by_id(db, User, profile.user_id)
     resp = UserProfileResponse.model_validate(profile)
     resp.email = user.email if user else None
     resp.profile_picture_url = _avatar_display_url(profile)
-    return resp
 
+    # NEW — surface the backup/personal email (if any) so the frontend's
+    # Backup Email section can render its current state correctly. Looks
+    # for any non-primary row on this account, verified or not — an
+    # unverified one still needs to show as "verification incomplete"
+    # rather than silently vanishing.
+    personal_row = await db.scalar(
+        select(UserEmail)
+        .where(UserEmail.user_id == profile.user_id, UserEmail.is_primary == False)
+        .order_by(UserEmail.created_at.desc())
+        .limit(1)
+    )
+    if personal_row:
+        resp.personal_email = personal_row.email
+        resp.personal_email_verified = personal_row.is_verified
+
+    return resp
 
 async def get_my_profile(
     db: AsyncSession,

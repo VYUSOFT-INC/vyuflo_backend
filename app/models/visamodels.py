@@ -2907,7 +2907,7 @@ class SystemSetting(Base):
     )
     setting_group = Column(
         Enum("general", "security", "email", "sms",
-             "notifications", "features", "maintenance","documents",
+             "notifications", "features", "maintenance","documents","invitations",
              name="setting_group_enum"),
         nullable=False
     )

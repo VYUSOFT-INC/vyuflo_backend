@@ -171,6 +171,7 @@ async def save_attorney_profile(
         languages            = body.languages,
         bio                  = body.bio,
         availability_note    = body.availability_note,
+        firm_id              = body.firm_id
     )
 
 

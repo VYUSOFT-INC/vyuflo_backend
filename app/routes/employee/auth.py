@@ -8,14 +8,16 @@ from typing import Optional
 from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, BackgroundTasks, Request, Response, Cookie
+from sqlalchemy import select
 
 from app.core.dependencies import Current_User, DBSession
 from app.core.email import send_email
 from app.core.exceptions import NotFoundException, UnauthorizedException
 from app.core.security import create_access_token, create_avatar_token, decode_token
-from app.models.visamodels import User, UserProfile
+from app.models.visamodels import User, UserEmail, UserProfile
 from app.schemas.employee.auth import (
     AddPersonalEmailRequest,
+    CheckPersonalEmailResponse,
     LoginRequest,
     MessageResponse,
     PasswordResetComplete,
@@ -450,3 +452,32 @@ async def _send_reset_email(to_email: str, otp: str, token_id: str) -> None:
         subject = "Your Vyuflo password reset code",
         body    = f"Your Vyuflo password reset code is:\n\n{otp}\n\nExpires in 60 seconds.",
     )
+
+
+# app/routes/employee/auth_routes.py (or wherever auth router lives)
+
+@router.get("/account/check-personal-email", response_model=CheckPersonalEmailResponse)
+async def check_personal_email(
+    email: str,
+    db: DBSession,
+    current_user: Current_User,
+) -> CheckPersonalEmailResponse:
+    """
+    Public-to-the-logged-in-user check — lets the frontend show "already
+    taken" inline, before the person commits to clicking Send code.
+    """
+    normalized = email.strip().lower()
+    existing = await db.scalar(select(UserEmail).where(UserEmail.email == normalized))
+
+    if not existing:
+        return CheckPersonalEmailResponse(available=True)
+
+    if existing.user_id == current_user.user_id:
+        # It's their own row (verified or pending) — not "taken", just
+        # already theirs; let the existing UI states handle that case.
+        return CheckPersonalEmailResponse(available=True)
+
+    if existing.is_verified:
+        return CheckPersonalEmailResponse(available=False, reason="This email is already in use by another account.")
+
+    return CheckPersonalEmailResponse(available=False, reason="This email is already pending verification elsewhere.")
