@@ -374,13 +374,14 @@ async def service_save_attorney_profile(
             await db_update(db, AttorneyProfile, existing.id, professional_update)
         attorney_id = existing.id
     else:
+        firm_id = await _get_or_create_law_firm(db, law_firm_name) if law_firm_name else None
         new_attorney = AttorneyProfile(
             id                = uuid.uuid4(),
             user_id           = user_id,
             bar_number        = bar_number,
             bar_state         = bar_state,
             law_firm_name     = law_firm_name,
-            # firm_id           = firm_id,
+            firm_id           = firm_id,
             years_experience  = years_experience,
             specialisations   = specialisations_json,
             languages         = languages_json,
