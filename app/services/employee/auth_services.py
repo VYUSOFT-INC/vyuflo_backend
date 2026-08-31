@@ -562,36 +562,99 @@ async def service_sign_out_all_devices(db: AsyncSession, user_id: uuid.UUID) -> 
 # ║                  PERSONAL EMAIL — ADD + VERIFY                          ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
+# async def service_add_personal_email(
+#     db: AsyncSession,
+#     *,
+#     user_id: uuid.UUID,
+#     personal_email: str,
+# ) -> None:
+#     """
+#     Adds a personal/backup email as an ADDITIONAL login credential — does
+#     NOT replace or touch the account's existing email(s). Creates an
+#     unverified row in user_emails; it only becomes usable for login once
+#     the OTP code is confirmed. This is what makes "both emails log in"
+#     possible: the original signup/work email keeps working exactly as
+#     before, and this new one becomes a second valid path in once
+#     verified — neither one displaces the other.
+
+#     Pure OTP, no magic link — sends a 6-digit code the person types back
+#     into the app while still in their authenticated session. Matches the
+#     existing-user merge flow's verification model for consistency, and
+#     avoids a magic link's actual weak point: the "someone with access to
+#     this inbox could click this link" argument only holds if the person
+#     reading the email is a stranger — but the code and a would-be link
+#     both live in the same message either way, so a single, explicit
+#     "type the code back into the app" step is the simpler, single
+#     mechanism to reason about instead of two overlapping ones.
+#     """
+#     personal_email = personal_email.strip().lower()
+
+#     existing = await db.scalar(select(UserEmail).where(UserEmail.email == personal_email))
+#     if existing:
+#         raise ConflictException("This email is already in use by another account.")
+
+#     code    = f"{secrets.randbelow(1_000_000):06d}"
+#     expires = utc_now() + timedelta(minutes=15)
+
+#     await db_create(db, UserEmail(
+#         user_id=user_id, email=personal_email, is_verified=False, is_primary=False,
+#         source="personal", verify_token=code, verify_token_expires=expires,
+#     ))
+
+#     await send_email(
+#         to=personal_email,
+#         subject="Verify your personal email — Vyuflo",
+#         body=(
+#             "You (or your organization) requested to add this email as a "
+#             "backup login for your Vyuflo account.\n\n"
+#             f"Your verification code: {code}\n\n"
+#             "Enter this code in Vyuflo to confirm. It expires in 15 minutes. "
+#             "If you didn't request this, ignore this email."
+#         ),
+#     )
+
 async def service_add_personal_email(
     db: AsyncSession,
     *,
     user_id: uuid.UUID,
     personal_email: str,
 ) -> None:
-    """
-    Adds a personal/backup email as an ADDITIONAL login credential — does
-    NOT replace or touch the account's existing email(s). Creates an
-    unverified row in user_emails; it only becomes usable for login once
-    the OTP code is confirmed. This is what makes "both emails log in"
-    possible: the original signup/work email keeps working exactly as
-    before, and this new one becomes a second valid path in once
-    verified — neither one displaces the other.
-
-    Pure OTP, no magic link — sends a 6-digit code the person types back
-    into the app while still in their authenticated session. Matches the
-    existing-user merge flow's verification model for consistency, and
-    avoids a magic link's actual weak point: the "someone with access to
-    this inbox could click this link" argument only holds if the person
-    reading the email is a stranger — but the code and a would-be link
-    both live in the same message either way, so a single, explicit
-    "type the code back into the app" step is the simpler, single
-    mechanism to reason about instead of two overlapping ones.
-    """
     personal_email = personal_email.strip().lower()
 
     existing = await db.scalar(select(UserEmail).where(UserEmail.email == personal_email))
+
     if existing:
-        raise ConflictException("This email is already in use by another account.")
+        if existing.is_verified:
+            # Genuinely taken — someone else already verified this email.
+            raise ConflictException("This email is already in use by another account.")
+
+        if existing.user_id == user_id:
+            # Same person retrying (e.g. previous attempt was abandoned or the
+            # code expired) — just refresh the code instead of blocking them.
+            code = f"{secrets.randbelow(1_000_000):06d}"
+            expires = utc_now() + timedelta(minutes=15)
+            await db_update(db, UserEmail, existing.id, {
+                "verify_token": code, "verify_token_expires": expires,
+            })
+            await send_email(
+                to=personal_email,
+                subject="Verify your personal email — Vyuflo",
+                body=(
+                    "You (or your organization) requested to add this email as a "
+                    "backup login for your Vyuflo account.\n\n"
+                    f"Your verification code: {code}\n\n"
+                    "Enter this code in Vyuflo to confirm. It expires in 15 minutes. "
+                    "If you didn't request this, ignore this email."
+                ),
+            )
+            return
+
+        # Unverified row exists but belongs to a DIFFERENT user_id — could be
+        # a genuine race between two people adding the same email, or (far
+        # more likely in practice) stale data from earlier testing. Since we
+        # can't safely tell which, block but say something more accurate
+        # than "in use by another account" when it isn't actually verified.
+        raise ConflictException("This email is already pending verification elsewhere.")
 
     code    = f"{secrets.randbelow(1_000_000):06d}"
     expires = utc_now() + timedelta(minutes=15)

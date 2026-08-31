@@ -44,7 +44,8 @@ class UserProfileResponse(BaseModel):
 
     # ← NEW
     theme_color:          Optional[str]  = None
-
+    personal_email: Optional[str] = None
+    personal_email_verified: bool = False
     employer_id:          Optional[uuid.UUID] = None
     created_at:           datetime
     updated_at:           datetime

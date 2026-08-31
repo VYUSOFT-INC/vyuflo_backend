@@ -38,3 +38,4 @@ paddlepaddle==3.2.2
 user_agents==2.2.0
 apscheduler==3.10.4
 pywebpush==2.4.0
+sendgrid==6.11.0
