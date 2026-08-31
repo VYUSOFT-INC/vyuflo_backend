@@ -18,7 +18,7 @@ class InviteByEmailRequest(BaseModel):
     # Only a hash is ever stored server-side (see invited_passport_hash).
     passport_number:   str = Field(..., min_length=6, max_length=20)
     personal_message:  Optional[str] = Field(None, max_length=500)
-    expires_days:      int            = Field(7, ge=1, le=30)
+    expires_days: Optional[int] = Field(None, ge=1, le=30)
     # How many days until the invite expires (default 7)
 
     @field_validator("passport_number")

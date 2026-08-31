@@ -158,4 +158,10 @@ class AddPersonalEmailRequest(BaseModel):
     personal_email: EmailStr
 
 class VerifyPersonalEmailRequest(BaseModel):
-    token: str
+    otp_code: str
+
+
+# app/schemas/employee/auth.py
+class CheckPersonalEmailResponse(BaseModel):
+    available: bool
+    reason: str | None = None

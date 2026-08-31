@@ -364,7 +364,7 @@ async def service_save_attorney_profile(
         if bar_state         is not None: professional_update["bar_state"]         = bar_state
         if law_firm_name     is not None: 
             professional_update["law_firm_name"]     = law_firm_name
-            professional_update["firm_id"] = await _get_or_create_law_firm(db, law_firm_name)   # new
+            professional_update["firm_id"] = await _get_or_create_law_firm(db, law_firm_name) if law_firm_name else None 
         if years_experience  is not None: professional_update["years_experience"]  = years_experience
         if specialisations_json:          professional_update["specialisations"]   = specialisations_json
         if languages_json:                professional_update["languages"]          = languages_json

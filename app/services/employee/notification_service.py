@@ -1356,6 +1356,7 @@ async def fire_failed_login_alert(
     except Exception:
         logger.exception("fire_failed_login_alert failed for user %s", user_id)
         await db.rollback()
+        
 async def fire_password_changed(
     db: AsyncSession, *, user_id: uuid.UUID,
     ip_address: Optional[str] = None,

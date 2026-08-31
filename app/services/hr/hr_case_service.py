@@ -33,7 +33,7 @@ from app.models.visamodels import (
     EmployerEmployee,
     EmployerProfile,
     EmployerFirmConnection,
-    AttorneyProfile,
+    AttorneyProfile, 
     LawFirm,
     User,
     UserProfile,
@@ -148,7 +148,7 @@ async def _resolve_visa_type(db: AsyncSession, code: str) -> VisaType:
     return vt
 
 
-async def _resolve_employee_link(
+async def _resolve_employee_link( 
     db: AsyncSession,
     employee_link_id: uuid.UUID,
     hr_user_id: uuid.UUID,
@@ -901,13 +901,11 @@ async def hr_connect_firm(   # new
             detail="Complete your employer profile before connecting a firm.",
         )
 
-
     firm = await db.scalar(select(LawFirm).where(LawFirm.name == firm_name))
     if not firm:
         firm = LawFirm(id=uuid.uuid4(), name=firm_name, is_active=True)
         db.add(firm)
         await db.flush()
-
 
     existing_connection = await db.scalar(
         select(EmployerFirmConnection).where(
@@ -925,13 +923,10 @@ async def hr_connect_firm(   # new
         )
         db.add(connection)
 
-
     await db.commit()
-
 
     return {
         "firm_id":   firm.id,
         "firm_name": firm.name,
         "message":   f"Connected to {firm.name}.",
     }
-
