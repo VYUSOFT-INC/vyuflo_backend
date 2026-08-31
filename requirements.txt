@@ -29,12 +29,15 @@ slowapi==0.1.9
 passlib==1.7.4
 twilio==9.10.9
 aioboto3==15.5.0
-# ── OCR pipeline (previously unpinned — pinned to versions verified to
-#    resolve cleanly together on Python 3.11 / linux x86_64) ─────────────────
+# ── OCR pipeline ──────────────────────────────────────────────────────────────
 pymupdf==1.28.0
 passporteye==2.2.2
-paddleocr==3.7.0
-paddlepaddle==3.2.2
+
+numpy==1.26.4
+opencv-python-headless==4.10.0.82
+
+paddleocr==2.7.3
+paddlepaddle==2.6.2
 user_agents==2.2.0
 apscheduler==3.10.4
 pywebpush==2.4.0
