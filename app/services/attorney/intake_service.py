@@ -62,6 +62,7 @@ from app.schemas.attorney.intake import (
     RequestIntakeChangesRequest,
     SaveDraftResponse,
     SubmitIntakeResponse,
+    VerifyDisclosuresResponse,
     VisaStatusOption,
     VisaStatusOptionsResponse,
 )
@@ -752,6 +753,8 @@ def _build_intake_data_response(row: IntakeImmigrationHistory) -> IntakeDataResp
         visa_denial_details  = row.visa_denial_details,
         has_overstay         = row.has_overstay,
         previous_visas       = _parse_previous_visas(row.previous_visas),
+        disclosures_verified_at             = row.disclosures_verified_at,             # new
+        disclosures_verified_by_attorney_id = row.disclosures_verified_by_attorney_id, # new
         created_at           = row.created_at,
         updated_at           = row.updated_at,
     )
@@ -1168,6 +1171,7 @@ async def submit_intake(
         "is_submitted":     True,
         "submitted_at":     now,
         "is_draft":         False,
+        "review_status":    "pending_review",  # NEW — was never set, stayed "not_submitted" forever
         "step_5_completed": True,    # NEW — mark final step done
         "current_step":     5,       # NEW — pin to last step
         "modified_by":      current_user_id,
@@ -1259,6 +1263,50 @@ async def accept_intake(
     )
  
  
+# ===========================================================================
+# ATTORNEY REVIEW — mark background disclosures as verified (Immigration step)
+# ===========================================================================
+
+async def verify_disclosures(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    current_user_id: uuid.UUID,
+) -> VerifyDisclosuresResponse:
+    """
+    Attorney confirms they've reviewed the client's background disclosures
+    (visa denial / overstay / previous visas) on the Immigration History step.
+
+    Attorney-only — uses _verify_session_access, not _verify_intake_access,
+    so the employee can never mark their own disclosures as verified.
+
+    Requires an IntakeImmigrationHistory row to already exist (i.e. the
+    client must have filled in Step 3 before this can be verified) — 404
+    if nothing's been saved for this session yet.
+    """
+    await _verify_session_access(db, session_id, current_user_id)
+
+    row = await _fetch_intake_row(db, session_id)
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No immigration history has been saved for this session yet — nothing to verify.",
+        )
+
+    now = datetime.now(timezone.utc)
+    await db_update(db, IntakeImmigrationHistory, row.id, {
+        "disclosures_verified_by_attorney_id": current_user_id,
+        "disclosures_verified_at":             now,
+        "modified_by":                         current_user_id,
+    })
+
+    return VerifyDisclosuresResponse(
+        detail                              = "Disclosures marked as verified.",
+        session_id                          = session_id,
+        disclosures_verified_at             = now,
+        disclosures_verified_by_attorney_id = current_user_id,
+    )
+
+
 # ===========================================================================
 # ATTORNEY REVIEW — request changes (sends the whole form back)
 # ===========================================================================
