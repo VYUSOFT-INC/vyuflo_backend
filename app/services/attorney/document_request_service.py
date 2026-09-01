@@ -70,7 +70,7 @@ async def create_document_request(
                 actor_id           = actor_id,
                 created_by         = actor_id,
             ))
-            from app.services.admin_notification_fanout import fan_out_notification_to_admins
+            from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
             await fan_out_notification_to_admins(db, _notif)
     else:
         # HR (or admin) — goes straight to the employee, as before.

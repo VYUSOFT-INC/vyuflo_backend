@@ -44,8 +44,8 @@ class DashboardStats(BaseModel):
     processing_type: str                 # "Standard Processing" | "Premium Processing"
 
     next_deadline_label: str
-    next_deadline_date: str              # ISO datetime
-    next_deadline_days: int
+    next_deadline_date: str | None = None             
+    next_deadline_days: int | None = None
 
     profile_readiness: int               # 0–100
     sponsor_name: str
