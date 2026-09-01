@@ -1359,6 +1359,7 @@ class Notification(Base):
             "document_needs_hr_release",
             "document_release_declined",
             'document_expiring',
+            'document_expired',
             name="notification_type_enum"),
         nullable=False
     )

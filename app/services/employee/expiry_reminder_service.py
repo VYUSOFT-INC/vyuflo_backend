@@ -248,8 +248,7 @@ async def mark_expired_documents(db: AsyncSession) -> int:
             document_id=doc.id,
             application_id=doc.application_id,
             cta_primary_label="Re-upload",
-            cta_primary_url=cta_url,
-            dedup_key=f"doc_expired:{doc.id}",
+            cta_primary_url=cta_url
         )
 
         await dispatch_notification(

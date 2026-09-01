@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from fastapi import HTTPException
-
+import re
 from app.models.visamodels import Document, DocumentOCRField, DocumentType
 from app.schemas.employee.ocr import OCRFieldResponse, SaveOCRFieldsRequest
 from app.services.employee.services import db_update
@@ -14,6 +14,62 @@ from app.services.employee.document_field_config_service import get_document_fie
 # ─────────────────────────────────────────────────────────────────────────────
 # EXPIRY AUTO-FILL
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_flexible_date(raw: str) -> date | None:
+    """
+    Parses a date string that might be strict ISO (YYYY-MM-DD, what the
+    frontend's <input type="date"> always sends) OR day-first
+    DD-MM-YYYY / DD/MM/YYYY (what OCR extracts from passports and other
+    documents, since that's how most non-US documents print dates).
+    Returns None if neither shape matches — caller treats that as "couldn't
+    parse this, don't write anything."
+    """
+    raw = raw.strip()
+    if not raw:
+        return None
+
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        pass
+
+    match = re.match(r"^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$", raw)
+    if match:
+        day, month, year = match.groups()
+        try:
+            return date(int(year), int(month), int(day))
+        except ValueError:
+            return None
+
+    return None
+
+def _parse_flexible_date(raw: str) -> date | None:
+    """
+    Parses a date string that might be strict ISO (YYYY-MM-DD, what the
+    frontend's <input type="date"> always sends) OR day-first
+    DD-MM-YYYY / DD/MM/YYYY (what OCR extracts from passports and other
+    documents, since that's how most non-US documents print dates).
+    Returns None if neither shape matches — caller treats that as "couldn't
+    parse this, don't write anything."
+    """
+    raw = raw.strip()
+    if not raw:
+        return None
+
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        pass
+
+    match = re.match(r"^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$", raw)
+    if match:
+        day, month, year = match.groups()
+        try:
+            return date(int(year), int(month), int(day))
+        except ValueError:
+            return None
+
+    return None
 
 async def _apply_expiry_from_fields(
     db: AsyncSession,
@@ -36,9 +92,8 @@ async def _apply_expiry_from_fields(
         return
 
     raw = (field.extracted_value or "").strip()
-    try:
-        expiry = date.fromisoformat(raw)
-    except ValueError:
+    expiry = _parse_flexible_date(raw)
+    if expiry is None:
         return
 
     await db_update(db, Document, doc_id, {

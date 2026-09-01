@@ -32,15 +32,7 @@ class Settings(BaseSettings):
 
     # ── Database ──────────────────────────────────────────────────────────────
     LOCAL_DATABASE_URL: str          # REQUIRED
-    ZOHO_DATABASE_URL:  str = ""     # optional — only used when DATABASE_ENV=zoho
-    DATABASE_ENV:       str = "local"  # "local" | "zoho"
-
-    @property
-    def DATABASE_URL(self) -> str:
-        if self.DATABASE_ENV == "zoho":
-            return self.ZOHO_DATABASE_URL
-        return self.LOCAL_DATABASE_URL
-
+    
     # ── Redis ─────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
     OCR_SERVICE_URL: str = "http://localhost:8002"
@@ -86,9 +78,10 @@ class Settings(BaseSettings):
     # ── Email ─────────────────────────────────────────────────────────────────
     SMTP_USERNAME:   str  = ""
     SMTP_PASSWORD:   str  = ""
-    SMTP_FROM_EMAIL: str  = "noreply@visaflow.com"
+    SMTP_FROM_EMAIL: str  = ""
     SMTP_PORT:       int  = 587
-    SMTP_HOST:       str  = "smtp.gmail.com"
+    SMTP_HOST:       str  = ""
+
     MAIL_STARTTLS:   bool = True
     MAIL_SSL_TLS:    bool = False
 

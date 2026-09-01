@@ -19,6 +19,7 @@ from app.models.visamodels import (
     NotificationPreferences,
     NotificationTemplate,
     User,
+    UserEmail,
 )
 from app.schemas.employee.notification_schemas import (
     MarkReadResponse,
@@ -263,6 +264,51 @@ async def _render_template(
 # Each is independent — a failure in one never blocks the others.
 # =============================================================================
 
+# async def _deliver_email(
+#     db:           AsyncSession,
+#     notif_id:     uuid.UUID,
+#     user:         User,
+#     event_key:    Optional[str],
+#     full_context: dict,
+#     subject:      str,
+#     body_text:    str,
+#     company:      dict,
+#     cta_label:    Optional[str],
+#     cta_url:      Optional[str],
+# ) -> None:
+#     if not user.email:
+#         return
+
+#     final_subject = subject
+#     final_body    = body_text
+#     template_html = None
+
+#     if event_key:
+#         rendered = await _render_template(db, event_key, "email", full_context)
+#         if rendered:
+#             final_subject = rendered.get("subject") or subject
+#             final_body    = rendered.get("body")    or body_text
+#             template_html = rendered.get("body_html")
+
+#     body_html = template_html or _build_branded_html(
+#         company_name=company["company_name"],
+#         logo_url=company["company_logo_url"],
+#         body_text=final_body,
+#         portal_url=company["portal_url"],
+#         cta_label=cta_label,
+#         cta_url=cta_url,
+#     )
+
+#     await send_email(to=user.email, subject=final_subject, body=final_body, body_html=body_html)
+
+#     result = await db.execute(select(Notification).where(Notification.id == notif_id))
+#     notif  = result.scalar_one_or_none()
+#     if notif:
+#         notif.sent_via_email = True
+#         await db.flush()
+
+#     logger.info("[Email] Sent to %s for event %s", user.email, event_key)
+
 async def _deliver_email(
     db:           AsyncSession,
     notif_id:     uuid.UUID,
@@ -275,7 +321,15 @@ async def _deliver_email(
     cta_label:    Optional[str],
     cta_url:      Optional[str],
 ) -> None:
-    if not user.email:
+    result = await db.execute(
+        select(UserEmail.email).where(
+            UserEmail.user_id == user.id,
+            UserEmail.is_verified == True,  # noqa: E712
+        )
+    )
+    recipient_emails = {row[0] for row in result.all()}
+    print("recipient_emails",recipient_emails)
+    if not recipient_emails:
         return
 
     final_subject = subject
@@ -298,7 +352,8 @@ async def _deliver_email(
         cta_url=cta_url,
     )
 
-    await send_email(to=user.email, subject=final_subject, body=final_body, body_html=body_html)
+    for email in recipient_emails:
+        await send_email(to=email, subject=final_subject, body=final_body, body_html=body_html)
 
     result = await db.execute(select(Notification).where(Notification.id == notif_id))
     notif  = result.scalar_one_or_none()
@@ -306,8 +361,7 @@ async def _deliver_email(
         notif.sent_via_email = True
         await db.flush()
 
-    logger.info("[Email] Sent to %s for event %s", user.email, event_key)
-
+    logger.info("[Email] Sent to %s for event %s", recipient_emails, event_key)
 
 async def _deliver_sms(
     db:           AsyncSession,

@@ -17,20 +17,12 @@ pg_connect_args = {"server_settings": {"application_name": "vyuflo"}}
 mysql_connect_args = {"charset": "utf8mb4"}
 
 
-# Pick correct connect_args based on env
-connect_args = (
-    mysql_connect_args
-    if settings.DATABASE_ENV == "zoho"
-    else pg_connect_args
-)
-
-
-
 # ── Engine ────────────────────────────────────────────────────────────────────
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    settings.LOCAL_DATABASE_URL,
     echo=settings.DEBUG,
     pool_pre_ping=True,
+    connect_args=pg_connect_args,
     # pool_size=10,
     # max_overflow=20,
 )

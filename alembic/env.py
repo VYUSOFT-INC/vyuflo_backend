@@ -21,7 +21,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Point Alembic at your app's real database URL instead of alembic.ini's placeholder.
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", settings.LOCAL_DATABASE_URL)
 
 # This is what makes `--autogenerate` compare your models against the DB.
 target_metadata = Base.metadata

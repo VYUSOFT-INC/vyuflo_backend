@@ -316,6 +316,73 @@ async def _is_assigned_attorney(db: AsyncSession, application_id: uuid.UUID, vie
 # UPLOAD
 # ─────────────────────────────────────────────────────────────────────────────
 
+# async def upload_document(
+#     db:             AsyncSession,
+#     user_id:        uuid.UUID,
+#     application_id: Optional[uuid.UUID],
+#     document_type:  str,
+#     category:       str,
+#     file:           UploadFile,
+# ) -> DocumentResponse:
+
+#     doc_type = await db_get_by_field(db, DocumentType, "name", document_type)
+#     if not doc_type:
+#         doc_type = DocumentType(
+#             name        = document_type,
+#             category    = category,
+#             description = f"Auto-created: {document_type}",
+#             created_by  = user_id,
+#         )
+#         doc_type = await db_create(db, doc_type)
+
+#     content      = await file.read()
+#     file_size_kb = len(content) // 1024
+#     ext          = (file.filename or "file").rsplit(".", 1)[-1].lower()
+#     file_format  = ext if ext in ("pdf", "jpg", "png", "docx", "jpeg", "gif") else "pdf"
+#     if file_format == "jpeg":
+#         file_format = "jpg"
+
+#     safe_name    = os.path.basename(file.filename or f"document.{file_format}")
+#     storage_prefix = settings.STORAGE_PREFIX
+#     storage_path = f"{storage_prefix}/users/{user_id}/documents/{document_type}/{safe_name}"
+#     await storage.upload_file(
+#         content,
+#         storage_path,
+#         file.content_type or "application/octet-stream",
+#     )
+
+#     doc = Document(
+#         user_id          = user_id,
+#         application_id   = application_id,
+#         document_type_id = doc_type.id,
+#         file_name        = file.filename,
+#         file_path        = storage_path,
+#         file_size_kb     = file_size_kb,
+#         file_format      = file_format,
+#         status           = "uploaded",
+#         ocr_status       = "not_started",
+#         version          = 1,
+#         is_draft         = False,
+#         created_by       = user_id,
+#     )
+#     doc = await db_create(db, doc)
+
+#     if application_id:
+#         task = await _find_task(
+#             db,
+#             application_id=application_id,
+#             task_name_like=document_type,
+#             only_incomplete=True,
+#         )
+#         if task:
+#             await db_update(db, ApplicationTask, task.id, {
+#                 "document_id": doc.id,
+#                 "modified_by": user_id,
+#             })
+
+#     doc_with_type = await _load_doc_with_type(db, doc.id)
+#     return _to_response(doc_with_type)
+
 async def upload_document(
     db:             AsyncSession,
     user_id:        uuid.UUID,
@@ -323,6 +390,7 @@ async def upload_document(
     document_type:  str,
     category:       str,
     file:           UploadFile,
+    custom_name:    Optional[str] = None,   # ← NEW
 ) -> DocumentResponse:
 
     doc_type = await db_get_by_field(db, DocumentType, "name", document_type)
@@ -351,12 +419,22 @@ async def upload_document(
         file.content_type or "application/octet-stream",
     )
 
+    # NEW — display name shown in the UI. Defaults to the original
+    # filename; if the person typed a custom name, use that instead,
+    # re-appending the real extension so file-type icons/detection
+    # elsewhere (which reads file_format, not file_name) still work, and
+    # so the name doesn't look broken with no extension in a file list.
+    display_name = file.filename
+    if custom_name and custom_name.strip():
+        clean = custom_name.strip()
+        display_name = clean if "." in clean else f"{clean}.{file_format}"
+
     doc = Document(
         user_id          = user_id,
         application_id   = application_id,
         document_type_id = doc_type.id,
-        file_name        = file.filename,
-        file_path        = storage_path,
+        file_name        = display_name,     # ← was file.filename
+        file_path        = storage_path,     # storage key stays based on the REAL filename — never renamed
         file_size_kb     = file_size_kb,
         file_format      = file_format,
         status           = "uploaded",
@@ -383,6 +461,42 @@ async def upload_document(
     doc_with_type = await _load_doc_with_type(db, doc.id)
     return _to_response(doc_with_type)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# RENAME — display-name-only. Never touches file_path (the storage key),
+# so this is a pure metadata rename with zero file-move risk — same model
+# as renaming a file in Google Drive without changing its underlying
+# object ID.
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def rename_document(
+    db:       AsyncSession,
+    doc_id:   uuid.UUID,
+    user_id:  uuid.UUID,
+    new_name: str,
+) -> DocumentResponse:
+    doc = await _load_doc_with_type(db, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if doc.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    clean = (new_name or "").strip()
+    if not clean:
+        raise HTTPException(status_code=400, detail="Name cannot be empty.")
+
+    # Preserve the real extension so file-type icons/detection (which
+    # reads file_format, not file_name) and downloads keep working.
+    ext = f".{doc.file_format}" if doc.file_format else ""
+    if "." not in clean:
+        clean = f"{clean}{ext}"
+
+    await db_update(db, Document, doc_id, {
+        "file_name":   clean,
+        "modified_by": user_id,
+    })
+
+    doc_with_type = await _load_doc_with_type(db, doc_id)
+    return _to_response(doc_with_type)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIRM OCR
