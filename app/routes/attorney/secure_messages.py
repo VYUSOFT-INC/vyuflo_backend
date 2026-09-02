@@ -38,6 +38,7 @@ from app.schemas.attorney.secure_messages import (
     MessageTemplateListResponse,
     MessageTemplateResponse,
     MessageTemplateUpdate,
+    StaffSearchResponse,   #new
 )
 from app.services.attorney.secure_messages_service import (
     service_create_message_template,
@@ -45,6 +46,8 @@ from app.services.attorney.secure_messages_service import (
     service_get_thread,
     service_list_message_templates,
     service_list_threads,
+    service_list_users_by_roles,   #new
+    service_search_staff,   #new
     service_update_message_template,
 )
 
@@ -196,3 +199,45 @@ async def api_get_thread(
     current_user              = Depends(get_current_user),
 ) -> ThreadResponse:
     return await service_get_thread(db, thread_id, current_user.user_id)
+
+
+@secure_messages_router.get(   #new — entire route
+    "/messages/staff-search",
+    response_model=StaffSearchResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Search for someone to start a new conversation with — '+ New message' box",
+    description=(
+        "Searches users by name or email (min 2 characters recommended). "
+        "Excludes the current user. Returns each match's role so the "
+        "frontend can label them (HR, Attorney, etc.) in the results list."
+    ),
+)
+async def api_search_staff(
+    q:            str          = Query(..., min_length=1, description="Name or email to search for"),
+    db:           AsyncSession = Depends(get_db),
+    current_user               = Depends(get_current_user),
+) -> StaffSearchResponse:
+    data = await service_search_staff(db, current_user.user_id, q)
+    return StaffSearchResponse(**data)
+
+
+@secure_messages_router.get(   #new — entire route
+    "/users",
+    response_model=StaffSearchResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List users by role — this is the actual URL the 'New Conversation' box calls",
+    description=(
+        "Frontend calls this as /api/v1/users?roles=hr,attorney,support — "
+        "comma-separated role names, matched case-insensitively. Returns "
+        "everyone in those roles (minus yourself); the frontend filters "
+        "the list locally as the person types."
+    ),
+)
+async def api_list_users_by_roles(
+    roles:        str          = Query(..., description="Comma-separated role names, e.g. hr,attorney,support"),
+    db:           AsyncSession = Depends(get_db),
+    current_user               = Depends(get_current_user),
+) -> StaffSearchResponse:
+    role_list = [r for r in roles.split(",") if r.strip()]
+    data = await service_list_users_by_roles(db, current_user.user_id, role_list)
+    return StaffSearchResponse(**data)
