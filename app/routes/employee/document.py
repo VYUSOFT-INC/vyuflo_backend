@@ -16,7 +16,7 @@ from app.core.database import get_db
 from app.core.dependencies import CurrentUserData, get_current_user
 from app.models.visamodels import User
 from app.ocr.ocr_service_router import OCRField, OCRResponse, run_extraction
-from app.schemas.employee.document import DocumentListResponse, DocumentResponse
+from app.schemas.employee.document import DocumentListResponse, DocumentResponse, RenameDocumentRequest
 from app.schemas.employee.ocr import OCRFieldResponse, OCRFieldUpdate, SaveOCRFieldsRequest
 from app.services.employee.document_field_config_service import get_document_field_config
 from app.services.employee.document_service import (
@@ -28,6 +28,7 @@ from app.services.employee.document_service import (
     get_expected_ocr_slug,
     list_documents,
     list_hub_documents,
+    rename_document,
     reupload_expired_document,
     reuse_document_for_case,
     upload_document,
@@ -75,14 +76,27 @@ async def api_upload_document(
     application_id: Optional[str] = Form(None),
     document_type:  str           = Form(...),
     category:       str           = Form(...),
+    custom_name:    Optional[str] = Form(None), 
     db:             AsyncSession   = Depends(get_db),
     current_user                   = Depends(get_current_user),
 ) -> DocumentResponse:
     app_id = uuid.UUID(application_id) if application_id else None
     return await upload_document(
-        db, current_user.user_id, app_id, document_type, category, file
+        db, current_user.user_id, app_id, document_type, category, file, custom_name
     )
 
+@document_router.patch(
+    "/documents/{document_id}/rename",
+    response_model=DocumentResponse,
+    summary="Rename a document's display name",
+)
+async def api_rename_document(
+    document_id: uuid.UUID,
+    payload:     RenameDocumentRequest,
+    db:          AsyncSession = Depends(get_db),
+    current_user               = Depends(get_current_user),
+) -> DocumentResponse:
+    return await rename_document(db, document_id, current_user.user_id, payload.new_name)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HUB — MUST stay above every /documents/{document_id} route below.

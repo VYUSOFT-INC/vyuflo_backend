@@ -40,3 +40,6 @@ class DocumentResponse(BaseModel):
 class DocumentListResponse(BaseModel):
     items: list[DocumentResponse]
     total: int
+
+class RenameDocumentRequest(BaseModel):
+    new_name: str

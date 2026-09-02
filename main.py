@@ -26,7 +26,7 @@ from app.routes.employee.document import document_router
 from app.routes.employee.message import message_router
 from app.routes.employee.application import application_router,application_task_router,application_history_router
 from app.routes.employee.employee_forms import employee_forms_router          
-from app.services.employee.expiry_reminder_service import check_and_send_expiry_reminders
+from app.services.employee.expiry_reminder_service import activate_pending_document_replacements, check_and_send_expiry_reminders, mark_expired_documents
 from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_notification_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types,seed_document_field_configurations
 from app.routes.employee.visa_types import visa_type_router
 from app.routes.employee.dashboard import dashboard_router
@@ -167,6 +167,39 @@ async def _run_expiry_reminder_check():
                 print(f"✅ Sent {sent} document expiry reminder(s)")
     except Exception as e:
         print(f"⚠️  Expiry reminder check failed: {type(e).__name__}: {e}")
+        
+async def _run_mark_expired_documents():
+    """
+    Flips documents whose expiry_date has passed to status='expired' and
+    fires the 'document has expired, please re-upload' notification.
+    Separate job from the reminder check above — that one only WARNS as
+    the date approaches; this one is what actually marks the document
+    expired once the date has passed.
+    """
+    print("cron job (mark_expired_documents) is working")
+    try:
+        async with AsyncSessionLocal() as db:
+            expired_count = await mark_expired_documents(db)
+            if expired_count:
+                print(f"✅ Marked {expired_count} document(s) as expired")
+    except Exception as e:
+        print(f"⚠️  Mark-expired-documents check failed: {type(e).__name__}: {e}")
+
+
+async def _run_activate_pending_document_replacements():
+    """
+    Performs the old→'superseded' handoff for documents that were
+    proactively replaced before their predecessor actually expired, once
+    that predecessor's expiry date has arrived.
+    """
+    print("cron job (activate_pending_document_replacements) is working")
+    try:
+        async with AsyncSessionLocal() as db:
+            activated_count = await activate_pending_document_replacements(db)
+            if activated_count:
+                print(f"✅ Activated {activated_count} pending document replacement(s)")
+    except Exception as e:
+        print(f"⚠️  Activate-pending-replacements check failed: {type(e).__name__}: {e}")
 
 scheduler = AsyncIOScheduler()
 
@@ -197,14 +230,32 @@ async def lifespan(app: FastAPI):
         await seed_document_field_configurations(db)
     job = scheduler.add_job(
         _run_expiry_reminder_check,
-        # trigger=CronTrigger(hour=12, minute=10, timezone=ZoneInfo("Asia/Kolkata")),
-        trigger=CronTrigger(hour=19, minute=7, timezone=ZoneInfo("Asia/Kolkata")),
+        trigger=CronTrigger(hour=19, minute=18, timezone=ZoneInfo("Asia/Kolkata")),
         id="expiry_reminder_check",
         misfire_grace_time=3600,
         replace_existing=True,
     )
+
+    expired_job = scheduler.add_job(
+        _run_mark_expired_documents,
+        trigger=CronTrigger(hour=19, minute=18, timezone=ZoneInfo("Asia/Kolkata")),
+        id="mark_expired_documents_check",
+        misfire_grace_time=3600,
+        replace_existing=True,
+    )
+
+    activation_job = scheduler.add_job(
+        _run_activate_pending_document_replacements,
+        trigger=CronTrigger(hour=19, minute=18, timezone=ZoneInfo("Asia/Kolkata")),
+        id="activate_pending_document_replacements_check",
+        misfire_grace_time=3600,
+        replace_existing=True,
+    )
+
     scheduler.start()
     print(f"⏰ Scheduler started — expiry_reminder_check next run at: {job.next_run_time}")
+    print(f"⏰ Scheduler started — mark_expired_documents_check next run at: {expired_job.next_run_time}")
+    print(f"⏰ Scheduler started — activate_pending_document_replacements_check next run at: {activation_job.next_run_time}")
     yield
     print("🛑 Shutting down...")
     scheduler.shutdown(wait=False)
