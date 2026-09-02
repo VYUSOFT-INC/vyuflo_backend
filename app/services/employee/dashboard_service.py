@@ -739,7 +739,7 @@ async def service_get_dashboard(
     else:
         next_deadline_label = "No upcoming deadlines"
         next_deadline_date  = None
-        next_deadline_days  = None
+        next_deadline_days  = 0
 
     # ── 9. Sponsor info ───────────────────────────────────────────────────────
     sponsor_name = "No Sponsor Yet"

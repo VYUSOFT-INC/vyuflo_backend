@@ -280,6 +280,7 @@ from app.schemas.attorney.intake import (
     RequestIntakeChangesRequest,         # NEW
     SaveDraftResponse,
     SubmitIntakeResponse,
+    VerifyDisclosuresResponse,
     VisaStatusOptionsResponse,
 )
 
@@ -492,6 +493,29 @@ async def request_intake_changes(
             session that already became an active case)
     """
     return await intake_service.request_intake_changes(db, session_id, payload, current_user.user_id)
+
+
+@intake_router.post(
+    "/intake/sessions/{session_id}/verify-disclosures",
+    response_model=VerifyDisclosuresResponse,
+    summary="Attorney marks the client's background disclosures as reviewed (Immigration step)",
+)
+async def verify_disclosures(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Attorney-only. Confirms the attorney has reviewed the visa-denial /
+    overstay / previous-visa disclosures on the Immigration History step.
+    This is a logged, audit-trail action — not something the employee can do.
+
+    Returns:
+      403 — attorney not assigned to this application
+      404 — session not found, or no immigration history saved yet to verify
+    """
+    return await intake_service.verify_disclosures(db, session_id, current_user.user_id)
+
  
 # ===========================================================================
 # INTAKE DATA — Step 1 (Personal Info) + Step 3 (Immigration) fields

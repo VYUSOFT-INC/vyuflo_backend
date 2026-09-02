@@ -103,6 +103,8 @@ class IntakeDataResponse(BaseModel):
     visa_denial_details:  Optional[str]
     has_overstay:         Optional[bool]
     previous_visas:       List[PreviousVisaItem] = Field(default_factory=list)
+    disclosures_verified_at:             Optional[datetime] = None
+    disclosures_verified_by_attorney_id: Optional[uuid.UUID] = None
 
     # Step 4 — Case Type 
     visa_type_code:       Optional[str] = None
@@ -215,6 +217,14 @@ class IntakeReviewDecisionResponse(BaseModel):
     # graduated into the main Cases section.
     intake_accepted_at:   Optional[datetime] = None
     case_pipeline_stage:  Optional[Literal["intake", "filed", "rfe", "decision"]] = None
+
+
+class VerifyDisclosuresResponse(BaseModel):
+    """Returned by POST /intake/sessions/{session_id}/verify-disclosures."""
+    detail:                              str
+    session_id:                          uuid.UUID
+    disclosures_verified_at:             datetime
+    disclosures_verified_by_attorney_id: uuid.UUID
 
 
 # ===========================================================================

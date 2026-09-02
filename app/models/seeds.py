@@ -1661,6 +1661,17 @@ SYSTEM_SETTINGS_SEED = [
     "is_readonly": False,
     "display_order": 0,
     },
+    {
+    "key": "invitations.default_expiry_days",
+    "value": "7",
+    "value_type": "integer",
+    "setting_group": "invitations",
+    "label": "Invitation Link Expiry (days)",
+    "description": "Default number of days an HR invitation link stays valid before expiring.",
+    "is_public": False,
+    "is_readonly": False,
+    "display_order": 0,
+    },
  
 ]
 
