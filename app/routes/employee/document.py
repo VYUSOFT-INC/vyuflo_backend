@@ -1,4 +1,3 @@
-
 # app/routers/documents.py
 
 import os
@@ -57,12 +56,19 @@ async def api_list_documents(
     application_id: Optional[uuid.UUID] = Query(None),
     db:             AsyncSession         = Depends(get_db),
     current_user                         = Depends(get_current_user),
-) -> DocumentListResponse: 
+) -> DocumentListResponse:
     return await list_documents(db, current_user.user_id, application_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UPLOAD
+#
+# FIXED (task linking): added task_id as an optional form field, mirroring
+# /documents/{id}/reuse below. When the frontend already knows which task
+# this upload satisfies (e.g. picked from a requirement list), it should
+# send task_id directly rather than relying on document_type name-matching
+# in upload_document() — that guess routinely fails for generic/Hub
+# uploads where document_type is a placeholder like "unclassified".
 # ─────────────────────────────────────────────────────────────────────────────
 
 @document_router.post(
@@ -76,13 +82,15 @@ async def api_upload_document(
     application_id: Optional[str] = Form(None),
     document_type:  str           = Form(...),
     category:       str           = Form(...),
-    custom_name:    Optional[str] = Form(None), 
+    custom_name:    Optional[str] = Form(None),
+    task_id:        Optional[str] = Form(None),   # ← NEW
     db:             AsyncSession   = Depends(get_db),
     current_user                   = Depends(get_current_user),
 ) -> DocumentResponse:
     app_id = uuid.UUID(application_id) if application_id else None
     return await upload_document(
-        db, current_user.user_id, app_id, document_type, category, file, custom_name
+        db, current_user.user_id, app_id, document_type, category, file,
+        custom_name, task_id=uuid.UUID(task_id) if task_id else None,
     )
 
 @document_router.patch(
@@ -138,27 +146,6 @@ async def api_confirm_document_ocr(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# REUSE — attach an existing Hub document to a new case, without re-uploading
-# ─────────────────────────────────────────────────────────────────────────────
-
-@document_router.post(
-    "/documents/{document_id}/reuse",
-    response_model=DocumentResponse,
-    status_code=201,
-    summary="Reuse an existing Hub document for a new case (duplicates the file)",
-)
-async def api_reuse_document(
-    document_id:    uuid.UUID,
-    application_id: str = Form(...),
-    db:             AsyncSession = Depends(get_db),
-    current_user                 = Depends(get_current_user),
-) -> DocumentResponse:
-    return await reuse_document_for_case(
-        db, current_user.user_id, document_id, uuid.UUID(application_id)
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # DELETE
 # Deletes document + OCR fields + resets task to pending.
 # Used when OCR fails and user wants to re-upload a different file.
@@ -183,35 +170,6 @@ async def api_delete_document(
 
 from fastapi.responses import StreamingResponse
 from app.services.employee import storage
-
-# @document_router.get(
-#     "/documents/{document_id}/view",
-#     summary="Get document file for inline viewing",
-# )
-# async def api_view_document(
-#     document_id:  uuid.UUID,
-#     db:           AsyncSession = Depends(get_db),
-#     current_user               = Depends(get_current_user),
-# ):
-#     doc = await get_document_file_url(db, document_id, current_user.user_id)
-
-#     fmt = doc["file_format"].lower()
-#     media_types = {
-#         "jpg":  "image/jpeg",
-#         "jpeg": "image/jpeg",
-#         "png":  "image/png",
-#         "pdf":  "application/pdf",
-#         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-#     }
-#     media_type = media_types.get(fmt, "application/octet-stream")
-
-#     content, _ = await storage.get_file_bytes(doc["file_path"])
-
-#     return StreamingResponse(
-#         iter([content]),
-#         media_type=media_type,
-#         headers={"Content-Disposition": f'inline; filename="{doc["file_name"]}"'},
-#     )
 
 @document_router.get(
     "/documents/{document_id}/view",
@@ -390,16 +348,16 @@ async def api_update_ocr_field(
 
 
 from pydantic import BaseModel
- 
+
 class ExpectedFieldItem(BaseModel):
     field_name:   str
     is_mandatory: bool
- 
+
 class ExpectedFieldsResponse(BaseModel):
     ocr_slug: str | None
     fields:   list[ExpectedFieldItem]
- 
- 
+
+
 @document_router.get(
     "/documents/{doc_id}/expected-fields",
     response_model=ExpectedFieldsResponse,
@@ -418,11 +376,11 @@ async def get_expected_fields(
     expected_slug = await get_expected_ocr_slug(db, doc_id)
     if not expected_slug:
         return ExpectedFieldsResponse(ocr_slug=None, fields=[])
- 
+
     config = await get_document_field_config(db, expected_slug)
     if not config:
         return ExpectedFieldsResponse(ocr_slug=expected_slug, fields=[])
- 
+
     return ExpectedFieldsResponse(
         ocr_slug=expected_slug,
         fields=[
@@ -458,3 +416,21 @@ async def api_get_document_versions(
     current_user               = Depends(get_current_user),
 ):
     return await get_document_version_history(db, document_id, current_user.user_id)
+
+@document_router.post(
+    "/documents/{document_id}/reuse",
+    response_model=DocumentResponse,
+    status_code=201,
+    summary="Reuse an existing Hub document for a new case (duplicates the file)",
+)
+async def api_reuse_document(
+    document_id:    uuid.UUID,
+    application_id: str = Form(...),
+    task_id:        Optional[str] = Form(None),
+    db:             AsyncSession = Depends(get_db),
+    current_user                 = Depends(get_current_user),
+) -> DocumentResponse:
+    return await reuse_document_for_case(
+        db, current_user.user_id, document_id, uuid.UUID(application_id),
+        task_id=uuid.UUID(task_id) if task_id else None,
+    )
