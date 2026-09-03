@@ -11,6 +11,39 @@
 # REQUIRES a DB migration:
 #   ALTER TYPE document_status_enum ADD VALUE IF NOT EXISTS 'superseded';
 # and the same value added to Document.status's Enum(...) list in models.py.
+#
+# CLEANED UP: this file previously had TWO definitions of
+# reuse_document_for_case() — an old one (name-matching guess) followed by
+# the fixed one (task_id-aware). Python silently kept only the second
+# (later definitions overwrite earlier ones with the same name in a
+# module), so this was never actually the cause of the task_id fix not
+# taking effect — but it was confusing and risky to leave two copies
+# sitting in the same file. Only one definition remains now.
+#
+# CLEANED UP (again): removed a large commented-out duplicate of this
+# entire file that had accumulated at the top from earlier edit passes.
+#
+# FIXED (reuse_document_for_case): the destination storage path was built
+# only from user_id + application_id + the ORIGINAL filename — so reusing
+# the same Hub document (or any document sharing that filename) into the
+# same application a second time computed the exact same S3 key as an
+# earlier reuse, and the copy_file() call failed with
+# botocore.errorfactory.InvalidRequest ("copy request is illegal because
+# it is trying to copy an object to itself"). Now prefixes the destination
+# key with a fresh uuid4() so every reuse gets a guaranteed-unique path,
+# regardless of how many times the same filename gets reused.
+#
+# FIXED (upload_document — task linking): previously always guessed the
+# target task by matching `document_type` (a free-text string, often
+# "unclassified" from generic Hub uploads with no task context) against
+# task names via ilike(). This is the exact same class of bug that
+# reuse_document_for_case() had and was fixed for below — when the caller
+# already KNOWS which task an upload is for, it should say so directly via
+# task_id instead of making the backend guess from a label that may not
+# match anything. Now accepts an optional task_id and prefers it when
+# given (with the same application_id ownership guard used in reuse);
+# falls back to the old name-matching guess only when no task_id is
+# provided at all (e.g. a genuinely standalone/personal Hub upload).
 
 import uuid
 import os
@@ -59,7 +92,7 @@ def _to_response(doc: Document, in_use: bool = False) -> DocumentResponse:
         ocr_status       = doc.ocr_status,
         version          = doc.version,
         in_use           = in_use,
-        activates_on     = doc.activates_on,   # ← NEW — non-null while waiting for the old document's expiry to arrive
+        activates_on     = doc.activates_on,
     )
 
 
@@ -129,17 +162,16 @@ def _collapse_hub_families(docs: list[Document]) -> list[Document]:
     visible: list[Document] = []
     for d in docs:
         if d.status == "superseded":
-            visible.append(d)  # always shown — see the replacement alongside it
+            visible.append(d)
             continue
 
         if d.parent_document_id in ids:
             parent = by_id[d.parent_document_id]
             if parent.status == "superseded" or d.activates_on is not None:
-                visible.append(d)  # the replacement — active now, or waiting to be — always shown
-            # else: ordinary reuse-copy of a still-active original — hide it
+                visible.append(d)
             continue
 
-        visible.append(d)  # root document with no parent in this set
+        visible.append(d)
 
     return visible
 
@@ -316,73 +348,6 @@ async def _is_assigned_attorney(db: AsyncSession, application_id: uuid.UUID, vie
 # UPLOAD
 # ─────────────────────────────────────────────────────────────────────────────
 
-# async def upload_document(
-#     db:             AsyncSession,
-#     user_id:        uuid.UUID,
-#     application_id: Optional[uuid.UUID],
-#     document_type:  str,
-#     category:       str,
-#     file:           UploadFile,
-# ) -> DocumentResponse:
-
-#     doc_type = await db_get_by_field(db, DocumentType, "name", document_type)
-#     if not doc_type:
-#         doc_type = DocumentType(
-#             name        = document_type,
-#             category    = category,
-#             description = f"Auto-created: {document_type}",
-#             created_by  = user_id,
-#         )
-#         doc_type = await db_create(db, doc_type)
-
-#     content      = await file.read()
-#     file_size_kb = len(content) // 1024
-#     ext          = (file.filename or "file").rsplit(".", 1)[-1].lower()
-#     file_format  = ext if ext in ("pdf", "jpg", "png", "docx", "jpeg", "gif") else "pdf"
-#     if file_format == "jpeg":
-#         file_format = "jpg"
-
-#     safe_name    = os.path.basename(file.filename or f"document.{file_format}")
-#     storage_prefix = settings.STORAGE_PREFIX
-#     storage_path = f"{storage_prefix}/users/{user_id}/documents/{document_type}/{safe_name}"
-#     await storage.upload_file(
-#         content,
-#         storage_path,
-#         file.content_type or "application/octet-stream",
-#     )
-
-#     doc = Document(
-#         user_id          = user_id,
-#         application_id   = application_id,
-#         document_type_id = doc_type.id,
-#         file_name        = file.filename,
-#         file_path        = storage_path,
-#         file_size_kb     = file_size_kb,
-#         file_format      = file_format,
-#         status           = "uploaded",
-#         ocr_status       = "not_started",
-#         version          = 1,
-#         is_draft         = False,
-#         created_by       = user_id,
-#     )
-#     doc = await db_create(db, doc)
-
-#     if application_id:
-#         task = await _find_task(
-#             db,
-#             application_id=application_id,
-#             task_name_like=document_type,
-#             only_incomplete=True,
-#         )
-#         if task:
-#             await db_update(db, ApplicationTask, task.id, {
-#                 "document_id": doc.id,
-#                 "modified_by": user_id,
-#             })
-
-#     doc_with_type = await _load_doc_with_type(db, doc.id)
-#     return _to_response(doc_with_type)
-
 async def upload_document(
     db:             AsyncSession,
     user_id:        uuid.UUID,
@@ -390,7 +355,8 @@ async def upload_document(
     document_type:  str,
     category:       str,
     file:           UploadFile,
-    custom_name:    Optional[str] = None,   # ← NEW
+    custom_name:    Optional[str] = None,
+    task_id:        Optional[uuid.UUID] = None,   # ← NEW
 ) -> DocumentResponse:
 
     doc_type = await db_get_by_field(db, DocumentType, "name", document_type)
@@ -419,11 +385,6 @@ async def upload_document(
         file.content_type or "application/octet-stream",
     )
 
-    # NEW — display name shown in the UI. Defaults to the original
-    # filename; if the person typed a custom name, use that instead,
-    # re-appending the real extension so file-type icons/detection
-    # elsewhere (which reads file_format, not file_name) still work, and
-    # so the name doesn't look broken with no extension in a file list.
     display_name = file.filename
     if custom_name and custom_name.strip():
         clean = custom_name.strip()
@@ -433,8 +394,8 @@ async def upload_document(
         user_id          = user_id,
         application_id   = application_id,
         document_type_id = doc_type.id,
-        file_name        = display_name,     # ← was file.filename
-        file_path        = storage_path,     # storage key stays based on the REAL filename — never renamed
+        file_name        = display_name,
+        file_path        = storage_path,
         file_size_kb     = file_size_kb,
         file_format      = file_format,
         status           = "uploaded",
@@ -445,13 +406,30 @@ async def upload_document(
     )
     doc = await db_create(db, doc)
 
+    # ── TASK LINKING ──────────────────────────────────────────────────────
+    # FIXED: task_id (when the caller already knows which task this upload
+    # satisfies) is now preferred over guessing from document_type text.
+    # Same ownership guard as reuse_document_for_case: a task_id belonging
+    # to a different application is never trusted.
     if application_id:
-        task = await _find_task(
-            db,
-            application_id=application_id,
-            task_name_like=document_type,
-            only_incomplete=True,
-        )
+        task = None
+        if task_id:
+            task = await db_get_by_id(db, ApplicationTask, task_id)
+            if task and task.application_id != application_id:
+                task = None
+        else:
+            # No task_id given at all — fall back to the old best-effort
+            # guess. This path still silently fails to link when
+            # document_type doesn't resemble any task name (e.g. a generic
+            # "unclassified" upload) — that's expected/acceptable for a
+            # genuinely standalone document with no task context.
+            task = await _find_task(
+                db,
+                application_id=application_id,
+                task_name_like=document_type,
+                only_incomplete=True,
+            )
+
         if task:
             await db_update(db, ApplicationTask, task.id, {
                 "document_id": doc.id,
@@ -461,11 +439,9 @@ async def upload_document(
     doc_with_type = await _load_doc_with_type(db, doc.id)
     return _to_response(doc_with_type)
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-# RENAME — display-name-only. Never touches file_path (the storage key),
-# so this is a pure metadata rename with zero file-move risk — same model
-# as renaming a file in Google Drive without changing its underlying
-# object ID.
+# RENAME
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def rename_document(
@@ -484,8 +460,6 @@ async def rename_document(
     if not clean:
         raise HTTPException(status_code=400, detail="Name cannot be empty.")
 
-    # Preserve the real extension so file-type icons/detection (which
-    # reads file_format, not file_name) and downloads keep working.
     ext = f".{doc.file_format}" if doc.file_format else ""
     if "." not in clean:
         clean = f"{clean}{ext}"
@@ -497,6 +471,7 @@ async def rename_document(
 
     doc_with_type = await _load_doc_with_type(db, doc_id)
     return _to_response(doc_with_type)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIRM OCR
@@ -606,6 +581,29 @@ async def delete_document(
 
 # ─────────────────────────────────────────────────────────────────────────────
 # REUSE — attach an existing Hub document to a new case, WITHOUT re-uploading
+#
+# FIXED (task linking): previously guessed the target task by matching the
+# SOURCE document's own type name against task names — but a Hub document
+# is routinely reused for a DIFFERENT requirement than the one it was
+# originally categorized under (e.g. reusing a resume categorized as
+# "Resume / CV" for an "Offer Letter" task), so that guess frequently
+# matched nothing and silently left the task unlinked/incomplete even
+# though the file itself uploaded fine. The frontend already knows exactly
+# which task the person clicked "From Hub" on — use that directly when
+# given, falling back to the old name-guessing only if no task_id was
+# provided (e.g. a future caller with no specific task context).
+#
+# FIXED (storage collision): the destination storage path used to be built
+# only from user_id + application_id + the ORIGINAL filename, so reusing
+# the same document (or any document sharing that filename) into the same
+# application a second time computed the identical S3 key as an earlier
+# reuse, and copy_file() failed with botocore's "copy request is illegal
+# because it is trying to copy an object to itself." Now prefixes the
+# destination key with a fresh uuid4() so every reuse gets a
+# guaranteed-unique path.
+#
+# Debug prints (🔎) are intentionally left in while this flow is still
+# being verified end-to-end — safe to remove once confirmed stable.
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def reuse_document_for_case(
@@ -613,7 +611,9 @@ async def reuse_document_for_case(
     user_id:             uuid.UUID,
     source_document_id:  uuid.UUID,
     application_id:      uuid.UUID,
+    task_id:             Optional[uuid.UUID] = None,
 ) -> DocumentResponse:
+    print(f"🔎 REUSE CALLED — source_document_id={source_document_id} application_id={application_id} task_id={task_id!r}")
 
     src = await _load_doc_with_type(db, source_document_id)
     if not src:
@@ -623,7 +623,8 @@ async def reuse_document_for_case(
 
     safe_name      = os.path.basename(src.file_name)
     storage_prefix = settings.STORAGE_PREFIX
-    new_path = f"{storage_prefix}/users/{user_id}/documents/{application_id}/{safe_name}"
+    new_doc_id     = uuid.uuid4()
+    new_path = f"{storage_prefix}/users/{user_id}/documents/{application_id}/{new_doc_id}_{safe_name}"
     await storage.copy_file(src.file_path, new_path)
 
     new_doc = Document(
@@ -644,12 +645,14 @@ async def reuse_document_for_case(
         created_by         = user_id,
     )
     new_doc = await db_create(db, new_doc)
+    print(f"🔎 NEW DOC CREATED — new_doc.id={new_doc.id}")
 
     src_fields = await db_list(
         db, DocumentOCRField,
         filters=[DocumentOCRField.document_id == src.id],
         limit=500,
     )
+    print(f"🔎 SRC FIELDS FOUND — count={len(src_fields)}")
     for f in src_fields:
         await db_create(db, DocumentOCRField(
             document_id      = new_doc.id,
@@ -661,18 +664,35 @@ async def reuse_document_for_case(
             created_by       = user_id,
         ))
 
-    src_type_name = src.document_type.name if src.document_type else ""
-    task = await _find_task(
-        db,
-        application_id=application_id,
-        task_name_like=src_type_name,
-        only_incomplete=True,
-    )
+    if task_id:
+        print(f"🔎 TASK_ID BRANCH — looking up task_id={task_id}")
+        task = await db_get_by_id(db, ApplicationTask, task_id)
+        print(f"🔎 TASK LOOKUP RESULT — task={task!r}")
+        if task:
+            print(f"🔎 TASK.application_id={task.application_id!r} vs param application_id={application_id!r} equal={task.application_id == application_id}")
+        if task and task.application_id != application_id:
+            print("🔎 GUARD TRIPPED — application_id mismatch, discarding task")
+            task = None
+    else:
+        print("🔎 NO TASK_ID — falling back to name-matching")
+        src_type_name = src.document_type.name if src.document_type else ""
+        task = await _find_task(
+            db,
+            application_id=application_id,
+            task_name_like=src_type_name,
+            only_incomplete=True,
+        )
+        print(f"🔎 NAME-MATCH RESULT — task={task!r}")
+
     if task:
-        await db_update(db, ApplicationTask, task.id, {
+        print(f"🔎 UPDATING TASK — task.id={task.id} -> document_id={new_doc.id}")
+        result = await db_update(db, ApplicationTask, task.id, {
             "document_id": new_doc.id,
             "modified_by": user_id,
         })
+        print(f"🔎 db_update RETURNED — {result!r}")
+    else:
+        print("🔎 NO TASK TO UPDATE — task was None")
 
     doc_with_type = await _load_doc_with_type(db, new_doc.id)
     return _to_response(doc_with_type)
@@ -680,13 +700,6 @@ async def reuse_document_for_case(
 
 # ─────────────────────────────────────────────────────────────────────────────
 # REPLACE / RE-UPLOAD — swap in a new version of a document, expired or not.
-#
-# CHANGED: no longer requires old_doc.status == "expired". Replacing a
-# document proactively — before it expires — is normal and should always be
-# allowed. The old document is marked "superseded" (a real, distinct status)
-# instead of being left with a now-stale "verified"/"pending_review" label,
-# and instead of being deleted (kept for audit history, same reasoning as
-# the original expired-only design).
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def reupload_expired_document(
@@ -712,7 +725,7 @@ async def reupload_expired_document(
             detail="This document has already been replaced by a newer version.",
         )
 
-    from datetime import date as _date  # local import to avoid shadowing the `date` name used elsewhere in this file's callers
+    from datetime import date as _date
 
     content      = await file.read()
     file_size_kb = len(content) // 1024
@@ -726,12 +739,6 @@ async def reupload_expired_document(
     storage_path = f"{storage_prefix}/users/{user_id}/documents/{old_doc.document_type_id}/{safe_name}"
     await storage.upload_file(content, storage_path, file.content_type or "application/octet-stream")
 
-    # NEW: does the old document still have real time left? If so, it stays
-    # the officially current one — legally/factually it still IS valid —
-    # and the new one waits until the old one's actual expiry date to take
-    # over. If the old one is already expired (or has no expiry_date at
-    # all, e.g. a document type that doesn't track expiry), there's nothing
-    # to wait for — hand off immediately, same as before.
     old_still_valid = bool(old_doc.expiry_date) and old_doc.expiry_date >= _date.today()
 
     new_doc = Document(
@@ -746,12 +753,6 @@ async def reupload_expired_document(
         ocr_status         = "not_started",
         version            = old_doc.version + 1,
         parent_document_id = old_doc.id,
-        # NEW: if the old document is still valid, the new one doesn't
-        # become "current" immediately — it waits until the old one's
-        # expiry_date, at which point the daily
-        # activate_pending_document_replacements() job performs the actual
-        # handoff (old -> superseded). Left as None for the normal
-        # immediate-handoff case.
         activates_on       = old_doc.expiry_date if old_still_valid else None,
         is_draft           = False,
         created_by         = user_id,
@@ -759,27 +760,13 @@ async def reupload_expired_document(
     new_doc = await db_create(db, new_doc)
 
     if old_still_valid:
-        # CHANGED: do NOT mark the old document superseded yet — it's still
-        # legally/factually the person's current valid document. It keeps
-        # its existing status (e.g. "verified") until activation day.
         pass
     else:
-        # Old behavior, unchanged: old document has already expired (or
-        # never tracked an expiry at all) — hand off immediately.
         await db_update(db, Document, old_doc.id, {
             "status":      "superseded",
             "modified_by": user_id,
         })
 
-    # CHANGED (reverted the renewal-task branch): there's now exactly ONE
-    # task per document type, forever — it always points at whichever
-    # document is currently the one satisfying it, and always stays
-    # completed. Replacing a document is treated as "the requirement is
-    # still satisfied, here's updated evidence," not a reset back to
-    # pending. Version history (what it used to be, what changed, when) is
-    # available via the real Document.parent_document_id chain — walk it
-    # with get_document_version_history() below — not by matching task
-    # names or juggling a second ApplicationTask row per renewal.
     task = await db_get_by_field(db, ApplicationTask, "document_id", old_doc_id)
     if task:
         await db_update(db, ApplicationTask, task.id, {
@@ -795,11 +782,7 @@ async def reupload_expired_document(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# VERSION HISTORY — walks parent_document_id backward from a given document
-# to build its full replacement chain, oldest first. This is now the single
-# source of truth for "what did this document used to be" — replacing the
-# earlier task-name-matching approach that broke the moment a renewal
-# task's upload used a different code path than Replace.
+# VERSION HISTORY
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def get_document_version_history(
@@ -810,9 +793,7 @@ async def get_document_version_history(
     """
     GET /documents/:id/versions
     Returns the full replacement chain for a document, oldest first, NOT
-    including the document itself. Each entry: id, file_name, version,
-    status, uploaded_at. Empty list if this document has never been
-    replaced (no parent chain).
+    including the document itself.
     """
     doc = await db_get_by_id(db, Document, doc_id)
     if not doc:
@@ -822,7 +803,7 @@ async def get_document_version_history(
 
     chain: list[dict] = []
     current = doc
-    seen: set[uuid.UUID] = {doc.id}  # guards against a corrupted circular chain
+    seen: set[uuid.UUID] = {doc.id}
 
     while current.parent_document_id and current.parent_document_id not in seen:
         parent = await db_get_by_id(db, Document, current.parent_document_id)
@@ -838,7 +819,7 @@ async def get_document_version_history(
         seen.add(parent.id)
         current = parent
 
-    return list(reversed(chain))  # oldest first
+    return list(reversed(chain))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
