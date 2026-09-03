@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -30,6 +30,9 @@ from app.models.visamodels import (
     MessageThread,
     MessageThreadParticipant,
     MessageTemplate,
+    Role,          #new
+    User,          #new
+    UserRole,      #new
     VisaType,
 )
 
@@ -296,3 +299,113 @@ async def service_get_thread(
     thread._thread_status   = getattr(thread, "thread_status", "active")
 
     return thread
+
+
+# =============================================================================
+# STAFF SEARCH — "+ New message" compose box
+# =============================================================================
+
+async def service_search_staff(
+    db:      AsyncSession,
+    user_id: uuid.UUID,
+    query:   str,
+    limit:   int = 20,
+):   #new — entire function
+    """
+    Search for someone to start a new conversation with, by name or email.
+    Excludes the current user. Returns each match's role (from user_roles/
+    roles) so the frontend can show "HR", "Attorney", etc. next to the name.
+
+    NOTE ON SCOPE: this intentionally does NOT restrict results to only
+    people the attorney shares a case with — create_thread() in
+    message_service.py already accepts any valid user_id today, so this
+    search matches that same (currently unscoped) behavior rather than
+    introducing a stricter rule the rest of the messaging feature doesn't
+    enforce. If you want to restrict messaging to case-linked people only,
+    that's a bigger, deliberate change — flag it and we'll scope it properly.
+    """
+    search_term = f"%{query.strip()}%"
+
+    result = await db.execute(
+        select(User, Role.name)
+        .outerjoin(UserRole, UserRole.user_id == User.id)
+        .outerjoin(Role, Role.id == UserRole.role_id)
+        .where(
+            User.id != user_id,
+            User.is_active == True,
+            or_(
+                User.first_name.ilike(search_term),
+                User.last_name.ilike(search_term),
+                User.email.ilike(search_term),
+            ),
+        )
+        .limit(limit)
+    )
+    rows = result.all()
+
+    items = []
+    seen_user_ids = set()
+    for user, role_name in rows:
+        if user.id in seen_user_ids:
+            continue   # a user can have more than one role row — keep first match only
+        seen_user_ids.add(user.id)
+        items.append({
+            "id":         user.id,   #new — duplicate of user_id
+            "user_id":    user.id,
+            "first_name": user.first_name or "",   #new
+            "last_name":  user.last_name or "",    #new
+            "full_name":  f"{user.first_name} {user.last_name}".strip() or user.email,
+            "email":      user.email,
+            "role":       role_name,
+            "avatar_url": getattr(user, "profile_picture_url", None),
+        })
+
+    return {"items": items, "total": len(items)}
+
+
+async def service_list_users_by_roles(
+    db:      AsyncSession,
+    user_id: uuid.UUID,
+    roles:   list[str],
+):   #new — entire function
+    """
+    GET /api/v1/users?roles=hr,attorney,support
+
+    This is the endpoint the "New Conversation" search box actually calls —
+    it fetches everyone in the given roles ONCE, and the frontend filters
+    that list locally as the person types (no text query sent to the
+    backend). Excludes the current user. Role names are matched
+    case-insensitively against app.models.visamodels.Role.name.
+    """
+    normalized_roles = [r.strip().lower() for r in roles if r.strip()]
+
+    result = await db.execute(
+        select(User, Role.name)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(
+            User.id != user_id,
+            User.is_active == True,
+            func.lower(Role.name).in_(normalized_roles),
+        )
+    )
+    rows = result.all()
+
+    items = []
+    seen_user_ids = set()
+    for user, role_name in rows:
+        if user.id in seen_user_ids:
+            continue
+        seen_user_ids.add(user.id)
+        items.append({
+            "id":         user.id,   #new — duplicate of user_id
+            "user_id":    user.id,
+            "first_name": user.first_name or "",   #new
+            "last_name":  user.last_name or "",    #new
+            "full_name":  f"{user.first_name} {user.last_name}".strip() or user.email,
+            "email":      user.email,
+            "role":       role_name,
+            "avatar_url": getattr(user, "profile_picture_url", None),
+        })
+
+    return {"items": items, "total": len(items)}

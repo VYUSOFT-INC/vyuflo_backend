@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -85,3 +85,23 @@ class ThreadResponseAdditions(BaseModel):
     thread_status:   str           = "active"
     case_number:     Optional[str] = None
     visa_type_code:  Optional[str] = None
+
+
+# =============================================================================
+# STAFF SEARCH — "+ New message" compose box, searching for someone to message
+# =============================================================================
+
+class StaffSearchResult(BaseModel):   #new — entire class
+    id:         uuid.UUID   #new — duplicate of user_id, in case frontend reads "id"
+    user_id:    uuid.UUID
+    first_name: str         #new — split out, in case frontend reads these separately
+    last_name:  str         #new
+    full_name:  str
+    email:      str
+    role:       Optional[str] = None   # e.g. "employee", "hr", "attorney" — from user_roles/roles
+    avatar_url: Optional[str] = None
+
+
+class StaffSearchResponse(BaseModel):   #new — entire class
+    items: List[StaffSearchResult]
+    total: int

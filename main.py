@@ -321,7 +321,7 @@ app.include_router(consultation_router, prefix="/api/v1", tags=["consultations"]
 app.include_router(notification_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(attorney_router, prefix="/api/v1", tags=["attorneys"])
 app.include_router(new_case_router, prefix="/api/v1", tags=["Lawyer Cases"])   # NEW
-app.include_router(attorney_profile_router, prefix="/api/v1/attorney", tags=["attorney-profile"])
+app.include_router(attorney_profile_router, prefix="/api/v1", tags=["attorney-profile"])
 # app.include_router(roles_router,       prefix="/api/v1")
 # app.include_router(user_roles_router,  prefix="/api/v1", tags=["User Roles"])
 
