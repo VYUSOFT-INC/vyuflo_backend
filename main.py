@@ -344,7 +344,7 @@ app.include_router(document_router,            prefix="/api/v1", tags=["Document
 app.include_router(application_extra_router, prefix="/api/v1", tags=["Attroney-Applications"])
 app.include_router(help_router, prefix="/api/v1/attorney", tags=["Attroney-Help"])
 app.include_router(billing_router,prefix="/api/v1")
-app.include_router(secure_messages_router, prefix="/api/v1", tags=["Secure Messages"])
+app.include_router(secure_messages_router, prefix="/api/v1/attorney", tags=["Secure Messages"])
 app.include_router(profile_settings_router,prefix="/api/v1/attorney", tags=["Profile Settings"] )
 app.include_router(invoice_detail_router, prefix="/api/v1", tags=["Invoice Detail"])
 app.include_router(template_library_router, prefix="/api/v1", tags=["Template Library"])

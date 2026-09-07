@@ -28,7 +28,9 @@ from app.models.visamodels import (
     EmployerEmployee,
     VisaType,
     User,
+    ApplicationTask,
 )
+from app.services.employee.notification_service import fire_document_verified, fire_document_rejected
 from app.schemas.hr.hr_approval_schemas import (
     ApprovalItemResponse,
     ApprovalListResponse,
@@ -335,6 +337,32 @@ async def hr_list_approvals(
 # APPROVE (single)
 # ─────────────────────────────────────────────────────────────────────────────
 
+async def _relink_task_to_document(db: AsyncSession, doc: Document, actor_id: uuid.UUID):
+    """Same fix as hr_document_routes.py's helper of the same name — an
+    upload_document() call with no task_id only auto-links to a task that
+    is still incomplete, so a document uploaded after its task was already
+    "done" (e.g. a second copy of a requirement HR uploads directly) ends
+    up with no task pointing to it at all. HR can verify/reject it fine,
+    but the employee's task-driven view never reflects that, since no
+    task references the document. Re-link unconditionally on verify/reject
+    so the action always reaches the task the employee actually sees."""
+    if not doc.application_id or not doc.document_type:
+        return
+    task_result = await db.execute(
+        select(ApplicationTask).where(
+            ApplicationTask.application_id == doc.application_id,
+            ApplicationTask.task_name.ilike(f"%{doc.document_type.name}%"),
+        ).limit(1)
+    )
+    task = task_result.scalars().first()
+    if task and task.document_id != doc.id:
+        await db_update(db, ApplicationTask, task.id, {
+            "document_id":  doc.id,
+            "is_completed": True,
+            "modified_by":  actor_id,
+        })
+
+
 async def hr_approve_document(
     db:          AsyncSession,
     hr_user_id:  uuid.UUID,
@@ -388,11 +416,23 @@ async def hr_approve_document(
     )
     doc = result.scalars().first()
 
+    await _relink_task_to_document(db, doc, hr_user_id)
+
     emp_name = "Employee"
     if app:
         emp_result = await db.execute(select(User).where(User.id == app.user_id))
         emp = emp_result.scalars().first()
         if emp: emp_name = _user_name(emp)
+
+    await fire_document_verified(
+        db,
+        document_id     = doc.id,
+        document_name   = doc.document_type.name if doc.document_type else "Document",
+        application_id  = doc.application_id,
+        case_reference  = app.application_number if app else None,
+        employee_id     = doc.user_id,
+        verifier_id     = hr_user_id,
+    )
 
     return ApprovalItemResponse(
         id            = doc.id,
@@ -473,11 +513,24 @@ async def hr_request_edits(
     )
     doc = result.scalars().first()
 
+    await _relink_task_to_document(db, doc, hr_user_id)
+
     emp_name = "Employee"
     if app:
         emp_result = await db.execute(select(User).where(User.id == app.user_id))
         emp = emp_result.scalars().first()
         if emp: emp_name = _user_name(emp)
+
+    await fire_document_rejected(
+        db,
+        document_id       = doc.id,
+        document_name     = doc.document_type.name if doc.document_type else "Document",
+        application_id    = doc.application_id,
+        case_reference    = app.application_number if app else None,
+        employee_id       = doc.user_id,
+        reviewer_id       = hr_user_id,
+        rejection_reason  = note,
+    )
 
     return ApprovalItemResponse(
         id            = doc.id,

@@ -1356,13 +1356,28 @@ async def complete_task(
     return _build_task_response(updated)
 
 
+def _unpack_description(raw: Optional[str]) -> str:
+    """Strips HR's JSON priority/due_date packing, returning plain text only.
+    Mirrors hr_task_service.py's _unpack_description — kept local rather than
+    imported so employee-side code doesn't depend on the HR module."""
+    if not raw:
+        return ""
+    try:
+        if raw.startswith("{"):
+            data = json.loads(raw)
+            return data.get("text", "")
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return raw  # legacy plain text
+
+
 def _build_task_response(task: ApplicationTask) -> TaskResponse:
     doc = getattr(task, "document", None)
     return TaskResponse(
         id             = task.id,
         application_id = task.application_id,
         task_name      = task.task_name,
-        description    = task.description,
+        description    = _unpack_description(task.description) or None,
         is_required    = task.is_required,
         is_completed   = task.is_completed,
         sort_order     = task.sort_order,
@@ -1374,6 +1389,7 @@ def _build_task_response(task: ApplicationTask) -> TaskResponse:
         document_name        = doc.file_name       if doc else None,
         document_size_bytes  = doc.file_size_kb * 1024 if doc and doc.file_size_kb else None,
         document_uploaded_at = doc.created_at      if doc else None,
+        document_status      = doc.status          if doc else None,
     )
 
 

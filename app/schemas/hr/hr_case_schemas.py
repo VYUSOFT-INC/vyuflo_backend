@@ -123,7 +123,7 @@ class HRCaseUpdate(BaseModel):
     HR updates fields on an existing case.
     All fields optional — partial update.
     """
-    case_name:           Optional[str]          = Field(None, max_length=300)
+    case_name:           Optional[str]           = Field(None, max_length=300)
     case_description:    Optional[str]           = Field(None, max_length=2000)
     target_date:         Optional[date]          = None
     priority:            Optional[HRCasePriority] = None
@@ -132,6 +132,14 @@ class HRCaseUpdate(BaseModel):
     sponsor_employer:    Optional[str]           = Field(None, max_length=200)
     has_action_required: Optional[bool]          = None
     action_required_note: Optional[str]          = Field(None, max_length=500)
+
+    # ── Employment / LCA — filled in as the case progresses ──────────────────
+    job_title:        Optional[str] = Field(None, max_length=200)
+    annual_salary:    Optional[str] = Field(None, max_length=50)
+    department:       Optional[str] = Field(None, max_length=200)
+    worksite_address: Optional[str] = Field(None, max_length=500)
+    lca_status:       Optional[str] = Field(None, max_length=50)
+    lca_case_number:  Optional[str] = Field(None, max_length=100)
 
     model_config = ConfigDict(from_attributes=True)
 

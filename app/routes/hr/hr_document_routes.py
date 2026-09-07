@@ -20,7 +20,7 @@ from sqlalchemy.orm import joinedload
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.visamodels import (
-    Document, DocumentType, Application, DocumentActivity,
+    Document, DocumentType, Application, DocumentActivity, ApplicationTask,
 )
 from app.schemas.attorney.document_request import DocumentRequestCreate, DocumentRequestPriority
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
@@ -30,6 +30,7 @@ from app.services.employee.document_service import (
 )
 from app.services.employee.services import db_create, db_update
 from app.services.hr.hr_document_request_service import hr_create_document_request
+from app.services.employee.notification_service import fire_document_verified, fire_document_rejected
 
 
 hr_document_router = APIRouter()
@@ -41,7 +42,61 @@ def _assert_hr_access(application: Application, hr_user_id: uuid.UUID):
         raise HTTPException(status_code=403, detail="Access denied to this case.")
 
 
-def _to_response(doc: Document) -> DocumentResponse:
+import re
+
+
+def _normalize_name(s: str) -> str:
+    """Lowercase, collapse underscores/hyphens/whitespace to single spaces,
+    so "offer_letter" and "Offer Letter" compare equal. Plain ILIKE can't
+    do this — SQL doesn't know '_' and ' ' are "the same word.\""""
+    return re.sub(r"[\s_\-]+", " ", s or "").strip().lower()
+
+
+async def _relink_task_to_document(db: AsyncSession, doc: Document, actor_id: uuid.UUID):
+    """When HR verifies/rejects a document, make sure the matching task
+    actually points at THIS document — not whatever it was linked to
+    before (or nothing at all).
+
+    upload_document() only auto-links a new upload to a task when that
+    task is still incomplete (only_incomplete=True) and the name roughly
+    matches. So a document uploaded after its task was already "done" —
+    a second "Passport Copy" HR uploads on top of one the employee already
+    submitted, for example — is created successfully but never linked to
+    any task at all. HR can find and verify it, but the employee's
+    task-driven view has no way to know it exists, since no task points
+    to it. Re-linking here, unconditionally (regardless of is_completed),
+    is what makes "HR verified 5 documents" actually mean "the employee
+    sees 5 documents verified."
+
+    Matching is done in Python on a normalized string (not a raw SQL
+    ILIKE) because task_name is stored as human text ("Offer Letter")
+    while document_type.name can be an underscored slug ("offer_letter")
+    when auto-created during upload — ILIKE treats those as unrelated
+    strings and would silently match nothing."""
+    if not doc.application_id or not doc.document_type:
+        return
+    doc_type_norm = _normalize_name(doc.document_type.name)
+    if not doc_type_norm:
+        return
+    tasks_result = await db.execute(
+        select(ApplicationTask).where(ApplicationTask.application_id == doc.application_id)
+    )
+    tasks = tasks_result.scalars().all()
+    task = next(
+        (t for t in tasks
+         if doc_type_norm in _normalize_name(t.task_name)
+         or _normalize_name(t.task_name) in doc_type_norm),
+        None,
+    )
+    if task and task.document_id != doc.id:
+        await db_update(db, ApplicationTask, task.id, {
+            "document_id":  doc.id,
+            "is_completed": True,
+            "modified_by":  actor_id,
+        })
+
+
+def _to_response(doc: Document, task_id: uuid.UUID | None = None, task_name: str | None = None) -> DocumentResponse:
     return DocumentResponse(
         id               = doc.id,
         user_id          = doc.user_id,
@@ -59,6 +114,8 @@ def _to_response(doc: Document) -> DocumentResponse:
         total_pages      = doc.total_pages,
         ocr_status       = doc.ocr_status,
         version          = doc.version,
+        task_id          = task_id,
+        task_name        = task_name,
     )
 
 
@@ -83,15 +140,47 @@ async def hr_list_documents(
         raise HTTPException(status_code=404, detail="Application not found.")
     _assert_hr_access(application, current_user.user_id)
 
+    # Superseded documents are retired versions — a replace/reupload leaves
+    # the old row in place (status="superseded") purely for history, but it
+    # is never the one a task points to and should never be something HR
+    # reviews or verifies. Without this filter, every re-upload accumulates
+    # another row here, so the same requirement can show up multiple times
+    # (e.g. 3x "Educational Transcripts" after two re-uploads) — and HR could
+    # end up verifying an old, no-longer-linked version instead of the
+    # current one the employee's task actually points to.
     stmt = (
         select(Document)
         .options(joinedload(Document.document_type))
-        .where(Document.application_id == application_id)
+        .where(
+            Document.application_id == application_id,
+            Document.status != "superseded",
+        )
         .order_by(Document.created_at.desc())
     )
     result = await db.execute(stmt)
     docs = result.scalars().all()
-    return DocumentListResponse(items=[_to_response(d) for d in docs], total=len(docs))
+
+    # NEW — reverse lookup: which task (if any) currently has document_id
+    # pointing at each of these documents? A document with no matching task
+    # is either a genuine "Additional Document" or a stale/orphaned upload
+    # that never got linked (or was superseded by a later re-upload) — this
+    # is exactly the ambiguity that made two same-named "Passport Copy"
+    # cards indistinguishable before. Built as one query + dict rather than
+    # N+1 lookups per document.
+    task_result = await db.execute(
+        select(ApplicationTask.document_id, ApplicationTask.id, ApplicationTask.task_name)
+        .where(
+            ApplicationTask.application_id == application_id,
+            ApplicationTask.document_id.isnot(None),
+        )
+    )
+    task_by_doc_id = {row[0]: (row[1], row[2]) for row in task_result.all()}
+
+    items = [
+        _to_response(d, *task_by_doc_id.get(d.id, (None, None)))
+        for d in docs
+    ]
+    return DocumentListResponse(items=items, total=len(items))
 
 
 # ── POST /hr/documents/upload ─────────────────────────────────────────────────
@@ -259,7 +348,27 @@ async def hr_verify_document(
     result = await db.execute(
         select(Document).options(joinedload(Document.document_type)).where(Document.id == document_id)
     )
-    return _to_response(result.scalars().first())
+    doc = result.scalars().first()
+
+    await _relink_task_to_document(db, doc, current_user.user_id)
+
+    case_reference = None
+    if doc.application_id:
+        app_result = await db.execute(select(Application).where(Application.id == doc.application_id))
+        app = app_result.scalars().first()
+        case_reference = app.application_number if app else None
+
+    await fire_document_verified(
+        db,
+        document_id     = doc.id,
+        document_name   = doc.document_type.name if doc.document_type else "Document",
+        application_id  = doc.application_id,
+        case_reference  = case_reference,
+        employee_id     = doc.user_id,
+        verifier_id     = current_user.user_id,
+    )
+
+    return _to_response(doc)
 
 
 # ── PATCH /hr/documents/:documentId/reject ───────────────────────────────────
@@ -297,7 +406,28 @@ async def hr_reject_document(
     result = await db.execute(
         select(Document).options(joinedload(Document.document_type)).where(Document.id == document_id)
     )
-    return _to_response(result.scalars().first())
+    doc = result.scalars().first()
+
+    await _relink_task_to_document(db, doc, current_user.user_id)
+
+    case_reference = None
+    if doc.application_id:
+        app_result = await db.execute(select(Application).where(Application.id == doc.application_id))
+        app = app_result.scalars().first()
+        case_reference = app.application_number if app else None
+
+    await fire_document_rejected(
+        db,
+        document_id       = doc.id,
+        document_name     = doc.document_type.name if doc.document_type else "Document",
+        application_id    = doc.application_id,
+        case_reference    = case_reference,
+        employee_id       = doc.user_id,
+        reviewer_id       = current_user.user_id,
+        rejection_reason  = payload["rejection_reason"],
+    )
+
+    return _to_response(doc)
 
 
 # ── POST /hr/documents/:documentId/request ────────────────────────────────────
@@ -368,91 +498,3 @@ async def hr_delete_document(
         raise HTTPException(status_code=404, detail="Document not found.")
     await db.delete(doc)
     await db.commit()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# APPROVAL QUEUE ENDPOINTS
-# Add separately or keep in this file — your choice
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ── PATCH /hr/approvals/:documentId/approve ───────────────────────────────────
-
-@hr_document_router.patch("/approvals/{document_id}/approve")
-async def hr_approve_document(
-    document_id:  uuid.UUID,
-    payload:      dict = {},
-    db:           AsyncSession = Depends(get_db),
-    current_user              = Depends(get_current_user),
-):
-    """Wrapper: approve = verify."""
-    await db_update(db, Document, document_id, {
-        "status":      "verified",
-        "verified_by": current_user.user_id,
-        "verified_at": datetime.now(timezone.utc),
-        "modified_by": current_user.user_id,
-    })
-    activity = DocumentActivity(
-        document_id = document_id, action = "verified",
-        actor_id = current_user.user_id, actor_type = "hr_admin",
-        note = payload.get("note"), created_by = current_user.user_id,
-    )
-    await db_create(db, activity)
-    result = await db.execute(
-        select(Document).options(joinedload(Document.document_type)).where(Document.id == document_id)
-    )
-    return _to_response(result.scalars().first())
-
-
-# ── PATCH /hr/approvals/:documentId/request-edits ────────────────────────────
-
-@hr_document_router.patch("/approvals/{document_id}/request-edits")
-async def hr_request_edits(
-    document_id:  uuid.UUID,
-    payload:      dict,
-    db:           AsyncSession = Depends(get_db),
-    current_user              = Depends(get_current_user),
-):
-    """Wrapper: request edits = reject with note."""
-    note = payload.get("note", "")
-    if not note:
-        raise HTTPException(status_code=422, detail="note is required.")
-    await db_update(db, Document, document_id, {
-        "status":           "rejected",
-        "rejection_reason": note,
-        "modified_by":      current_user.user_id,
-    })
-    activity = DocumentActivity(
-        document_id = document_id, action = "status_changed",
-        actor_id = current_user.user_id, actor_type = "hr_admin",
-        note = f"Edit requested: {note}", created_by = current_user.user_id,
-    )
-    await db_create(db, activity)
-    result = await db.execute(
-        select(Document).options(joinedload(Document.document_type)).where(Document.id == document_id)
-    )
-    return _to_response(result.scalars().first())
-
-
-# ── POST /hr/approvals/bulk-approve ──────────────────────────────────────────
-
-@hr_document_router.post("/approvals/bulk-approve")
-async def hr_bulk_approve(
-    payload:      dict,
-    db:           AsyncSession = Depends(get_db),
-    current_user              = Depends(get_current_user),
-):
-    document_ids = payload.get("document_ids", [])
-    approved = failed = 0
-    for doc_id_str in document_ids:
-        try:
-            doc_id = uuid.UUID(doc_id_str)
-            await db_update(db, Document, doc_id, {
-                "status":      "verified",
-                "verified_by": current_user.user_id,
-                "verified_at": datetime.now(timezone.utc),
-                "modified_by": current_user.user_id,
-            })
-            approved += 1
-        except Exception:
-            failed += 1
-    return {"approved": approved, "failed": failed}
