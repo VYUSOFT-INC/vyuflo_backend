@@ -5,14 +5,15 @@ from pydantic import BaseModel, ConfigDict
 from enum import Enum
 
 class DocumentStatus(str, Enum):
-    required       = "required"
-    uploaded       = "uploaded"
-    pending_review = "pending_review"
-    verified       = "verified"
-    rejected       = "rejected"
-    missing        = "missing"
-    expired        = "expired"
-    superseded     = "superseded"
+    required            = "required"
+    uploaded            = "uploaded"
+    pending_review      = "pending_review"
+    verified            = "verified"
+    rejected            = "rejected"
+    missing             = "missing"
+    pending_hr_release  = "pending_hr_release"
+    expired             = "expired"
+    superseded          = "superseded"
 
 class DocumentResponse(BaseModel):
     id:              uuid.UUID
@@ -34,6 +35,8 @@ class DocumentResponse(BaseModel):
     version:         int
     in_use: bool = False
     activates_on: Optional[date] = None
+    task_id:         Optional[uuid.UUID] = None
+    task_name:       Optional[str]       = None
 
     model_config = ConfigDict(from_attributes=True)
 

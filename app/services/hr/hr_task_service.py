@@ -485,6 +485,7 @@ def _build_response(task: ApplicationTask) -> HRTaskResponse:
         document_name        = doc.file_name                   if doc else None,
         document_size_bytes  = doc.file_size_kb * 1024         if doc and doc.file_size_kb else None,
         document_uploaded_at = doc.created_at                  if doc else None,
+        document_status      = doc.status                      if doc else None,
     )
 
 

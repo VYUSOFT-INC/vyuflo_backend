@@ -1041,7 +1041,7 @@ async def fire_document_verified(
     try:
         verifier    = await _get_user(db, verifier_id)
         actor_label = f"{verifier.first_name} {verifier.last_name}" if verifier else "Staff"
-        app_url     = f"/applications/{application_id}" if application_id else "/documents"
+        app_url     = f"/applications/{application_id}?tab=tasks" if application_id else "/documents"
 
         notif = await _create_notification(
             db, user_id=employee_id, notification_type="document_approved",
@@ -1079,7 +1079,7 @@ async def fire_document_rejected(
     try:
         reviewer    = await _get_user(db, reviewer_id)
         actor_label = f"{reviewer.first_name} {reviewer.last_name}" if reviewer else "Staff"
-        doc_url     = f"/documents/{document_id}"
+        cta_url     = f"/applications/{application_id}?tab=tasks" if application_id else f"/documents/{document_id}"
 
         body = f"Your document \"{document_name}\" was rejected by {actor_label}."
         if rejection_reason:
@@ -1092,17 +1092,17 @@ async def fire_document_rejected(
             title="Document rejected — action required", body=body,
             application_id=application_id, document_id=document_id,
             case_reference=case_reference, actor_id=reviewer_id, actor_label=actor_label,
-            cta_primary_label="Re-upload Document", cta_primary_url=doc_url,
+            cta_primary_label="Re-upload Document", cta_primary_url=cta_url,
         )
         await dispatch_notification(
             db, notif_id=notif.id, user_id=employee_id,
             subject=f"VyuFlo — Action Required: Document Rejected ({document_name})",
-            body_text=f"Hi,\n\n{body}\n\nUpload here: {settings.FRONTEND_URL}{doc_url}\n\nVyuFlo Team",
+            body_text=f"Hi,\n\n{body}\n\nUpload here: {settings.FRONTEND_URL}{cta_url}\n\nVyuFlo Team",
             category_pref_field="notify_document_updates",
-            cta_label="Re-upload Document", cta_url=doc_url,
+            cta_label="Re-upload Document", cta_url=cta_url,
             event_key="missing_document",
             template_context={"document_name": document_name,
-                              "action_url": f"{settings.FRONTEND_URL}{doc_url}"},
+                              "action_url": f"{settings.FRONTEND_URL}{cta_url}"},
         )
 
     except Exception:

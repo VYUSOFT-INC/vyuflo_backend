@@ -171,14 +171,58 @@ async def _resolve_employee_link(
         )
     return link
 
+# async def _validate_attorney_from_connected_firm(
+#     db: AsyncSession,
+#     employer_profile_id: uuid.UUID,
+#     attorney_user_id: uuid.UUID,
+# ) -> None:
+#     """
+#     Raises 403 unless the given attorney belongs to a firm this employer
+#     is actually connected to.
+#     """
+#     attorney = await db.execute(
+#         select(AttorneyProfile).where(AttorneyProfile.user_id == attorney_user_id)
+#     )
+#     attorney = attorney.scalars().first()
+#     if not attorney:
+#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+#                             detail="Attorney not found.")
+#     if not attorney.firm_id:
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="This attorney is not part of any firm and cannot be assigned.",
+#         )
+
+#     connection = await db.execute(
+#         select(EmployerFirmConnection).where(
+#             EmployerFirmConnection.employer_profile_id == employer_profile_id,
+#             EmployerFirmConnection.firm_id             == attorney.firm_id,
+#             EmployerFirmConnection.is_active            == True,
+#         )
+#     )
+#     if not connection.scalars().first():
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="This attorney's firm is not connected to your company. "
+#                     "Choose an attorney from a firm you're connected to.",
+#         )
+ 
+
 async def _validate_attorney_from_connected_firm(
     db: AsyncSession,
     employer_profile_id: uuid.UUID,
     attorney_user_id: uuid.UUID,
 ) -> None:
     """
-    Raises 403 unless the given attorney belongs to a firm this employer
-    is actually connected to.
+    Ensures the given attorney can be assigned to this employer's case.
+
+    - Solo practitioners (attorney.firm_id is None) are always assignable
+      directly — no firm connection needed.
+    - Firm-affiliated attorneys: if this employer has no existing
+      EmployerFirmConnection to that firm yet, one is created automatically.
+      HR choosing an attorney from the picker is itself the signal that
+      they want to work with that attorney's firm — no separate manual
+      "connect to firm" step should be required.
     """
     attorney = await db.execute(
         select(AttorneyProfile).where(AttorneyProfile.user_id == attorney_user_id)
@@ -187,11 +231,10 @@ async def _validate_attorney_from_connected_firm(
     if not attorney:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Attorney not found.")
+
+    # Solo practitioners — no firm to connect to.
     if not attorney.firm_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This attorney is not part of any firm and cannot be assigned.",
-        )
+        return
 
     connection = await db.execute(
         select(EmployerFirmConnection).where(
@@ -200,12 +243,19 @@ async def _validate_attorney_from_connected_firm(
             EmployerFirmConnection.is_active            == True,
         )
     )
-    if not connection.scalars().first():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This attorney's firm is not connected to your company. "
-                    "Choose an attorney from a firm you're connected to.",
-        )
+    if connection.scalars().first():
+        return  # already connected
+
+    # No connection yet — create it automatically instead of blocking.
+    new_connection = EmployerFirmConnection(
+        id=uuid.uuid4(),
+        employer_profile_id=employer_profile_id,
+        firm_id=attorney.firm_id,
+        is_active=True,
+        created_by=None,  # set by caller context if you thread hr_user_id through; see note below
+    )
+    db.add(new_connection)
+    await db.flush()
     
 async def _get_user_display_name(db: AsyncSession, user_id: uuid.UUID) -> str:
     """Fetch first+last name for a user_id."""

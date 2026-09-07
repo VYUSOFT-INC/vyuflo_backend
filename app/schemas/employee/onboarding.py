@@ -119,7 +119,7 @@ class AttorneyProfileRequest(BaseModel):
     languages:            list[str]       = []      # ["English", "Spanish"]
     bio:                  Optional[str]   = None
     availability_note:    Optional[str]   = None    # "Mon–Fri 9am–6pm EST"
-
+    firm_id: Optional[str] = None
 
 # ── NEW: Employer/HR — POST /onboarding/hr-profile ───────────────────────────
 
