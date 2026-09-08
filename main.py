@@ -67,13 +67,14 @@ from app.routes.attorney.notifications_reminders import notifications_reminders_
 from app.routes.attorney.lawyer_dashboard import lawyer_dashboard_router
 from app.routes.attorney.employee_forms_review_routes import employee_forms_review_router 
 # hr routes
+from app.routes.hr.hr_dashboard_routes import hr_dashboard_router
 from app.routes.hr.invitation_routes import invitation_router
 from app.routes.hr.hr_case_routes import hr_case_router
 from app.routes.hr.hr_task_routes import hr_task_router
 from app.routes.hr.hr_document_routes import hr_document_router
 from app.routes.hr.hr_deadline_routes  import hr_deadline_router
 from app.routes.hr.hr_approval_routes  import hr_approval_router
-from app.routes.employee.security import employee_security_router
+# from app.routes.employee.security import employee_security_router
 from app.routes.hr.hr_document_request_routes import hr_document_request_router
 from app.routes.hr.hr_case_overview_routes import hr_case_overview_router
 from app.routes.hr.hr_case_letters_routes import hr_case_letters_router
@@ -352,13 +353,14 @@ app.include_router(notifications_reminders_router, prefix="/api/v1", tags=["Noti
 app.include_router(lawyer_dashboard_router, prefix="/api/v1", tags=["Lawyer Dashboard"])
 app.include_router(employee_forms_review_router, prefix="/api/v1/attorney", tags=["Attorney Form Review"])  
 # Hr Routes
+app.include_router(hr_dashboard_router, prefix="/api/v1/hr", tags=["HR Dashboard"])
 app.include_router(invitation_router, prefix="/api/v1",tags=["HR Invitation"])
 app.include_router(hr_case_router, prefix="/api/v1/hr", tags=["HR Cases"])
 app.include_router(hr_task_router, prefix="/api/v1/hr", tags=["HR Tasks"])
 app.include_router(hr_document_router, prefix="/api/v1/hr", tags=["HR Documents"])
 app.include_router(hr_deadline_router, prefix="/api/v1/hr", tags=["HR Deadlines"])
 app.include_router(hr_approval_router, prefix="/api/v1/hr", tags=["HR Approvals"])
-app.include_router(employee_security_router,prefix="/api/v1/hr", tags=["Login_History"] )
+# app.include_router(employee_security_router,prefix="/api/v1/hr", tags=["Login_History"] )
 app.include_router(hr_case_overview_router,prefix="/api/v1/hr", tags=["Case Overview"] )
 app.include_router(hr_document_request_router, prefix="/api/v1/hr", tags=["HR Document Request"])
 app.include_router(hr_case_letters_router,prefix="/api/v1/hr", tags=["Case Generated Letters"] )

@@ -119,64 +119,195 @@
 #     await send_email(to=to_email, subject=subject, body=body, body_html=body_html)
 
 
+# # core/email.py
+# import asyncio
+# import logging
+
+# from sendgrid import SendGridAPIClient
+# from sendgrid.helpers.mail import Mail
+
+# from app.core.config import settings
+
+# logger = logging.getLogger(__name__)
+
+# _client: SendGridAPIClient | None = None
+
+
+# def _get_client() -> SendGridAPIClient:
+#     global _client
+#     if _client is None:
+#         _client = SendGridAPIClient(settings.SENDGRID_API_KEY)
+#     return _client
+
+
+# async def send_email(
+#     to: str,
+#     subject: str,
+#     body: str,
+#     body_html: str | None = None,
+# ) -> None:
+#     message = Mail(
+#         from_email=settings.SENDGRID_FROM_EMAIL,
+#         to_emails=to,
+#         subject=subject,
+#         plain_text_content=body,
+#         html_content=body_html or body,
+#     )
+
+#     def _send() -> None:
+#         client = _get_client()
+#         response = client.send(message)
+#         if response.status_code >= 300:
+#             logger.error(
+#                 "sendgrid_send_failed",
+#                 extra={"to": to, "status": response.status_code, "response_body": response.body},
+#             )
+#             raise RuntimeError(f"SendGrid send failed with status {response.status_code}")
+
+#     await asyncio.to_thread(_send)
+
+
+# async def send_invitation_email(
+#     to_email: str,
+#     invite_token: str,
+#     company_name: str,
+#     hr_name: str,
+#     personal_message: str | None = None,
+#     logo_url: str | None = None,
+# ) -> None:
+#     invite_link = f"{settings.FRONTEND_URL}/accept-invite?token={invite_token}"
+#     subject = f"Invitation to join {company_name} on Vyuflo"
+
+#     body = f"""Hi,
+
+# {hr_name} has invited you to join {company_name} on Vyuflo.
+
+# Invite link:
+# {invite_link}
+
+# {personal_message or ""}
+
+# This invite link will expire soon.
+
+# Thanks,
+# Vyuflo Team""".strip()
+
+#     logo_img = (
+#         f'<img src="{logo_url}" alt="{company_name}" height="40" '
+#         f'style="max-height:40px;object-fit:contain;">'
+#         if logo_url else company_name
+#     )
+#     body_html = f"""<!DOCTYPE html>
+# <html>
+# <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+# <body style="margin:0;padding:0;background:#f9fafb;font-family:Inter,Arial,sans-serif;">
+#   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:32px 0;">
+#     <tr><td align="center">
+#       <table width="600" cellpadding="0" cellspacing="0"
+#              style="background:#fff;border-radius:12px;overflow:hidden;
+#                     box-shadow:0 1px 4px rgba(0,0,0,.08);max-width:600px;width:100%;">
+#         <tr>
+#           <td style="background:#4f46e5;padding:24px 32px;text-align:center;">
+# {logo_img}
+#             <p style="color:#c7d2fe;margin:8px 0 0;font-size:13px;">{company_name}</p>
+#           </td>
+#         </tr>
+#         <tr>
+#           <td style="padding:32px;">
+#             <p style="font-size:15px;color:#111827;line-height:1.6;">
+#               Hi,<br><br>
+#               <strong>{hr_name}</strong> has invited you to join
+#               <strong>{company_name}</strong> on Vyuflo.<br><br>
+#               <a href="{invite_link}"
+#                  style="display:inline-block;background:#4f46e5;color:#fff;
+#                         padding:12px 24px;border-radius:8px;text-decoration:none;
+#                         font-weight:600;font-size:14px;">
+#                 Accept Invitation
+#               </a><br><br>
+# {f"<em>{personal_message}</em><br><br>" if personal_message else ""}
+#               This invite link will expire soon.
+#             </p>
+#           </td>
+#         </tr>
+#         <tr>
+#           <td style="padding:20px 32px;border-top:1px solid #f3f4f6;text-align:center;">
+#             <p style="font-size:12px;color:#9ca3af;margin:0;">
+#               Sent by {company_name} via
+#               <a href="{settings.FRONTEND_URL}" style="color:#4f46e5;text-decoration:none;">Vyuflo</a>
+#             </p>
+#           </td>
+#         </tr>
+#       </table>
+#     </td></tr>
+#   </table>
+# </body>
+# </html>"""
+
+#     await send_email(to=to_email, subject=subject, body=body, body_html=body_html)
+
+
+
 # core/email.py
-import asyncio
-import logging
+#
+# CHANGED: send_email now calls the team's Parse Cloud Function endpoint
+# instead of SMTP (aiosmtplib) or SendGrid. Both older implementations
+# are removed — Parse is now the only email path.
+#
+# FLAGGED — please confirm with your team:
+#   1. The body key is "plan" (not "plain") per the spec you were given.
+#      Implemented literally as specified. If this is a typo for the
+#      plain-text field, tell me and I'll rename the key — as written,
+#      whatever your plain-text body is gets sent under the key "plan".
+#   2. "from" — I'm defaulting this to settings.SMTP_FROM_EMAIL since
+#      that's the only "from" address already configured in your
+#      settings. If Parse expects something else (a different verified
+#      sender, a specific format), tell me the right value/setting name.
+#   3. No API key/secret is in the header spec you gave me — only
+#      x-parse-application-id. If the Parse Cloud Function also requires
+#      a master key or session token header, this will get a 401/403 —
+#      add it to the headers dict below if so.
 
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
-
+import httpx
 from app.core.config import settings
-
-logger = logging.getLogger(__name__)
-
-_client: SendGridAPIClient | None = None
-
-
-def _get_client() -> SendGridAPIClient:
-    global _client
-    if _client is None:
-        _client = SendGridAPIClient(settings.SENDGRID_API_KEY)
-    return _client
 
 
 async def send_email(
-    to: str,
-    subject: str,
-    body: str,
-    body_html: str | None = None,
+    to:        str,
+    subject:   str,
+    body:      str,                 # plain text — sent under the "plan" key, see note above
+    body_html: str | None = None,   # HTML — sent under the "html" key
 ) -> None:
-    message = Mail(
-        from_email=settings.SENDGRID_FROM_EMAIL,
-        to_emails=to,
-        subject=subject,
-        plain_text_content=body,
-        html_content=body_html or body,
-    )
+    payload = {
+        "recipient": to,
+        "subject":   subject,
+        "from":      settings.SMTP_FROM_EMAIL,
+        "plan":      body,
+        "html":      body_html or body,
+    }
+    headers = {
+        "x-parse-application-id": "vyuflo-sign",
+        "Content-Type": "application/json",
+    }
 
-    def _send() -> None:
-        client = _get_client()
-        response = client.send(message)
-        if response.status_code >= 300:
-            logger.error(
-                "sendgrid_send_failed",
-                extra={"to": to, "status": response.status_code, "response_body": response.body},
-            )
-            raise RuntimeError(f"SendGrid send failed with status {response.status_code}")
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(settings.EMAIL_API_URL, json=payload, headers=headers)
 
-    await asyncio.to_thread(_send)
+    if response.status_code >= 300:
+        raise RuntimeError(
+            f"Email API send failed with status {response.status_code}: {response.text}"
+        )
 
 
 async def send_invitation_email(
-    to_email: str,
-    invite_token: str,
-    company_name: str,
-    hr_name: str,
+    to_email:         str,
+    invite_token:     str,
+    company_name:     str,
+    hr_name:          str,
     personal_message: str | None = None,
-    logo_url: str | None = None,
+    logo_url:         str | None = None,
 ) -> None:
     invite_link = f"{settings.FRONTEND_URL}/accept-invite?token={invite_token}"
-    subject = f"Invitation to join {company_name} on Vyuflo"
+    subject     = f"Invitation to join {company_name} on Vyuflo"
 
     body = f"""Hi,
 
@@ -208,7 +339,7 @@ Vyuflo Team""".strip()
                     box-shadow:0 1px 4px rgba(0,0,0,.08);max-width:600px;width:100%;">
         <tr>
           <td style="background:#4f46e5;padding:24px 32px;text-align:center;">
-{logo_img}
+            {logo_img}
             <p style="color:#c7d2fe;margin:8px 0 0;font-size:13px;">{company_name}</p>
           </td>
         </tr>
@@ -224,7 +355,7 @@ Vyuflo Team""".strip()
                         font-weight:600;font-size:14px;">
                 Accept Invitation
               </a><br><br>
-{f"<em>{personal_message}</em><br><br>" if personal_message else ""}
+              {f"<em>{personal_message}</em><br><br>" if personal_message else ""}
               This invite link will expire soon.
             </p>
           </td>
@@ -244,6 +375,3 @@ Vyuflo Team""".strip()
 </html>"""
 
     await send_email(to=to_email, subject=subject, body=body, body_html=body_html)
-
-
-

@@ -41,6 +41,7 @@ class User(Base):
     auth_provider_id = Column(String(255), nullable=True)
     is_active   = Column(Boolean, default=True,  nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
+    is_phone_verified = Column(Boolean, default=False, nullable=False)
     terms_accepted    = Column(Boolean,  nullable=False, default=False)
     terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
     marketing_opt_in  = Column(Boolean,  default=False, nullable=False)

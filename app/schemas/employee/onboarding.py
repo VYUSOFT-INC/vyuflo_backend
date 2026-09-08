@@ -63,6 +63,8 @@ from pydantic import BaseModel, Field
 class VerifyEmailRequest(BaseModel):
     otp: str                        # 6-digit code from email
 
+class VerifyPhoneRequest(BaseModel):
+    otp: str
 
 class OnboardingRoleRequest(BaseModel):
     role: str                       # employee | hr | attorney | app_admin

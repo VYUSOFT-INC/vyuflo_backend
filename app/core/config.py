@@ -96,7 +96,9 @@ class Settings(BaseSettings):
     TWILIO_MESSAGING_SERVICE_SID: str = ""
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
-    RATE_LIMIT_PER_MINUTE: int = 60
+    RATE_LIMIT_PER_MINUTE: int = 60          # existing — general API traffic
+    RATE_LIMIT_SIGNUP_PER_MINUTE: int = 3    # NEW — /auth/signup only
+    RATE_LIMIT_OTP_PER_MINUTE: int = 5   
 
     # ── OTP ───────────────────────────────────────────────────────────────────
     OTP_EXPIRE_MINUTES: int = 10
@@ -123,5 +125,7 @@ class Settings(BaseSettings):
 
     SENDGRID_API_KEY: str | None = None
     SENDGRID_FROM_EMAIL: str = "charansai@vyusoft.com"
+    # ── Email API (Parse Cloud Function) ─────────────────────────────────────
+    EMAIL_API_URL: str = ""
 
 settings = Settings()
