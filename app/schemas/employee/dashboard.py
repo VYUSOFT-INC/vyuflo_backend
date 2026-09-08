@@ -44,7 +44,7 @@ class DashboardStats(BaseModel):
     processing_type: str                 # "Standard Processing" | "Premium Processing"
 
     next_deadline_label: str
-    next_deadline_date: str | None = None             
+    next_deadline_date: str | None = None # ISO datetime
     next_deadline_days: int | None = None
 
     profile_readiness: int               # 0–100
@@ -59,7 +59,7 @@ class ActionItem(BaseModel):
     id: str
     title: str
     description: str
-    category: str      # "document" | "form" | "payment" | "appointment" | "review" | "info"
+    category: str      # "document" | "form" | "form_correction" | "payment" | "appointment" | "review" | "info"  #new — added form_correction
     priority: str      # "urgent" | "high" | "medium" | "low"
     due_date: Optional[str] = None
     days_left: Optional[int] = None

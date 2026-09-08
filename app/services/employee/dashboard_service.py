@@ -820,6 +820,7 @@ from app.models.visamodels import (
     ClientIntakeSession,
     Document,
     DocumentActivity,
+    EmployeeForm,   #new
     User,
     UserProfile,
     UserVisaTarget,
@@ -1194,6 +1195,24 @@ def _build_action_items(
             route=f"/my-intake/{s.id}",
             completed=False,
         ))
+
+    # 5. Forms an attorney/HR sent back needing corrections — surface as   #new
+    #    urgent, distinct category so the frontend can tell it apart from  #new
+    #    a plain "fill out a form" item.                                   #new
+    for form in (forms_needing_correction or []):                          #new
+        counter += 1                                                       #new
+        items.append(ActionItem(                                           #new
+            id=f"act_form_correction_{form.id}",                           #new
+            title=f"Corrections needed on your {form.form_type.upper()} form",  #new
+            description=(form.review_note or                               #new
+                         "Your form was reviewed and needs corrections before it can be resubmitted."),  #new
+            category="form_correction",                                    #new
+            priority="urgent",                                             #new
+            due_date=None,                                                 #new
+            days_left=None,                                                #new
+            route=f"/forms/{form.form_type}/{form.id}",                    #new
+            completed=False,                                               #new
+        ))                                                                 #new
 
     return items
 
