@@ -25,7 +25,7 @@ from app.models.visamodels import (
     EmployerProfile,
     LawFirm,
 )
-from app.services.employee.otp_service import send_email_verification_otp
+from app.services.employee.otp_service import send_email_verification_otp, send_phone_verification_otp
 from app.services.employee.services import (
     _store_refresh_token,
     db_create,
@@ -71,6 +71,19 @@ async def service_get_onboarding_status(
 
 # ── POST /onboarding/verify-email ─────────────────────────────────────────────
 
+def _signup_verification_complete(user: User) -> bool:
+    """
+    True once every verification this user needs is done.
+    A user with no phone on file only needs email; a user with a phone
+    needs both. Used to decide whether onboarding_step should advance yet.
+    """
+    if user.phone and user.phone.strip():
+        return bool(user.is_verified) and bool(user.is_phone_verified)
+    return bool(user.is_verified)
+ 
+ 
+# ── REPLACE your existing service_verify_email with this version ───────────
+ 
 async def service_verify_email(
     db: AsyncSession,
     *,
@@ -81,8 +94,15 @@ async def service_verify_email(
     Verifies the 6-digit OTP the user received by email.
     - Marks the OTP row as used.
     - Sets User.is_verified = True.
-    - Advances onboarding_step to 2 so frontend goes to Step 2.
-    - Returns fresh tokens.
+    - If the user has a phone on file, triggers the FIRST phone OTP send
+      here (this is the one and only place it's auto-triggered — the old
+      bug was sending this same email code via SMS too; that's gone now,
+      phone gets its own independent code).
+    - Advances onboarding_step to 2 ONLY once verification is fully
+      complete (email-only users: immediately; users with a phone: only
+      after service_verify_phone also succeeds).
+    - Returns fresh tokens either way, so the frontend can keep the user's
+      session alive across the email → phone stage transition.
     """
     otp_record = await db.scalar(
         select(UserOTP)
@@ -95,44 +115,50 @@ async def service_verify_email(
     )
     if not otp_record:
         raise BadRequestException("Invalid or expired code. Please request a new one.")
-
+ 
     await db_update(db, UserOTP, otp_record.id, {"is_used": True})
-
+ 
     user = await db_get_by_id(db, User, user_id)
     if not user:
         raise NotFoundException("User not found.")
-
+ 
     if user.is_verified:
         raise BadRequestException("This email is already verified.")
-
+ 
     await db_update(db, User, user.id, {"is_verified": True})
-
+    user.is_verified = True  # keep the in-memory object consistent for the check below
+ 
+    # Phone OTP auto-send — only fires once, right here, right after email
+    # succeeds. If this fails (Twilio down, etc.) we don't fail the whole
+    # email-verify call — the phone stage's own "Resend" button covers it.
+    if user.phone and user.phone.strip():
+        try:
+            await send_phone_verification_otp(db, user)
+        except Exception:
+            pass  # non-fatal — see comment above
+ 
     profile = await db_get_by_field(db, UserProfile, "user_id", user_id)
     if not profile:
         raise NotFoundException("Profile not found.")
-
-    await db_update(db, UserProfile, profile.id, {"onboarding_step": 2})
-
+ 
+    complete = _signup_verification_complete(user)
+    if complete:
+        await db_update(db, UserProfile, profile.id, {"onboarding_step": 2})
+ 
     roles = await get_user_role(db, user_id)
     if isinstance(roles, str):
         roles = [roles]
-
+ 
     profile_picture = getattr(profile, "profile_picture_url", None)
     theme_color = getattr(profile, "theme_color", None) or "#4f46e5"
-
-    # ── Tokens — session_id ties this refresh token to one device/browser ──
+ 
     session_id    = new_session_id()
     access_token  = create_access_token(
-        str(user.id),
-        roles,
-        user.email,
-        user.first_name or "",
-        user.last_name or "",
-        user.token_version,
+        str(user.id), roles, user.email, user.first_name or "", user.last_name or "", user.token_version,
     )
     refresh_token = create_refresh_token(str(user.id), session_id)
     await _store_refresh_token(str(user.id), session_id, refresh_token)
-
+ 
     return {
         "access_token":  access_token,
         "refresh_token": refresh_token,
@@ -145,8 +171,117 @@ async def service_verify_email(
             "last_name":  user.last_name,
             "email":      user.email,
         },
-        "onboarding_step": 2,
+        # 2 once fully done, otherwise still 1 — frontend uses this to know
+        # whether to move to the phone stage or straight past verification.
+        "onboarding_step": 2 if complete else 1,
+        "phone_verification_pending": bool(user.phone) and not user.is_phone_verified,
     }
+ 
+ 
+# ── ADD — mirrors service_verify_email exactly, for the phone side ─────────
+ 
+async def service_verify_phone(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    otp: str,
+) -> dict:
+    """
+    Verifies the 6-digit OTP sent by SMS.
+    Same shape as service_verify_email — advances onboarding_step to 2
+    once this is the LAST outstanding verification for this user.
+    """
+    otp_record = await db.scalar(
+        select(UserOTP)
+        .where(UserOTP.user_id   == user_id)
+        .where(UserOTP.otp_code  == otp)
+        .where(UserOTP.otp_type  == "phone_verification")
+        .where(UserOTP.is_used   == False)                      # noqa: E712
+        .where(UserOTP.expires_at > utc_now())
+        .order_by(UserOTP.created_at.desc())
+    )
+    if not otp_record:
+        raise BadRequestException("Invalid or expired code. Please request a new one.")
+ 
+    await db_update(db, UserOTP, otp_record.id, {"is_used": True})
+ 
+    user = await db_get_by_id(db, User, user_id)
+    if not user:
+        raise NotFoundException("User not found.")
+ 
+    if user.is_phone_verified:
+        raise BadRequestException("This phone number is already verified.")
+ 
+    await db_update(db, User, user.id, {"is_phone_verified": True})
+    user.is_phone_verified = True
+ 
+    profile = await db_get_by_field(db, UserProfile, "user_id", user_id)
+    if not profile:
+        raise NotFoundException("Profile not found.")
+ 
+    complete = _signup_verification_complete(user)
+    if complete:
+        await db_update(db, UserProfile, profile.id, {"onboarding_step": 2})
+ 
+    roles = await get_user_role(db, user_id)
+    if isinstance(roles, str):
+        roles = [roles]
+ 
+    profile_picture = getattr(profile, "profile_picture_url", None)
+    theme_color = getattr(profile, "theme_color", None) or "#4f46e5"
+ 
+    session_id    = new_session_id()
+    access_token  = create_access_token(
+        str(user.id), roles, user.email, user.first_name or "", user.last_name or "", user.token_version,
+    )
+    refresh_token = create_refresh_token(str(user.id), session_id)
+    await _store_refresh_token(str(user.id), session_id, refresh_token)
+ 
+    return {
+        "access_token":  access_token,
+        "refresh_token": refresh_token,
+        "roles":         roles,
+        "profile":       profile_picture,
+        "theme_color":   theme_color,
+        "user": {
+            "id":         str(user.id),
+            "first_name": user.first_name,
+            "last_name":  user.last_name,
+            "email":      user.email,
+        },
+        "onboarding_step": 2 if complete else 1,
+    }
+ 
+ 
+# ── ADD — mirrors service_resend_otp exactly, for the phone side ───────────
+ 
+async def service_resend_phone_otp(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+) -> None:
+    user = await db_get_by_id(db, User, user_id)
+    if not user:
+        raise NotFoundException("User not found.")
+    if not user.phone or not user.phone.strip():
+        raise BadRequestException("No phone number on file for this account.")
+    if user.is_phone_verified:
+        raise BadRequestException("This phone number is already verified.")
+ 
+    recent_otp = await db.scalar(
+        select(UserOTP)
+        .where(UserOTP.user_id  == user_id)
+        .where(UserOTP.otp_type == "phone_verification")
+        .where(UserOTP.created_at > utc_now() - timedelta(seconds=60))
+        .order_by(UserOTP.created_at.desc())
+    )
+    if recent_otp:
+        raise BadRequestException(
+            "Please wait 60 seconds before requesting a new code."
+        )
+ 
+    await send_phone_verification_otp(db, user)
+ 
     
 # ── POST /onboarding/resend-otp ───────────────────────────────────────────────
 

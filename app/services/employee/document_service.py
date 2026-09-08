@@ -639,7 +639,14 @@ async def reuse_document_for_case(
         status             = "uploaded",
         ocr_status         = src.ocr_status,
         ocr_confidence     = src.ocr_confidence,
-        version            = 1,
+        version            = src.version + 1,   # FIXED — was hardcoded to 1, ignoring the
+                                                 # source's real version. That broke the
+                                                 # whole point of parent_document_id chaining:
+                                                 # every reused copy claimed to be "v1" no
+                                                 # matter how many versions deep its source
+                                                 # actually was, so Revision History could
+                                                 # show multiple unrelated "v1" entries
+                                                 # instead of an incrementing v1 → v2 → v3.
         parent_document_id = src.id,
         is_draft           = False,
         created_by         = user_id,
