@@ -316,14 +316,25 @@ async def service_search_staff(
     Excludes the current user. Returns each match's role (from user_roles/
     roles) so the frontend can show "HR", "Attorney", etc. next to the name.
 
-    NOTE ON SCOPE: this intentionally does NOT restrict results to only
-    people the attorney shares a case with — create_thread() in
-    message_service.py already accepts any valid user_id today, so this
-    search matches that same (currently unscoped) behavior rather than
-    introducing a stricter rule the rest of the messaging feature doesn't
-    enforce. If you want to restrict messaging to case-linked people only,
-    that's a bigger, deliberate change — flag it and we'll scope it properly.
+    SCOPED to case-connected people only — see service_list_users_by_roles()
+    for the reasoning; this function now applies the same rule so both
+    search paths behave consistently.
     """
+    case_result = await db.execute(
+        select(Application.user_id, Application.assigned_hr_id)
+        .where(Application.assigned_attorney_id == user_id)
+    )
+    connected_user_ids: set[uuid.UUID] = set()
+    for employee_id, hr_id in case_result.all():
+        if employee_id:
+            connected_user_ids.add(employee_id)
+        if hr_id:
+            connected_user_ids.add(hr_id)
+    connected_user_ids.discard(user_id)
+
+    if not connected_user_ids:
+        return {"items": [], "total": 0}
+
     search_term = f"%{query.strip()}%"
 
     result = await db.execute(
@@ -331,7 +342,7 @@ async def service_search_staff(
         .outerjoin(UserRole, UserRole.user_id == User.id)
         .outerjoin(Role, Role.id == UserRole.role_id)
         .where(
-            User.id != user_id,
+            User.id.in_(connected_user_ids),   #new — was User.id != user_id (unscoped)
             User.is_active == True,
             or_(
                 User.first_name.ilike(search_term),
@@ -367,24 +378,50 @@ async def service_list_users_by_roles(
     db:      AsyncSession,
     user_id: uuid.UUID,
     roles:   list[str],
-):   #new — entire function
+):   #new — entire function (rewritten to be case-scoped, see below)
     """
     GET /api/v1/users?roles=hr,attorney,support
 
-    This is the endpoint the "New Conversation" search box actually calls —
-    it fetches everyone in the given roles ONCE, and the frontend filters
-    that list locally as the person types (no text query sent to the
-    backend). Excludes the current user. Role names are matched
-    case-insensitively against app.models.visamodels.Role.name.
+    This is the endpoint the "New Conversation" search box actually calls.
+
+    SCOPED VERSION — was previously "everyone in these roles, platform-wide."
+    Now only returns people the calling attorney is actually connected to
+    through a shared case:
+      - the EMPLOYEE (Application.user_id) on any case assigned to this
+        attorney (Application.assigned_attorney_id == user_id), and
+      - the HR person (Application.assigned_hr_id) on those same cases.
+    An attorney can no longer message every HR/employee/attorney on the
+    platform — only people tied to a case they're actually working on.
+    The `roles` filter still applies on top of that (e.g. roles=hr only
+    returns the HR half of that connected set).
     """
     normalized_roles = [r.strip().lower() for r in roles if r.strip()]
 
+    # 1. Find every case this attorney is assigned to, and pull out the
+    #    two connected people per case: the employee and the assigned HR.
+    case_result = await db.execute(
+        select(Application.user_id, Application.assigned_hr_id)
+        .where(Application.assigned_attorney_id == user_id)
+    )
+    connected_user_ids: set[uuid.UUID] = set()
+    for employee_id, hr_id in case_result.all():
+        if employee_id:
+            connected_user_ids.add(employee_id)
+        if hr_id:
+            connected_user_ids.add(hr_id)
+
+    connected_user_ids.discard(user_id)   # never include yourself
+
+    if not connected_user_ids:
+        return {"items": [], "total": 0}   # attorney has no cases yet — nobody to message
+
+    # 2. Now fetch those specific people, still filtered by role and active status.
     result = await db.execute(
         select(User, Role.name)
         .join(UserRole, UserRole.user_id == User.id)
         .join(Role, Role.id == UserRole.role_id)
         .where(
-            User.id != user_id,
+            User.id.in_(connected_user_ids),
             User.is_active == True,
             func.lower(Role.name).in_(normalized_roles),
         )

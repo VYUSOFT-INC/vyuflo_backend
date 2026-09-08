@@ -18,6 +18,7 @@ from app.models.visamodels import (
     ClientIntakeSession,
     Document,
     DocumentActivity,
+    EmployeeForm,   #new
     User,
     UserProfile,
     UserVisaTarget,
@@ -302,6 +303,7 @@ def _build_action_items(
     documents: list,
     app: "Application | None",
     pending_intake_sessions: list | None = None,   # new
+    forms_needing_correction: list | None = None,  #new
 ) -> list[ActionItem]:
     """
     Generate actionable tasks the employee should complete.
@@ -395,6 +397,24 @@ def _build_action_items(
             route=f"/my-intake/{s.id}",                                    # new
             completed=False,                                               # new
         ))                                                                 # new
+
+    # 5. Forms an attorney/HR sent back needing corrections — surface as   #new
+    #    urgent, distinct category so the frontend can tell it apart from  #new
+    #    a plain "fill out a form" item.                                   #new
+    for form in (forms_needing_correction or []):                          #new
+        counter += 1                                                       #new
+        items.append(ActionItem(                                           #new
+            id=f"act_form_correction_{form.id}",                           #new
+            title=f"Corrections needed on your {form.form_type.upper()} form",  #new
+            description=(form.review_note or                               #new
+                         "Your form was reviewed and needs corrections before it can be resubmitted."),  #new
+            category="form_correction",                                    #new
+            priority="urgent",                                             #new
+            due_date=None,                                                 #new
+            days_left=None,                                                #new
+            route=f"/forms/{form.form_type}/{form.id}",                    #new
+            completed=False,                                               #new
+        ))                                                                 #new
 
     return items
 
@@ -725,7 +745,15 @@ async def service_get_dashboard(
     )                                                                      # new
     pending_intake_sessions = pending_intake_result.scalars().all()        # new
 
-    action_items = _build_action_items(all_docs, latest_app, pending_intake_sessions)   
+    forms_needing_correction_result = await db.execute(   #new
+        select(EmployeeForm).where(                       #new
+            EmployeeForm.employee_id == user_id,           #new
+            EmployeeForm.status == "needs_corrections",    #new
+        )                                                  #new
+    )                                                      #new
+    forms_needing_correction = forms_needing_correction_result.scalars().all()   #new
+
+    action_items = _build_action_items(all_docs, latest_app, pending_intake_sessions, forms_needing_correction)   #new — added 4th argument
 
     # ── 7. Deadlines ──────────────────────────────────────────────────────────
     deadlines = _build_deadlines(latest_app, action_items)
