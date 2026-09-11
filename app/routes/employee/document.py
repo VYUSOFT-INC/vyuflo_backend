@@ -86,6 +86,7 @@ async def api_upload_document(
     task_id:        Optional[str] = Form(None),   # ← NEW
     db:             AsyncSession   = Depends(get_db),
     current_user                   = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("documents.upload")),
 ) -> DocumentResponse:
     app_id = uuid.UUID(application_id) if application_id else None
     return await upload_document(
@@ -160,6 +161,7 @@ async def api_delete_document(
     document_id:  uuid.UUID,
     db:           AsyncSession = Depends(get_db),
     current_user               = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("documents.delete")),
 ) -> None:
     await delete_document(db, document_id, current_user.user_id)
 

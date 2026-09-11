@@ -4,6 +4,7 @@ FastAPI router for HR-initiated case management.
 
 Mount in main.py:
     from app.routes.hr_case_routes import hr_case_router
+from app.core.core_permissions import PermissionChecker
     app.include_router(hr_case_router, prefix="/api/v1/hr", tags=["HR Cases"])
 
 Resulting endpoints:
@@ -81,6 +82,7 @@ async def create_hr_case(
     payload:      HRCaseCreate,
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("applications.create")),
 ) -> HRCaseCreateResponse:
     return await hr_create_case(db, payload, current_user.user_id)
 
@@ -196,6 +198,7 @@ async def update_hr_case_status(
     payload:        HRCaseStatusUpdate,
     db:             AsyncSession = Depends(get_db),
     current_user:   User         = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("applications.update_status")),
 ) -> HRCaseResponse:
     return await hr_update_case_status(db, application_id, payload, current_user.user_id)
 

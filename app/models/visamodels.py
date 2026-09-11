@@ -338,6 +338,44 @@ class UserRole(Base):
     role = relationship("Role", back_populates="user_roles")
 
 
+
+# =============================================================================
+# TABLE 05b — user_permission_overrides (RBAC P1)
+# Per-user allow/deny on top of role defaults. Deny wins.
+# =============================================================================
+
+class UserPermissionOverride(Base):
+    __tablename__ = "user_permission_overrides"
+
+    id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id       = Column(UUID(as_uuid=True), ForeignKey("users.id"),
+                           nullable=False, index=True)
+    permission_id = Column(UUID(as_uuid=True), ForeignKey("permissions.id"),
+                           nullable=False, index=True)
+    effect        = Column(
+        Enum("allow", "deny", name="permission_override_effect_enum"),
+        nullable=False,
+    )
+    reason        = Column(String(500), nullable=True)
+    actor_id      = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "permission_id", name="uq_user_permission_override"),
+    )
+
+    user       = relationship("User", foreign_keys=[user_id])
+    permission = relationship("Permission")
+    actor      = relationship("User", foreign_keys=[actor_id])
+
+
 # =============================================================================
 # TABLE 06 — user_otp
 # =============================================================================

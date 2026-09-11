@@ -18,6 +18,7 @@ from app.schemas.employee.message import (
     ThreadListResponse,
     ThreadResponse,
 )
+from app.core.core_permissions import PermissionChecker
 from app.services.employee.message_service import (
     create_thread,
     get_thread,
@@ -133,6 +134,7 @@ async def api_send_message(
     payload: MessageCreate,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("messages.send")),
 ) -> MessageResponse:
     return await send_message(
         db=db,

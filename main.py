@@ -42,6 +42,8 @@ from app.routes.employee.notification_routes import notification_router
 from app.routes.admin.roles import roles_router
 from app.routes.admin.custom_roles import custom_roles_router
 from app.routes.admin.user_management import user_management_router
+from app.routes.admin.permission_overrides import permission_overrides_router
+from app.routes.admin.admin_data import admin_data_router
 from app.routes.admin.notifications_reminders import admin_notifications_router
 from app.routes.admin.system_settings import system_settings_router
 from app.routes.admin.notification_templates import notification_templates_router
@@ -328,6 +330,8 @@ app.include_router(attorney_profile_router, prefix="/api/v1", tags=["attorney-pr
 
 app.include_router(document_field_config_router, prefix="/api/v1",tags=["Admin — Document Field Config"])
 app.include_router(user_management_router, prefix="/api/v1",tags=["User Management"])
+app.include_router(permission_overrides_router, prefix="/api/v1", tags=["RBAC Overrides"])
+app.include_router(admin_data_router, prefix="/api/v1", tags=["Admin Data"])
 app.include_router(admin_notifications_router, prefix="/api/v1/admin")
 app.include_router(custom_roles_router,prefix="/api/v1",tags=["Custom Roles"])
 app.include_router(system_settings_router, prefix="/api/v1",tags=["System Settings"])

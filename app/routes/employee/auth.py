@@ -43,6 +43,7 @@ from app.services.employee.auth_services import (
     service_verify_reset_otp,
 )
 from app.services.employee.services import db_get_by_field, db_get_by_id, get_user_role
+from app.core.core_permissions import get_effective_permissions
 from app.core.config import settings
 from app.services.employee.storage import resolve_url
 
@@ -144,6 +145,8 @@ async def get_me(db: DBSession, current_user: Current_User):
 
     roles   = await get_user_role(db, current_user.user_id)
     profile = await db_get_by_field(db, UserProfile, "user_id", current_user.user_id)
+    permissions = sorted(await get_effective_permissions(current_user.user_id, db))
+
 
     return {
         "id":                   str(user.id),
@@ -154,6 +157,7 @@ async def get_me(db: DBSession, current_user: Current_User):
         "is_active":            user.is_active,
         "is_verified":          user.is_verified,
         "roles":                roles,
+        "permissions":          permissions,
         "profile_picture":      await resolve_url(profile.profile_picture_url) if profile else None,
         "onboarding_step":      profile.onboarding_step      if profile else 1,
         "onboarding_completed": profile.onboarding_completed if profile else False,
@@ -161,7 +165,15 @@ async def get_me(db: DBSession, current_user: Current_User):
     }
 
 
-# ╔══════════════════════════════════════════════════════════════════════════╗
+# ╔══════════════════════════════════════════════════════════════════════════╗
+@router.get("/permissions")
+async def get_my_permissions(db: DBSession, current_user: Current_User):
+    """Effective permission codes for the current user (mid-session refresh)."""
+    permissions = sorted(await get_effective_permissions(current_user.user_id, db))
+    roles = await get_user_role(db, current_user.user_id)
+    return {"roles": roles, "permissions": permissions}
+
+
 # ║                        SIGNUP                                            ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 

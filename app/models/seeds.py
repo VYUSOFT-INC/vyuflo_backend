@@ -100,6 +100,11 @@ PERMISSIONS_SEED = [
     {"code": "settings.view",   "module": "settings",  "description": "View system settings",                            "is_system": True},
     {"code": "settings.manage", "module": "settings",  "description": "Modify system settings and security config",      "is_system": True},
     {"code": "billing.manage",  "module": "settings",  "description": "Manage subscriptions, pricing, and billing",      "is_system": True},
+    # --- RBAC P0 additions -------------------------------------------------
+    {"code": "admin.data.manage",    "module": "admin", "description": "Access Admin Data browser (raw table CRUD)", "is_system": True},
+    {"code": "hr.invite",            "module": "hr",    "description": "Invite employees by email/code/link",         "is_system": True},
+    {"code": "hr.approvals.manage",  "module": "hr",    "description": "Approve, request edits, and bulk-approve HR documents", "is_system": True},
+
 ]
 
 
@@ -139,6 +144,10 @@ ROLE_PERMISSIONS_SEED = {
         "reports.export",
         "billing.manage",
         "documents.request_additional",
+        "hr.invite",
+        "hr.approvals.manage",
+    
+    
     ],
 
     "attorney": [

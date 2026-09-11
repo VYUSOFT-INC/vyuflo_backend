@@ -22,6 +22,7 @@ from app.core.dependencies import get_current_user
 from app.models.visamodels import (
     Document, DocumentType, Application, DocumentActivity, ApplicationTask,
 )
+from app.core.core_permissions import PermissionChecker
 from app.schemas.attorney.document_request import DocumentRequestCreate, DocumentRequestPriority
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
 from app.services.employee import storage
@@ -198,6 +199,7 @@ async def hr_upload_document(
     category:       str                 = Form(...),
     db:             AsyncSession         = Depends(get_db),
     current_user = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("documents.upload")),
 ):
     app_id = uuid.UUID(application_id) if application_id else None
 
@@ -238,6 +240,7 @@ async def hr_upload_document_for_case(
     category:       str         = Form(...),
     db:             AsyncSession = Depends(get_db),
     current_user                = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("documents.upload")),
 ):
     app_result = await db.execute(select(Application).where(Application.id == application_id))
     application = app_result.scalars().first()
@@ -319,6 +322,7 @@ async def hr_verify_document(
     payload:      dict = {},
     db:           AsyncSession = Depends(get_db),
     current_user              = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("documents.verify")),
 ):
     result = await db.execute(
         select(Document).options(joinedload(Document.document_type)).where(Document.id == document_id)
@@ -383,6 +387,7 @@ async def hr_reject_document(
     payload:      dict,
     db:           AsyncSession = Depends(get_db),
     current_user              = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("documents.verify")),
 ):
     if not payload.get("rejection_reason"):
         raise HTTPException(status_code=422, detail="rejection_reason is required.")

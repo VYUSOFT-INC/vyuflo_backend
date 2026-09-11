@@ -191,6 +191,7 @@ async def create_user(
     db: DBSession,
     current_user: Current_User,
     _: Current_User = _require_manage,
+    _rbac=Depends(PermissionChecker("users.manage")),
 ) -> AdminUserItem:
     data = await service_create_admin_user(
         db=db,
@@ -219,6 +220,7 @@ async def update_user(
     db: DBSession,
     current_user: Current_User,
     _: Current_User = _require_manage,
+    _rbac=Depends(PermissionChecker("users.manage")),
 ) -> AdminUserItem:
     data = await service_update_admin_user(
         db=db,
@@ -247,6 +249,7 @@ async def update_user_role(
     db: DBSession,
     current_user: Current_User,
     _: Current_User = _require_manage,
+    _rbac=Depends(PermissionChecker("users.manage")),
 ) -> AdminUserItem:
     data = await service_update_admin_user_role(
         db=db, user_id=user_id, role=payload.role, changed_by=current_user.user_id,
@@ -269,6 +272,7 @@ async def update_user_status(
     db: DBSession,
     current_user: Current_User,
     _: Current_User = _require_manage,
+    _rbac=Depends(PermissionChecker("users.manage")),
 ) -> AdminUserItem:
     data = await service_update_admin_user_status(
         db=db, user_id=user_id, status_value=payload.status, changed_by=current_user.user_id,
@@ -290,6 +294,7 @@ async def delete_user(
     current_user: Current_User,
     _: Current_User = _require_manage,
     hard: bool = Query(False),
+    _rbac=Depends(PermissionChecker("users.manage")),
 ) -> dict:
     return await service_delete_admin_user(
         db=db, user_id=user_id, deleted_by=current_user.user_id, hard=hard,

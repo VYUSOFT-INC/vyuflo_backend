@@ -125,6 +125,7 @@ async def export_visa_types(
         alias="status",
         description="active | inactive | pending_review",
     ),
+    _rbac=Depends(PermissionChecker("reports.export")),
 ) -> StreamingResponse:
     """
     Roles:      app_admin

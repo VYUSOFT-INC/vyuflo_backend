@@ -345,6 +345,7 @@ async def export_revenue_report(
     include_transactions:   bool          = Query(True),
     include_kpi_summary:    bool          = Query(True),
     include_plan_breakdown: bool          = Query(True),
+    _rbac=Depends(PermissionChecker("reports.export")),
 ) -> StreamingResponse:
     from datetime import date, datetime, timezone
     df = date.fromisoformat(date_from) if date_from else None

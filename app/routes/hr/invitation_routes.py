@@ -28,6 +28,7 @@ from app.schemas.hr.invitation_schemas import (
     EmployeeListResponse,
     ValidateTokenResponse,
 )
+from app.core.core_permissions import PermissionChecker
 from app.services.hr.invitation_service import (
     _get_employer_profile,
     create_email_invite,
@@ -65,6 +66,7 @@ async def invite_by_email(
     data:         InviteByEmailRequest,
     db:           AsyncSession   = Depends(get_db),
     current_user: User           = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("hr.invite")),
 ):
     """
     HR sends a targeted email invitation to a specific employee.
@@ -100,6 +102,7 @@ async def invite_by_code(
     data:         InviteByCodeRequest,
     db:           AsyncSession   = Depends(get_db),
     current_user: User           = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("hr.invite")),
 ):
     """
     HR generates a short reusable code (e.g. VF-TECH-K2X9).

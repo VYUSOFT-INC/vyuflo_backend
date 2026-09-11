@@ -12,6 +12,7 @@ All endpoints grouped by section:
 
 Registration in main.py:
     from app.routers.billing import router as billing_router
+from app.core.core_permissions import PermissionChecker
     app.include_router(billing_router)
 """
 from __future__ import annotations
@@ -169,6 +170,7 @@ async def create_billing_client(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
     #_perm:        None         = Depends(require_permission("billing_clients:manage")),
+    _rbac=Depends(PermissionChecker("billing.manage")),
 ):
     try:
         return await service_create_billing_client(db, payload, current_user.user_id)
@@ -198,6 +200,7 @@ async def bulk_action_time_entries(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
     #_perm:        None         = Depends(require_permission("time_entries:bulk_action")),
+    _rbac=Depends(PermissionChecker("billing.manage")),
 ):
     try:
         return await service_bulk_action(db, payload, current_user.user_id)
@@ -280,6 +283,7 @@ async def create_time_entry(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
     #_perm:        None         = Depends(require_permission("time_entries:create")),
+    _rbac=Depends(PermissionChecker("billing.manage")),
 ):
     try:
         return await service_create_time_entry(db, payload, current_user.user_id)
@@ -301,6 +305,7 @@ async def update_time_entry(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
     #_perm:        None         = Depends(require_permission("time_entries:update")),
+    _rbac=Depends(PermissionChecker("billing.manage")),
 ):
     try:
         return await service_update_time_entry(db, entry_id, payload, current_user.user_id)
@@ -321,6 +326,7 @@ async def delete_time_entry(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
     #_perm:        None         = Depends(require_permission("time_entries:delete")),
+    _rbac=Depends(PermissionChecker("billing.manage")),
 ):
     try:
         await service_delete_time_entry(db, entry_id, current_user.user_id)
@@ -351,6 +357,7 @@ async def draft_invoice_from_entries(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
     #_perm:        None         = Depends(require_permission("invoices:create")),
+    _rbac=Depends(PermissionChecker("billing.manage")),
 ):
     try:
         return await service_draft_from_entries(db, payload, current_user.user_id)
@@ -422,6 +429,7 @@ async def create_invoice(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
     #_perm:        None         = Depends(require_permission("invoices:create")),
+    _rbac=Depends(PermissionChecker("billing.manage")),
 ):
     try:
         return await service_create_invoice(db, payload, current_user.user_id)
@@ -448,6 +456,7 @@ async def update_invoice_status(
     db:           AsyncSession = Depends(get_db),
     current_user: User         = Depends(get_current_user),
     # _perm:        None         = Depends(require_permission("invoices:update")),
+    _rbac=Depends(PermissionChecker("billing.manage")),
 ):
     try:
         return await service_update_invoice_status(db, invoice_id, payload, current_user.user_id)

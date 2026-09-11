@@ -55,19 +55,25 @@ async def get_effective_permissions(
     db: AsyncSession,
 ) -> set[str]:
     """
-    Traverses the full RBAC chain in ONE query:
-        user → user_roles → roles → role_permissions → permissions
-
-    Returns a set of permission code strings, e.g.:
-        {"applications.create", "documents.verify", "users.view_all"}
-
-    Called on every permission-guarded request so changes to
-    role_permissions are reflected immediately without token re-issue.
+    Effective permissions = (role_perms ∪ allow_overrides) − deny_overrides.
+    Deny always wins. Re-queried every guarded request.
     """
-    # Import here to avoid circular imports at module load time
-    from app.models.visamodels import UserRole, Role, RolePermission, Permission
+    breakdown = await get_permission_breakdown(user_id, db)
+    return set(breakdown["effective"])
 
-    stmt = (
+
+async def get_permission_breakdown(
+    user_id: uuid.UUID,
+    db: AsyncSession,
+) -> dict:
+    """
+    Returns { role, allow, deny, effective } code lists for admin UI.
+    """
+    from app.models.visamodels import (
+        UserRole, Role, RolePermission, Permission, UserPermissionOverride,
+    )
+
+    role_stmt = (
         select(distinct(Permission.code))
         .join(RolePermission, RolePermission.permission_id == Permission.id)
         .join(Role,           Role.id == RolePermission.role_id)
@@ -77,8 +83,30 @@ async def get_effective_permissions(
             Role.is_active   == True,
         )
     )
-    result = await db.execute(stmt)
-    return {row[0] for row in result.fetchall()}
+    role_result = await db.execute(role_stmt)
+    role_perms = {row[0] for row in role_result.fetchall()}
+
+    ov_stmt = (
+        select(Permission.code, UserPermissionOverride.effect)
+        .join(Permission, Permission.id == UserPermissionOverride.permission_id)
+        .where(UserPermissionOverride.user_id == user_id)
+    )
+    ov_result = await db.execute(ov_stmt)
+    allow: set[str] = set()
+    deny: set[str] = set()
+    for code, effect in ov_result.fetchall():
+        if effect == "deny":
+            deny.add(code)
+        else:
+            allow.add(code)
+
+    effective = (role_perms | allow) - deny
+    return {
+        "role": sorted(role_perms),
+        "allow": sorted(allow),
+        "deny": sorted(deny),
+        "effective": sorted(effective),
+    }
 
 
 async def get_user_roles_from_db(
@@ -195,3 +223,18 @@ CanManageUsers       = Annotated[CurrentUserData, Depends(PermissionChecker("use
 CanViewAllUsers      = Annotated[CurrentUserData, Depends(PermissionChecker("users.view_all"))]
 CanManageRoles       = Annotated[CurrentUserData, Depends(PermissionChecker("roles.manage"))]
 CanManagePermissions = Annotated[CurrentUserData, Depends(PermissionChecker("permissions.manage"))]
+
+# P0 feature-action aliases (use in routers)
+CanCreateApplication   = Annotated[CurrentUserData, Depends(PermissionChecker("applications.create"))]
+CanUpdateAppStatus     = Annotated[CurrentUserData, Depends(PermissionChecker("applications.update_status"))]
+CanDeleteApplication   = Annotated[CurrentUserData, Depends(PermissionChecker("applications.delete"))]
+CanInviteHR            = Annotated[CurrentUserData, Depends(PermissionChecker("hr.invite"))]
+CanManageHRApprovals   = Annotated[CurrentUserData, Depends(PermissionChecker("hr.approvals.manage"))]
+CanUploadDocuments     = Annotated[CurrentUserData, Depends(PermissionChecker("documents.upload"))]
+CanVerifyDocuments     = Annotated[CurrentUserData, Depends(PermissionChecker("documents.verify"))]
+CanDeleteDocuments     = Annotated[CurrentUserData, Depends(PermissionChecker("documents.delete"))]
+CanRequestAdditionalDocs = Annotated[CurrentUserData, Depends(PermissionChecker("documents.request_additional"))]
+CanSendMessages        = Annotated[CurrentUserData, Depends(PermissionChecker("messages.send"))]
+CanManageBilling       = Annotated[CurrentUserData, Depends(PermissionChecker("billing.manage"))]
+CanExportReports       = Annotated[CurrentUserData, Depends(PermissionChecker("reports.export"))]
+CanManageAdminData     = Annotated[CurrentUserData, Depends(PermissionChecker("admin.data.manage"))]

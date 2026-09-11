@@ -26,6 +26,7 @@ from app.schemas.hr.hr_approval_schemas import (
     RequestEditsRequest,
     BulkApproveRequest,
 )
+from app.core.core_permissions import PermissionChecker
 from app.services.hr.hr_approval_service import (
     hr_list_approvals,
     hr_approve_document,
@@ -69,6 +70,7 @@ async def api_hr_approve(
     payload:      ApproveDocumentRequest = ApproveDocumentRequest(),
     db:           AsyncSession           = Depends(get_db),
     current_user                         = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("hr.approvals.manage")),
 ) -> ApprovalItemResponse:
     return await hr_approve_document(
         db          = db,
@@ -88,6 +90,7 @@ async def api_hr_request_edits(
     payload:      RequestEditsRequest,
     db:           AsyncSession = Depends(get_db),
     current_user               = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("hr.approvals.manage")),
 ) -> ApprovalItemResponse:
     return await hr_request_edits(
         db          = db,
@@ -105,6 +108,7 @@ async def api_hr_bulk_approve(
     payload:      BulkApproveRequest,
     db:           AsyncSession = Depends(get_db),
     current_user               = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("hr.approvals.manage")),
 ) -> dict:
     return await hr_bulk_approve(
         db           = db,

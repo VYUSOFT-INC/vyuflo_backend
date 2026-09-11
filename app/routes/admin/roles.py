@@ -41,6 +41,7 @@ from app.schemas.employee.role import (
     RoleResponse,
     RoleUpdate,
 )
+from app.core.core_permissions import PermissionChecker
 
 roles_router = APIRouter(tags=["Roles & Permissions"])
 
@@ -85,6 +86,7 @@ async def create_role(
     payload: RoleCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("roles.manage")),
 ):
     return await role_service.create_role(db, payload, current_user.user_id)
 
@@ -95,6 +97,7 @@ async def update_role(
     payload: RoleUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("roles.manage")),
 ):
     return await role_service.update_role(db, role_id, payload, current_user.user_id)
 
@@ -104,6 +107,7 @@ async def delete_role(
     role_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("roles.manage")),
 ):
     return await role_service.delete_role(db, role_id, current_user.user_id)
 
@@ -118,6 +122,7 @@ async def assign_permission(
     payload: AssignPermissionRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("permissions.manage")),
 ):
     return await role_service.assign_permission(db, role_id, payload, current_user.user_id)
 
@@ -128,6 +133,7 @@ async def remove_permission(
     permission_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("permissions.manage")),
 ):
     return await role_service.remove_permission(db, role_id, permission_id, current_user.user_id)
 
@@ -138,5 +144,6 @@ async def bulk_replace_permissions(
     payload: BulkPermissionsRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("permissions.manage")),
 ):
     return await role_service.bulk_replace_permissions(db, role_id, payload, current_user.user_id)

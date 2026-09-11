@@ -72,6 +72,7 @@ async def api_create_application(
     payload: ApplicationCreate,
     db: AsyncSession = Depends(get_db),
     current_user_id: uuid.UUID = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("applications.create")),
 ) -> ApplicationResponse:
     return await create_application(db, payload, current_user_id.user_id)
 
@@ -154,6 +155,7 @@ async def api_update_application_status(
     payload: ApplicationStatusUpdate,
     db: AsyncSession = Depends(get_db),
     current_user_id: uuid.UUID = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("applications.update_status")),
 ) -> ApplicationResponse:
     return await update_application_status(
         db,
@@ -175,6 +177,7 @@ async def api_delete_application(
     application_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user_id: uuid.UUID = Depends(get_current_user),
+    _rbac=Depends(PermissionChecker("applications.delete")),
 ) -> dict:
     return await delete_application(db, application_id, current_user_id.user_id)
 
