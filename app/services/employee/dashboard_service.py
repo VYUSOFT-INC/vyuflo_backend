@@ -903,10 +903,23 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _iso(dt: datetime | None) -> str:
+# def _iso(dt: datetime | None) -> str:
+#     if dt is None:
+#         return _now().isoformat()
+#     return dt.isoformat() if dt.tzinfo else dt.replace(tzinfo=timezone.utc).isoformat()
+from datetime import date, datetime, timezone
+
+def _iso(dt):
     if dt is None:
-        return _now().isoformat()
-    return dt.isoformat() if dt.tzinfo else dt.replace(tzinfo=timezone.utc).isoformat()
+        return None
+    if isinstance(dt, datetime):
+        # datetime IS a subclass of date, so this branch must be checked
+        # first — otherwise every datetime would incorrectly fall into
+        # the plain-date branch below and silently lose its time/tzinfo.
+        return dt.isoformat() if dt.tzinfo else dt.replace(tzinfo=timezone.utc).isoformat()
+    if isinstance(dt, date):
+        return dt.isoformat()
+    return dt
 
 
 def _days_between(target: datetime, ref: datetime | None = None) -> int:

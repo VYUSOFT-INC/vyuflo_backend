@@ -1,49 +1,5 @@
 # app/services/employee/document_service.py
 #
-# CHANGED: reupload_expired_document() no longer requires the document to
-# already be "expired" — replacing a document proactively (before it
-# expires) is normal, healthy behavior and should never be blocked. The old
-# document is now marked "superseded" (not left as "verified"/"pending_review"
-# forever, which would be misleading once a newer version exists) instead of
-# being silently untouched. Function name kept as reupload_expired_document
-# for API/route compatibility, even though it now handles both cases.
-#
-# REQUIRES a DB migration:
-#   ALTER TYPE document_status_enum ADD VALUE IF NOT EXISTS 'superseded';
-# and the same value added to Document.status's Enum(...) list in models.py.
-#
-# CLEANED UP: this file previously had TWO definitions of
-# reuse_document_for_case() — an old one (name-matching guess) followed by
-# the fixed one (task_id-aware). Python silently kept only the second
-# (later definitions overwrite earlier ones with the same name in a
-# module), so this was never actually the cause of the task_id fix not
-# taking effect — but it was confusing and risky to leave two copies
-# sitting in the same file. Only one definition remains now.
-#
-# CLEANED UP (again): removed a large commented-out duplicate of this
-# entire file that had accumulated at the top from earlier edit passes.
-#
-# FIXED (reuse_document_for_case): the destination storage path was built
-# only from user_id + application_id + the ORIGINAL filename — so reusing
-# the same Hub document (or any document sharing that filename) into the
-# same application a second time computed the exact same S3 key as an
-# earlier reuse, and the copy_file() call failed with
-# botocore.errorfactory.InvalidRequest ("copy request is illegal because
-# it is trying to copy an object to itself"). Now prefixes the destination
-# key with a fresh uuid4() so every reuse gets a guaranteed-unique path,
-# regardless of how many times the same filename gets reused.
-#
-# FIXED (upload_document — task linking): previously always guessed the
-# target task by matching `document_type` (a free-text string, often
-# "unclassified" from generic Hub uploads with no task context) against
-# task names via ilike(). This is the exact same class of bug that
-# reuse_document_for_case() had and was fixed for below — when the caller
-# already KNOWS which task an upload is for, it should say so directly via
-# task_id instead of making the backend guess from a label that may not
-# match anything. Now accepts an optional task_id and prefers it when
-# given (with the same application_id ownership guard used in reuse);
-# falls back to the old name-matching guess only when no task_id is
-# provided at all (e.g. a genuinely standalone/personal Hub upload).
 
 import uuid
 import os
@@ -140,8 +96,8 @@ def _collapse_hub_families(docs: list[Document]) -> list[Document]:
         genuine duplication of identical content across cases, so the COPY
         stays hidden here; the ORIGINAL is the one visible card.
 
-      • reupload_expired_document() replaces an old version with a new one
-        (new.parent_document_id -> old). Unlike reuse, BOTH versions are
+      • reupload_expired_document() replaces an old version with a new
+        one (new.parent_document_id -> old). Unlike reuse, BOTH versions are
         shown here — the person should be able to see what changed and
         when, not just the current version with the old one silently gone.
 
@@ -320,7 +276,12 @@ async def _can_access_document(db: AsyncSession, doc: Document, user_id: uuid.UU
         if doc.application_id and await _is_assigned_hr(db, doc.application_id, user_id):
             return True
     if "documents.view_assigned" in perms and doc.application_id:
-        if await _is_assigned_attorney(db, doc.application_id, user_id):
+        # FIXED: attorneys only see documents once HR has verified them —
+        # being the assigned attorney on the case is no longer sufficient
+        # on its own. HR still sees unverified documents via the
+        # documents.view_team branch above, since HR is the one who does
+        # the verifying.
+        if await _is_assigned_attorney(db, doc.application_id, user_id) and doc.status == "verified":
             return True
     return False
 

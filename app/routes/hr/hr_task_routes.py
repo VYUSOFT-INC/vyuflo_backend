@@ -35,10 +35,12 @@ from app.schemas.hr.hr_task_schemas import (
     HRTaskUpdate,
 )
 from app.services.hr.hr_task_service import (
+    hr_assign_intake_task,
     hr_complete_task,
     hr_create_task,
     hr_delete_task,
     hr_list_tasks,
+    hr_relay_task_to_attorney,
     hr_update_task,
 )
 
@@ -150,3 +152,32 @@ async def delete_hr_task(
     current_user:   User         = Depends(get_current_user),
 ) -> dict:
     return await hr_delete_task(db, application_id, task_id, current_user.user_id)
+
+@hr_task_router.patch(
+    "/cases/{application_id}/tasks/{task_id}/assign-intake",
+    response_model=HRTaskResponse,
+    status_code=status.HTTP_200_OK,
+    summary="HR: approve a lawyer-created intake task and assign it to the employee",
+)
+async def assign_intake_hr_task(
+    application_id: uuid.UUID,
+    task_id:        uuid.UUID,
+    db:             AsyncSession = Depends(get_db),
+    current_user:   User         = Depends(get_current_user),
+) -> HRTaskResponse:
+    return await hr_assign_intake_task(db, application_id, task_id, current_user.user_id)
+
+
+@hr_task_router.patch(
+    "/cases/{application_id}/tasks/{task_id}/relay-to-lawyer",
+    response_model=HRTaskResponse,
+    status_code=status.HTTP_200_OK,
+    summary="HR: relay a completed attorney-origin task back to the lawyer",
+)
+async def relay_hr_task_to_attorney(
+    application_id: uuid.UUID,
+    task_id:        uuid.UUID,
+    db:             AsyncSession = Depends(get_db),
+    current_user:   User         = Depends(get_current_user),
+) -> HRTaskResponse:
+    return await hr_relay_task_to_attorney(db, application_id, task_id, current_user.user_id)

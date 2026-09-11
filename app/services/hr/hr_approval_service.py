@@ -1,4 +1,3 @@
-# app/services/hr/hr_approval_service.py
 #
 # Business logic for HR Approval Queue.
 #
@@ -608,3 +607,192 @@ async def hr_bulk_approve(
             failed += 1
 
     return {"approved": approved, "failed": failed}
+
+
+
+async def hr_assign_document_to_attorney(
+    db:          AsyncSession,
+    hr_user_id:  uuid.UUID,
+    document_id: uuid.UUID,
+) -> ApprovalItemResponse:
+    """
+    HR explicitly hands a VERIFIED document to the attorney. Two separate
+    deliberate steps, not implied by verification alone:
+      1. hr_approve_document() — sets status = "verified"
+      2. hr_assign_document_to_attorney() — this function — sets
+         assigned_to_attorney_at/_by, making it show up in the attorney's
+         view (HRCaseDetail.tsx's Lawyer tab, and the attorney's own
+         CaseDetailPage.tsx once its list endpoint is updated to check
+         this field too).
+ 
+    Only verified documents can be assigned — assigning something HR
+    hasn't reviewed yet would defeat the whole point of the verify step.
+
+    NOTE: kept for any call site that still needs to assign exactly one
+    document (e.g. a future "assign just this one" affordance). The
+    primary HR-facing action is now hr_assign_all_verified_documents_to_attorney()
+    below — a single per-case button rather than a button on every card.
+    """
+    result = await db.execute(
+        select(Document)
+        .options(joinedload(Document.document_type))
+        .where(Document.id == document_id)
+    )
+    doc = result.scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+ 
+    if doc.status != "verified":
+        raise HTTPException(
+            status_code=400,
+            detail="Only verified documents can be assigned to the attorney. Verify it first.",
+        )
+ 
+    app = None
+    if doc.application_id:
+        app_result = await db.execute(
+            select(Application)
+            .options(joinedload(Application.visa_type))
+            .where(Application.id == doc.application_id)
+        )
+        app = app_result.scalars().first()
+        if app and app.assigned_hr_id != hr_user_id:
+            raise HTTPException(status_code=403, detail="Access denied.")
+ 
+    await db_update(db, Document, document_id, {
+        "assigned_to_attorney_at": datetime.now(timezone.utc),
+        "assigned_to_attorney_by": hr_user_id,
+        "modified_by":             hr_user_id,
+    })
+ 
+    activity = DocumentActivity(
+        document_id = document_id,
+        action      = "assigned_to_attorney",
+        actor_id    = hr_user_id,
+        actor_type  = "hr_admin",
+        note        = None,
+        created_by  = hr_user_id,
+    )
+    await db_create(db, activity)
+ 
+    result = await db.execute(
+        select(Document)
+        .options(joinedload(Document.document_type))
+        .where(Document.id == document_id)
+    )
+    doc = result.scalars().first()
+ 
+    emp_name = "Employee"
+    if app:
+        emp_result = await db.execute(select(User).where(User.id == app.user_id))
+        emp = emp_result.scalars().first()
+        if emp: emp_name = _user_name(emp)
+ 
+    return ApprovalItemResponse(
+        id            = doc.id,
+        title         = doc.document_type.name if doc.document_type else "Document",
+        priority      = _infer_priority(doc, app) if app else ApprovalItemPriority.low,
+        doc_type      = _infer_doc_type(doc.document_type.name if doc.document_type else None),
+        visa_type     = app.visa_type.name if app and app.visa_type else "Immigration",
+        employee_name = emp_name,
+        case_number   = app.application_number if app else "N/A",
+        submitted_ago = _relative_time(doc.created_at),
+        description   = f"{doc.document_type.name if doc.document_type else 'Document'} assigned to attorney.",
+        status        = ApprovalItemStatus.approved,
+        ai_confidence = doc.ocr_confidence or 0,
+        ai_note       = "",
+        extracted_label  = "",
+        extracted_fields = [],
+        action_note      = None,
+        comments         = None,
+        revisions        = None,
+        comment_count    = None,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW — BULK ASSIGN: every verified, not-yet-assigned document on a case,
+# in one action. This is the single button the HR case-detail screen now
+# uses instead of a per-document "Assign to Lawyer" control.
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def hr_assign_all_verified_documents_to_attorney(
+    db:             AsyncSession,
+    hr_user_id:     uuid.UUID,
+    application_id: uuid.UUID,
+) -> dict:
+    """
+    PATCH /hr/cases/{application_id}/documents/assign-all-to-attorney
+
+    Assigns every document on this case that is currently status="verified"
+    AND assigned_to_attorney_at IS NULL. This is the ONE button HR clicks
+    per case — not a button repeated on every document card.
+
+    Idempotent by construction, which is what makes the recurring workflow
+    safe to click as many times as needed:
+      - Click it once → every currently-verified, unassigned document gets
+        assigned_to_attorney_at/_by set, in one pass.
+      - Click it again immediately after, with nothing new verified in the
+        meantime → the query returns zero rows (every verified doc already
+        has assigned_to_attorney_at set), so nothing is touched, no
+        duplicate DocumentActivity rows are written, and the response is
+        {"assigned_count": 0}. There is no way for a document to be
+        assigned twice, because the filter itself excludes anything
+        already assigned.
+      - Employee later uploads a NEW document, HR verifies it (still
+        assigned_to_attorney_at IS NULL at that point) → the NEXT click of
+        this same button picks up ONLY that new document — every
+        previously-assigned document is filtered out by the same
+        assigned_to_attorney_at.is_(None) clause and is left completely
+        alone. HR does not need to hunt for "just the new one"; the query
+        does that automatically every time this is called.
+    """
+    app_result = await db.execute(select(Application).where(Application.id == application_id))
+    application = app_result.scalars().first()
+    if not application:
+        raise HTTPException(status_code=404, detail="Case not found.")
+    if application.assigned_hr_id != hr_user_id:
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    result = await db.execute(
+        select(Document).where(
+            Document.application_id == application_id,
+            Document.status == "verified",
+            Document.assigned_to_attorney_at.is_(None),
+        )
+    )
+    pending_docs = result.scalars().all()
+
+    if not pending_docs:
+        return {
+            "assigned_count": 0,
+            "document_ids": [],
+            "message": "No newly verified documents to assign — everything verified is already with the attorney.",
+        }
+
+    now = datetime.now(timezone.utc)
+    assigned_ids: list[str] = []
+
+    for doc in pending_docs:
+        await db_update(db, Document, doc.id, {
+            "assigned_to_attorney_at": now,
+            "assigned_to_attorney_by": hr_user_id,
+            "modified_by":             hr_user_id,
+        })
+        activity = DocumentActivity(
+            document_id = doc.id,
+            action      = "assigned_to_attorney",
+            actor_id    = hr_user_id,
+            actor_type  = "hr_admin",
+            note        = "Bulk-assigned to attorney.",
+            created_by  = hr_user_id,
+        )
+        await db_create(db, activity)
+        assigned_ids.append(str(doc.id))
+
+    count = len(assigned_ids)
+    return {
+        "assigned_count": count,
+        "document_ids": assigned_ids,
+        "message": f"{count} document{'s' if count != 1 else ''} assigned to the attorney.",
+    }

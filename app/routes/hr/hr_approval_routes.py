@@ -27,6 +27,7 @@ from app.schemas.hr.hr_approval_schemas import (
     BulkApproveRequest,
 )
 from app.services.hr.hr_approval_service import (
+    hr_assign_document_to_attorney,
     hr_list_approvals,
     hr_approve_document,
     hr_request_edits,
@@ -112,3 +113,15 @@ async def api_hr_bulk_approve(
         document_ids = payload.document_ids,
         note         = payload.note,
     )
+
+@hr_approval_router.patch(
+    "/approvals/{document_id}/assign-to-attorney",
+    response_model=ApprovalItemResponse,
+    summary="Assign a verified document to the attorney",
+)
+async def api_assign_document_to_attorney(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user),
+) -> ApprovalItemResponse:
+    return await hr_assign_document_to_attorney(db, current_user.user_id, document_id)
