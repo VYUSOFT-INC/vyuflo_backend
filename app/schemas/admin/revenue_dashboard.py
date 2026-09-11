@@ -462,3 +462,27 @@ class RevenueDashboardFullResponse(BaseModel):
     # failing_payments is included in kpi.failing_payments for banner
     # targets are included in trend.data_points as target_mrr_cents
     generated_at:      datetime
+
+# =============================================================================
+# BY-ORG METRICS — GET /admin/revenue/by-org
+# =============================================================================
+
+class OrgRevenueMetricsItem(BaseModel):
+    employer_id: uuid.UUID
+    company_name: str
+    plan_slug: Optional[str] = None
+    billing_cycle: Optional[str] = None
+    mrr_cents: int = 0
+    employees_total: int = 0
+    employees_active: int = 0
+    employees_inactive: int = 0
+    cases_count: int = 0
+    subscription_status: Optional[str] = None
+
+
+class OrgRevenueMetricsResponse(BaseModel):
+    items: List[OrgRevenueMetricsItem]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int

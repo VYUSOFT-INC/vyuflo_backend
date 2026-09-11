@@ -33,6 +33,7 @@ from app.models.visamodels import (
     Role,
     RolePermission,
     User,
+    UserEmail,
     UserProfile,
     UserRole,
 )
@@ -43,7 +44,7 @@ from app.models.visamodels import (
 # =============================================================================
 
 # The 4 system roles that can never be deleted or renamed
-SYSTEM_ROLES = {"app_admin", "hr", "attorney", "employee"}
+SYSTEM_ROLES = {"super_admin", "org_admin", "app_admin", "hr", "attorney", "employee"}
 
 
 async def service_create_custom_role(
@@ -415,7 +416,7 @@ async def service_update_user_status(
     # Guard 2: if suspending an admin, ensure at least one other active admin exists
     if not is_active:
         admin_role = (
-            await db.execute(select(Role).where(Role.name == "app_admin"))
+            await db.execute(select(Role).where(Role.name == "super_admin"))
         ).scalar_one_or_none()
 # 
         if admin_role:
@@ -628,25 +629,40 @@ async def service_update_user_profile(
 import csv
 import io
 
-ADMIN_ALLOWED_ROLES = ("hr", "app_admin", "employee", "attorney")
+ADMIN_ALLOWED_ROLES = ("hr", "super_admin", "org_admin", "employee", "attorney", "app_admin")
 
 
 async def _get_primary_role_name(db: AsyncSession, user_id: uuid.UUID) -> Optional[str]:
     """A user may hold >1 UserRole row; admin UI treats role as singular —
-    we surface the earliest-assigned one."""
+    we surface the earliest-assigned one. Prefer super_admin / org_admin over legacy."""
     stmt = (
         select(Role.name)
         .join(UserRole, UserRole.role_id == Role.id)
-        .where(UserRole.user_id == user_id)
+        .where(UserRole.user_id == user_id, Role.is_active == True)
         .order_by(UserRole.created_at.asc())
-        .limit(1)
     )
-    return (await db.execute(stmt)).scalar_one_or_none()
+    names = list((await db.execute(stmt)).scalars().all())
+    for preferred in ("super_admin", "org_admin", "app_admin", "hr", "attorney", "employee"):
+        if preferred in names:
+            return preferred
+    return names[0] if names else None
 
 
-async def _get_company_name(db: AsyncSession, user_id: uuid.UUID) -> Optional[str]:
-    """Company comes from employer_profiles (1:1 with users), not a raw
-    column on User — reuses the existing table instead of adding one."""
+async def _get_company_name(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    organization_id: Optional[uuid.UUID] = None,
+) -> Optional[str]:
+    """Prefer the active org's company name when scoped; else owner profile."""
+    if organization_id:
+        name = (
+            await db.execute(
+                select(EmployerProfile.company_name).where(EmployerProfile.id == organization_id)
+            )
+        ).scalar_one_or_none()
+        if name:
+            return name
     return (
         await db.execute(
             select(EmployerProfile.company_name).where(EmployerProfile.user_id == user_id)
@@ -716,9 +732,36 @@ async def service_list_admin_users(
     status_filter: Optional[str],
     page: int,
     limit: int,
+    *,
+    organization_id: Optional[uuid.UUID] = None,
+    hide_platform_users: bool = True,
 ) -> dict:
     """GET /admin/users — spec §A2/§A3"""
+    from app.models.visamodels import OrganizationMember
+
     stmt = select(User)
+
+    if hide_platform_users:
+        stmt = stmt.where(User.is_platform_user == False)  # noqa: E712
+
+    if organization_id:
+        stmt = stmt.join(
+            OrganizationMember,
+            OrganizationMember.user_id == User.id,
+        ).where(
+            OrganizationMember.employer_profile_id == organization_id,
+            OrganizationMember.is_active == True,  # noqa: E712
+        )
+        # Do not surface users who are only org_admins of *other* orgs:
+        # membership filter above is the source of truth. Also hide platform
+        # roles if they somehow appear without is_platform_user.
+        stmt = stmt.where(
+            ~User.id.in_(
+                select(UserRole.user_id)
+                .join(Role, Role.id == UserRole.role_id)
+                .where(Role.name.in_(["super_admin", "app_admin"]))
+            )
+        )
 
     if search:
         pattern = f"%{search}%"
@@ -731,16 +774,20 @@ async def service_list_admin_users(
         )
 
     if role:
+        # Map legacy FE aliases
+        role_name = "super_admin" if role in ("admin", "app_admin") else role
+        if role_name == "lawyer":
+            role_name = "attorney"
         stmt = stmt.join(UserRole, UserRole.user_id == User.id).join(
             Role, Role.id == UserRole.role_id
-        ).where(Role.name == role)
+        ).where(Role.name == role_name)
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await db.execute(count_stmt)).scalar_one()
 
     offset = (page - 1) * limit
     stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(limit)
-    users = (await db.execute(stmt)).scalars().all()
+    users = (await db.execute(stmt)).scalars().unique().all()
 
     items = []
     for u in users:
@@ -753,7 +800,7 @@ async def service_list_admin_users(
             "name": f"{u.first_name} {u.last_name}".strip(),
             "email": u.email,
             "role": role_name,
-            "company": await _get_company_name(db, u.id),
+            "company": await _get_company_name(db, u.id, organization_id=organization_id),
             "status": item_status,
             "lastLogin": u.last_login_at,
         })
@@ -767,18 +814,54 @@ async def service_list_admin_users(
     }
 
 
-async def service_get_admin_user_stats(db: AsyncSession) -> dict:
+async def service_get_admin_user_stats(
+    db: AsyncSession,
+    *,
+    organization_id: Optional[uuid.UUID] = None,
+) -> dict:
     """GET /admin/users/stats — spec §A3. Trend values are placeholders
     (0%/None) until a stats-history table exists to compute real trends."""
-    total_users = (await db.execute(select(func.count()).select_from(User))).scalar_one()
+    from app.models.visamodels import OrganizationMember
+
+    base = select(User.id).where(User.is_platform_user == False)  # noqa: E712
+    if organization_id:
+        base = base.join(
+            OrganizationMember,
+            OrganizationMember.user_id == User.id,
+        ).where(
+            OrganizationMember.employer_profile_id == organization_id,
+            OrganizationMember.is_active == True,  # noqa: E712
+        )
+
+    user_ids_sq = base.subquery()
+
+    total_users = (
+        await db.execute(select(func.count()).select_from(user_ids_sq))
+    ).scalar_one()
     active_accounts = (
-        await db.execute(select(func.count()).where(User.is_active == True))
+        await db.execute(
+            select(func.count())
+            .select_from(User)
+            .where(User.id.in_(select(user_ids_sq.c.id)), User.is_active == True)  # noqa: E712
+        )
     ).scalar_one()
     pending_approval = (
-        await db.execute(select(func.count()).where(User.is_verified == False, User.is_active == True))
+        await db.execute(
+            select(func.count())
+            .select_from(User)
+            .where(
+                User.id.in_(select(user_ids_sq.c.id)),
+                User.is_verified == False,  # noqa: E712
+                User.is_active == True,  # noqa: E712
+            )
+        )
     ).scalar_one()
     suspended = (
-        await db.execute(select(func.count()).where(User.is_active == False))
+        await db.execute(
+            select(func.count())
+            .select_from(User)
+            .where(User.id.in_(select(user_ids_sq.c.id)), User.is_active == False)  # noqa: E712
+        )
     ).scalar_one()
 
     return {
@@ -816,27 +899,48 @@ async def service_create_admin_user(
     created_by: uuid.UUID,
 ) -> dict:
     """POST /admin/users — spec §A2"""
-    existing = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    normalized_email = email.lower().strip()
+    existing = (
+        await db.execute(select(User).where(User.email == normalized_email))
+    ).scalar_one_or_none()
     if existing:
-        raise ConflictException(f"A user with email '{email}' already exists.")
+        raise ConflictException(f"A user with email '{normalized_email}' already exists.")
 
     parts = name.strip().split(" ", 1)
     first_name = parts[0]
     last_name = parts[1] if len(parts) > 1 else ""
+    plain_password = password or "Password!"
 
     user = User(
         id=uuid.uuid4(),
         first_name=first_name,
         last_name=last_name,
-        email=email,
-        password_hash=hash_password(password) if password else None,
+        email=normalized_email,
+        password_hash=hash_password(plain_password),
+        auth_provider="email",
         is_active=True,
-        is_verified=bool(password),
+        is_verified=True,
+        terms_accepted=True,
         created_by=created_by,
         modified_by=created_by,
     )
     db.add(user)
     await db.flush()
+
+    # Login resolves via verified user_emails — must exist or login 401s.
+    db.add(UserEmail(
+        user_id=user.id,
+        email=normalized_email,
+        is_verified=True,
+        is_primary=True,
+        source="signup",
+    ))
+    db.add(UserProfile(
+        user_id=user.id,
+        full_legal_name=name.strip() or f"{first_name} {last_name}".strip(),
+        onboarding_step=4,
+        onboarding_completed=True,
+    ))
 
     await _set_user_role(db, user.id, role, created_by)
     if company:
@@ -860,11 +964,44 @@ async def service_update_admin_user(
     if not user:
         raise NotFoundException(f"User '{user_id}' not found.")
 
-    if email is not None and email != user.email:
-        clash = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-        if clash:
-            raise ConflictException(f"A user with email '{email}' already exists.")
-        user.email = email
+    if email is not None:
+        normalized_email = email.lower().strip()
+        if normalized_email != (user.email or "").lower():
+            clash = (
+                await db.execute(select(User).where(User.email == normalized_email))
+            ).scalar_one_or_none()
+            if clash:
+                raise ConflictException(f"A user with email '{normalized_email}' already exists.")
+            old_email = (user.email or "").lower().strip()
+            user.email = normalized_email
+            # Keep login identifier in sync with users.email
+            primary = (
+                await db.execute(
+                    select(UserEmail).where(
+                        UserEmail.user_id == user_id,
+                        UserEmail.is_primary == True,
+                    )
+                )
+            ).scalar_one_or_none()
+            if primary:
+                primary.email = normalized_email
+                primary.is_verified = True
+            else:
+                by_old = (
+                    await db.execute(select(UserEmail).where(UserEmail.email == old_email))
+                ).scalar_one_or_none() if old_email else None
+                if by_old and by_old.user_id == user_id:
+                    by_old.email = normalized_email
+                    by_old.is_verified = True
+                    by_old.is_primary = True
+                else:
+                    db.add(UserEmail(
+                        user_id=user_id,
+                        email=normalized_email,
+                        is_verified=True,
+                        is_primary=True,
+                        source="signup",
+                    ))
 
     if name is not None:
         parts = name.strip().split(" ", 1)
@@ -918,7 +1055,7 @@ async def service_update_admin_user_status(
 
     if not new_is_active:
         admin_role = (
-            await db.execute(select(Role).where(Role.name == "app_admin"))
+            await db.execute(select(Role).where(Role.name == "super_admin"))
         ).scalar_one_or_none()
         if admin_role:
             is_admin_user = (
@@ -1013,11 +1150,15 @@ async def service_export_admin_users_csv(
     search: Optional[str],
     role: Optional[str],
     status_filter: Optional[str],
+    *,
+    organization_id: Optional[uuid.UUID] = None,
 ) -> str:
     """GET /admin/users/export — spec §A6. Returns raw CSV text."""
     result = await service_list_admin_users(
         db=db, search=search, role=role, status_filter=status_filter,
         page=1, limit=100000,
+        organization_id=organization_id,
+        hide_platform_users=True,
     )
 
     buf = io.StringIO()
@@ -1030,3 +1171,88 @@ async def service_export_admin_users_csv(
             item["lastLogin"].isoformat() if item["lastLogin"] else "",
         ])
     return buf.getvalue()
+
+
+# =============================================================================
+# ADMIN RESET PASSWORD
+# POST /admin/users/{user_id}/reset-password
+# =============================================================================
+
+async def service_admin_reset_password(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    send_email: bool = True,
+    temporary_password: Optional[str] = None,
+    actor_id: Optional[uuid.UUID] = None,
+) -> dict:
+    """
+    Admin resets a user's password.
+
+    Paths:
+      1) temporary_password provided -> hash+set; optionally email the temp password.
+         reset_method = "temporary_password"
+      2) temporary_password omitted + send_email=true -> existing
+         service_request_password_reset OTP email flow.
+         reset_method = "email_link"
+      3) temporary_password omitted + send_email=false -> BadRequest
+    """
+    from app.core.email import send_email
+    from app.services.employee.auth_services import service_request_password_reset
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise NotFoundException("User not found.")
+
+    if temporary_password is None and not send_email:
+        raise BadRequestException(
+            "Provide temporary_password or set send_email=true to trigger the reset email flow."
+        )
+
+    email_sent = False
+    reset_method = "email_link"
+
+    if temporary_password is not None:
+        reset_method = "temporary_password"
+        user.password_hash = hash_password(temporary_password)
+        # Invalidate existing sessions
+        user.token_version = (user.token_version or 0) + 1
+        user.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(user)
+
+        if send_email:
+            await send_email(
+                to=user.email,
+                subject="Your Vyuflo temporary password",
+                body=(
+                    "An administrator set a temporary password for your Vyuflo account.\n\n"
+                    f"Temporary password: {temporary_password}\n\n"
+                    "Please sign in and change it immediately."
+                ),
+            )
+            email_sent = True
+    else:
+        # Existing password-reset request / email OTP flow
+        token = await service_request_password_reset(db, email=user.email)
+        if token and send_email:
+            plain_otp = getattr(token, "_plain_otp", None)
+            if plain_otp:
+                await send_email(
+                    to=user.email,
+                    subject="Your Vyuflo password reset code",
+                    body=(
+                        f"Your Vyuflo password reset code is:\n\n{plain_otp}\n\n"
+                        "Expires shortly. If you did not request this, contact support."
+                    ),
+                )
+                email_sent = True
+        reset_method = "email_link"
+
+    return {
+        "user_id": user.id,
+        "email": user.email,
+        "email_sent": email_sent,
+        "reset_method": reset_method,
+    }

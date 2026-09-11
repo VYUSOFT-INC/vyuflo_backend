@@ -26,8 +26,9 @@ Depends(PermissionChecker(["roles.manage", "permissions.manage"]))
 Depends(PermissionChecker(["applications.view_all", "applications.view_own"], require_all=False))
 
 # Pre-built aliases (import and use directly):
-AdminOnly        = Depends(RoleChecker(["app_admin"]))
-AdminOrHR        = Depends(RoleChecker(["app_admin", "hr"]))
+AdminOnly        = Depends(RoleChecker(["super_admin", "app_admin"]))
+AdminOrHR        = Depends(RoleChecker(["super_admin", "app_admin", "hr"]))
+AdminConsole     = Depends(RoleChecker(["super_admin", "app_admin", "org_admin"]))
 """
 
 from typing import Annotated, Union
@@ -193,7 +194,7 @@ class RoleChecker:
     Dependency that checks the user's roles from the JWT payload.
     Use when a role check is sufficient and a DB round-trip is not needed.
 
-    Example: Depends(RoleChecker(["app_admin"]))
+    Example: Depends(RoleChecker(["super_admin"]))
     """
 
     def __init__(self, allowed_roles: list[str]):
@@ -215,8 +216,9 @@ class RoleChecker:
 # =============================================================================
 
 # Role-based (JWT, no DB hit)
-AdminOnly  = Annotated[CurrentUserData, Depends(RoleChecker(["app_admin"]))]
-AdminOrHR  = Annotated[CurrentUserData, Depends(RoleChecker(["app_admin", "hr"]))]
+AdminOnly     = Annotated[CurrentUserData, Depends(RoleChecker(["super_admin", "app_admin"]))]
+AdminOrHR     = Annotated[CurrentUserData, Depends(RoleChecker(["super_admin", "app_admin", "hr"]))]
+AdminConsole  = Annotated[CurrentUserData, Depends(RoleChecker(["super_admin", "app_admin", "org_admin"]))]
 
 # Permission-based (DB hit — always fresh)
 CanManageUsers       = Annotated[CurrentUserData, Depends(PermissionChecker("users.manage"))]
@@ -238,3 +240,7 @@ CanSendMessages        = Annotated[CurrentUserData, Depends(PermissionChecker("m
 CanManageBilling       = Annotated[CurrentUserData, Depends(PermissionChecker("billing.manage"))]
 CanExportReports       = Annotated[CurrentUserData, Depends(PermissionChecker("reports.export"))]
 CanManageAdminData     = Annotated[CurrentUserData, Depends(PermissionChecker("admin.data.manage"))]
+CanManageOrgs          = Annotated[CurrentUserData, Depends(PermissionChecker("orgs.manage"))]
+CanViewAllOrgs         = Annotated[CurrentUserData, Depends(PermissionChecker("orgs.view_all"))]
+CanSwitchOrgs          = Annotated[CurrentUserData, Depends(PermissionChecker("orgs.switch"))]
+CanManageSuperAdmins   = Annotated[CurrentUserData, Depends(PermissionChecker("admins.super.manage"))]

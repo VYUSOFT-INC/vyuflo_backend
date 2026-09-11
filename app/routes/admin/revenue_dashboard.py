@@ -42,21 +42,23 @@ ROUTE ORDER NOTE:
 """
 
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Query, status
+from fastapi import Depends, APIRouter, Query, status
 from fastapi.responses import StreamingResponse
 
 from app.core.dependencies import Current_User, DBSession
-from app.core.core_permissions import PermissionChecker
+from app.core.org_scope import require_platform_console_dep
 
 # ── Schema imports ─────────────────────────────────────────────────────────────
 from app.schemas.admin.revenue_dashboard import (
     DateRangeFilter,
     ExportReportRequest,
     FailingPaymentsDetailResponse,
+    OrgRevenueMetricsResponse,
     PlanDistributionResponse,
     RecentTransactionsResponse,
     RevenueDashboardFullResponse,
@@ -77,13 +79,14 @@ from app.services.admin.revenue_dashboard_service import (
     service_get_full_dashboard,
     service_get_plan_distribution,
     service_get_recent_transactions,
+    service_get_revenue_by_org,
     service_get_revenue_kpis,
     service_get_revenue_trend,
     service_get_trial_conversions,
     service_list_targets,
 )
 
-revenue_dashboard_router = APIRouter()
+revenue_dashboard_router = APIRouter(dependencies=[Depends(require_platform_console_dep)])
 
 # ── Permission guards (same names as subscription.py — no new permissions needed)
 _admin_only   = PermissionChecker("subscriptions.manage")
@@ -423,3 +426,32 @@ async def list_revenue_targets(
     targets = await service_list_targets(db, months_back=months_back, months_ahead=months_ahead)
     items = [_build_target_response(t) for t in targets]
     return RevenueTargetListResponse(items=items, total=len(items))
+
+
+# =============================================================================
+# BY-ORG METRICS
+# GET /admin/revenue/by-org
+# =============================================================================
+
+@revenue_dashboard_router.get(
+    "/admin/revenue/by-org",
+    response_model=OrgRevenueMetricsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Revenue & workforce metrics by employer org",
+    description=(
+        "One row per employer_profiles org: plan, billing cycle, MRR, "
+        "employee tallies, case count, subscription status. "
+        "Same permission gate as sibling revenue read routes "
+        "(subscriptions.manage | subscriptions.view)."
+    ),
+)
+async def get_revenue_by_org(
+    db: DBSession,
+    _: Current_User = _view_billing,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None, description="Filter by company_name"),
+) -> OrgRevenueMetricsResponse:
+    return await service_get_revenue_by_org(
+        db, page=page, page_size=page_size, search=search,
+    )

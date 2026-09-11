@@ -4,7 +4,6 @@ FastAPI router for HR-initiated case management.
 
 Mount in main.py:
     from app.routes.hr_case_routes import hr_case_router
-from app.core.core_permissions import PermissionChecker
     app.include_router(hr_case_router, prefix="/api/v1/hr", tags=["HR Cases"])
 
 Resulting endpoints:
@@ -18,6 +17,7 @@ Resulting endpoints:
 """
 
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 from typing import List, Optional

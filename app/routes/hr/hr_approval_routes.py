@@ -14,6 +14,7 @@
 import uuid
 from typing import Optional
 
+from app.core.core_permissions import PermissionChecker
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +27,6 @@ from app.schemas.hr.hr_approval_schemas import (
     RequestEditsRequest,
     BulkApproveRequest,
 )
-from app.core.core_permissions import PermissionChecker
 from app.services.hr.hr_approval_service import (
     hr_list_approvals,
     hr_approve_document,

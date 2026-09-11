@@ -4,13 +4,13 @@ import os
 import uuid
 from typing import Annotated, Optional
 
+from app.core.core_permissions import PermissionChecker
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
 from fastapi.responses import FileResponse
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.core_permissions import PermissionChecker
 from app.core.database import get_db
 from app.core.dependencies import CurrentUserData, get_current_user
 from app.models.visamodels import User

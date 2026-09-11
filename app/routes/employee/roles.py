@@ -21,6 +21,7 @@ Exposes everything the admin "Roles & Permissions" screen calls:
 """
 
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 
@@ -41,7 +42,6 @@ from app.schemas.employee.role import (
     RoleResponse,
     RoleUpdate,
 )
-from app.core.core_permissions import PermissionChecker
 
 roles_router = APIRouter(tags=["Roles & Permissions"])
 

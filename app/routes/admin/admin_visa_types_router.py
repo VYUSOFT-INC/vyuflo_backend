@@ -24,15 +24,15 @@ NOTE: Route ORDER matters in FastAPI.
 ──────────────────────────────────────────────────────────────────────────────
 """
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Query, status
+from fastapi import Depends, APIRouter, Query, status
 from fastapi.responses import StreamingResponse
 
 from app.core.dependencies import Current_User, DBSession
-from app.core.core_permissions import PermissionChecker
 from app.schemas.admin.visa_type import (
     VisaTypeCreate,
     VisaTypeListResponse,

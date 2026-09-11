@@ -1,7 +1,7 @@
 # =============================================================================
 # new_models.py — VisaFlow Complete SQLAlchemy Models
 # Production-ready — 70 tables covering all 4 roles
-# Roles: employee · attorney · hr · app_admin
+# Roles: employee · attorney · hr · org_admin · super_admin
 # =============================================================================
 
 import uuid
@@ -42,6 +42,8 @@ class User(Base):
     is_active   = Column(Boolean, default=True,  nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
     is_phone_verified = Column(Boolean, default=False, nullable=False)
+    # Platform-only users (super_admin). Hidden from org-scoped user lists.
+    is_platform_user = Column(Boolean, default=False, nullable=False, index=True)
     terms_accepted    = Column(Boolean,  nullable=False, default=False)
     terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
     marketing_opt_in  = Column(Boolean,  default=False, nullable=False)
@@ -2192,6 +2194,52 @@ class EmployerProfile(Base):
     employees   = relationship("EmployerEmployee",
                                foreign_keys="EmployerEmployee.employer_profile_id",
                                back_populates="employer_profile")
+    members     = relationship("OrganizationMember",
+                               foreign_keys="OrganizationMember.employer_profile_id",
+                               back_populates="employer_profile")
+
+
+# =============================================================================
+# TABLE 41b — organization_members
+# Many users per employer_profile (org), with an org-scoped role label.
+# =============================================================================
+
+class OrganizationMember(Base):
+    __tablename__ = "organization_members"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    employer_profile_id = Column(
+        UUID(as_uuid=True), ForeignKey("employer_profiles.id"),
+        nullable=False, index=True,
+    )
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id"),
+        nullable=False, index=True,
+    )
+    # org_admin | hr | employee | attorney
+    org_role = Column(String(50), nullable=False, index=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("employer_profile_id", "user_id", name="uq_org_member_profile_user"),
+        Index("ix_org_members_user_active", "user_id", "is_active"),
+    )
+
+    employer_profile = relationship(
+        "EmployerProfile",
+        foreign_keys=[employer_profile_id],
+        back_populates="members",
+    )
+    user = relationship("User", foreign_keys=[user_id])
 
 
 # =============================================================================
@@ -2619,6 +2667,7 @@ class SubscriptionPlan(Base):
     max_applications = Column(Integer, nullable=True)
     max_documents    = Column(Integer, nullable=True)
     max_messages     = Column(Integer, nullable=True)
+    max_employees    = Column(Integer, nullable=True)  # null = unlimited
 
     stripe_product_id       = Column(String(255), nullable=True)
     stripe_price_id_monthly = Column(String(255), nullable=True)

@@ -29,7 +29,9 @@ class TokenResponse(BaseModel):
     tour_hr_seen:       bool = False
     tour_attorney_seen: bool = False
     tour_admin_seen:    bool = False
-    
+    active_organization_id: Optional[str] = None
+    organization_ids: list[str] = []
+    is_super_admin: bool = False
 
 
 class RefreshTokenRequest(BaseModel):
@@ -37,10 +39,12 @@ class RefreshTokenRequest(BaseModel):
 
     
 class UserRoleName(str, Enum):
-    APP_ADMIN = "app_admin"
-    HR        = "hr"
-    EMPLOYEE  = "employee"
-    ATTORNEY  = "attorney"
+    SUPER_ADMIN = "super_admin"
+    ORG_ADMIN   = "org_admin"
+    APP_ADMIN   = "app_admin"  # legacy — migrated to super_admin
+    HR          = "hr"
+    EMPLOYEE    = "employee"
+    ATTORNEY    = "attorney"
 
 # ── Login ─────────────────────────────────────────────────────────────────────
 class LoginRequest(BaseModel):

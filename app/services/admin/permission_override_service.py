@@ -9,8 +9,38 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.core_permissions import get_permission_breakdown
-from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.models.visamodels import AuditLog, Permission, User, UserPermissionOverride
+
+# Org admins may not grant/deny these via per-user overrides.
+PLATFORM_ONLY_PERMISSION_CODES = frozenset({
+    "admins.super.manage",
+    "orgs.view_all",
+    "orgs.manage",
+    "orgs.switch",
+    "admin.data.manage",
+    "settings.manage",
+    "roles.manage",
+    "permissions.manage",
+    "subscriptions.manage",
+    "subscriptions.view",
+    "billing.manage",
+    "reports.view_all",
+    "reports.export",
+    "notifications.view_all",
+    "notifications.manage_templates",
+    "notifications.manage",
+    "visa_types.manage",
+})
+
+
+def assert_org_safe_override_codes(codes: Iterable[str]) -> None:
+    blocked = sorted(set(codes) & PLATFORM_ONLY_PERMISSION_CODES)
+    if blocked:
+        raise ForbiddenException(
+            "These permissions are platform-only and cannot be overridden "
+            f"in an organization: {', '.join(blocked)}"
+        )
 
 
 async def _get_user_or_404(db: AsyncSession, user_id: uuid.UUID) -> User:
@@ -46,6 +76,8 @@ async def replace_overrides(
     user_id: uuid.UUID,
     overrides: Iterable[dict],
     actor_id: uuid.UUID,
+    *,
+    org_scoped: bool = False,
 ) -> list[dict]:
     await _get_user_or_404(db, user_id)
     overrides = list(overrides)
@@ -54,6 +86,8 @@ async def replace_overrides(
     codes = [o["code"] for o in overrides]
     if len(codes) != len(set(codes)):
         raise BadRequestException("Duplicate permission codes in overrides payload.")
+    if org_scoped:
+        assert_org_safe_override_codes(codes)
 
     perm_map: dict[str, Permission] = {}
     if codes:

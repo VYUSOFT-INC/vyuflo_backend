@@ -1,5 +1,6 @@
 # src/api/messages/router.py
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 from typing import Optional
@@ -18,7 +19,6 @@ from app.schemas.employee.message import (
     ThreadListResponse,
     ThreadResponse,
 )
-from app.core.core_permissions import PermissionChecker
 from app.services.employee.message_service import (
     create_thread,
     get_thread,

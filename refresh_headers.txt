@@ -1,0 +1,10 @@
+HTTP/1.1 200 OK
+date: Fri, 11 Sep 2026 04:39:10 GMT
+server: uvicorn
+content-length: 552
+content-type: application/json
+set-cookie: refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxODk4YTkyMC1hNGZiLTQ3YTgtYTNhYy05MDFhNDQ3NWFkZjQiLCJzZXNzaW9uX2lkIjoiYmZiNTg0MTYtNjFmYy00N2Y2LThhMjEtNjZkMGYyNmY2NGNkIiwidHlwZSI6InJlZnJlc2giLCJleHAiOjE3ODk3MDYzNTF9.hv-2HtIH5-ShFvlYMXwyi-4USc1davvlb81P0BZW58U; HttpOnly; Max-Age=604800; Path=/api/v1/auth; SameSite=lax
+access-control-allow-credentials: true
+access-control-allow-origin: http://localhost:5174
+vary: Origin
+

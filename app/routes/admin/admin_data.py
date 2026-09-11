@@ -9,13 +9,14 @@ Admin Data browser routes (RBAC P2).
     DELETE /api/v1/admin/data/{table}/{id}
 """
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
-from app.core.core_permissions import PermissionChecker
 from app.core.dependencies import CurrentUserData, DBSession
+from app.core.org_scope import require_platform_console_dep
 from app.schemas.admin.admin_data import (
     AdminDataRowResponse,
     AdminDataRowsResponse,
@@ -25,7 +26,11 @@ from app.schemas.admin.admin_data import (
 )
 from app.services.admin import admin_data_service as svc
 
-admin_data_router = APIRouter(prefix="/admin/data", tags=["Admin — Data Browser"])
+admin_data_router = APIRouter(
+    prefix="/admin/data",
+    tags=["Admin — Data Browser"],
+    dependencies=[Depends(require_platform_console_dep)],
+)
 
 
 @admin_data_router.get(
@@ -108,6 +113,7 @@ async def patch_table_row(
 @admin_data_router.delete(
     "/{table_name}/{row_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Delete a row",
 )
 async def delete_table_row(
@@ -115,5 +121,6 @@ async def delete_table_row(
     row_id: str,
     db: DBSession,
     current_user: CurrentUserData = Depends(PermissionChecker("admin.data.manage")),
-) -> None:
+):
     await svc.delete_row(db, table_name, row_id, current_user.user_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

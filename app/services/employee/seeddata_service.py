@@ -166,6 +166,15 @@ from app.models.visamodels import (
     Role,
     Permission,
     RolePermission,
+    UserRole,
+    User,
+    UserProfile,
+    UserEmail,
+    EmployerProfile,
+    EmployerEmployee,
+    EmployerFirmConnection,
+    AttorneyProfile,
+    OrganizationMember,
     VisaType,
     DocumentType,
     SubscriptionPlan,
@@ -247,6 +256,306 @@ async def seed_rbac(db: AsyncSession):
 
     await db.commit()
     print("✅ RBAC seeded")
+
+    await _sync_org_admin_permissions(db)
+
+
+async def _sync_org_admin_permissions(db: AsyncSession) -> None:
+    """
+    Org admins must not keep platform billing/pricing permissions.
+    Seed only inserts RolePermission rows — this revoke keeps org_admin in sync.
+    """
+    from app.models.seeds import ORG_ADMIN_PERMISSIONS
+
+    role = (
+        await db.execute(select(Role).where(Role.name == "org_admin"))
+    ).scalar_one_or_none()
+    if not role:
+        return
+
+    allowed = set(ORG_ADMIN_PERMISSIONS)
+    rows = (
+        await db.execute(
+            select(RolePermission, Permission)
+            .join(Permission, Permission.id == RolePermission.permission_id)
+            .where(RolePermission.role_id == role.id)
+        )
+    ).all()
+
+    revoked = 0
+    for rp, perm in rows:
+        if perm.code not in allowed:
+            await db.delete(rp)
+            revoked += 1
+
+    # Ensure billing.subscribe is present
+    sub_perm = (
+        await db.execute(select(Permission).where(Permission.code == "billing.subscribe"))
+    ).scalar_one_or_none()
+    if sub_perm:
+        existing = (
+            await db.execute(
+                select(RolePermission).where(
+                    RolePermission.role_id == role.id,
+                    RolePermission.permission_id == sub_perm.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not existing:
+            db.add(RolePermission(
+                id=uuid.uuid4(),
+                role_id=role.id,
+                permission_id=sub_perm.id,
+            ))
+
+    await db.commit()
+    if revoked:
+        print(f"✅ org_admin permissions synced (revoked {revoked})")
+
+
+# =============================================================================
+# migrate_app_admin_to_super_admin
+# Idempotent: move user_roles from legacy app_admin → super_admin.
+# =============================================================================
+
+async def migrate_app_admin_to_super_admin(db: AsyncSession):
+    super_role = (
+        await db.execute(select(Role).where(Role.name == "super_admin"))
+    ).scalar_one_or_none()
+    legacy = (
+        await db.execute(select(Role).where(Role.name == "app_admin"))
+    ).scalar_one_or_none()
+    if not super_role or not legacy:
+        return
+
+    legacy_urs = (
+        await db.execute(select(UserRole).where(UserRole.role_id == legacy.id))
+    ).scalars().all()
+    migrated = 0
+    for ur in legacy_urs:
+        existing = (
+            await db.execute(
+                select(UserRole).where(
+                    UserRole.user_id == ur.user_id,
+                    UserRole.role_id == super_role.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not existing:
+            db.add(UserRole(
+                id=uuid.uuid4(),
+                user_id=ur.user_id,
+                role_id=super_role.id,
+                assigned_by=ur.assigned_by,
+                created_by=ur.created_by,
+                modified_by=ur.modified_by,
+            ))
+            migrated += 1
+        await db.delete(ur)
+
+    # Mark platform users
+    platform_users = (
+        await db.execute(
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .where(UserRole.role_id == super_role.id)
+        )
+    ).scalars().unique().all()
+    for u in platform_users:
+        if not getattr(u, "is_platform_user", False):
+            u.is_platform_user = True
+
+    # Deactivate legacy role so it is not reassigned
+    legacy.is_active = False
+
+    await db.commit()
+    print(f"✅ Migrated app_admin → super_admin ({migrated} role rows)")
+
+
+# =============================================================================
+# seed_super_admin_user
+# Ensures superadmin@vyuflo.com and admin@vyuflo.com exist as super_admin.
+# Password matches other local test accounts: "password"
+# =============================================================================
+
+SUPER_ADMIN_EMAIL = "superadmin@vyuflo.com"
+LEGACY_ADMIN_EMAIL = "admin@vyuflo.com"
+SEED_ADMIN_PASSWORD = "password"
+
+
+async def seed_super_admin_user(db: AsyncSession):
+    from app.core.security import hash_password
+
+    role = (
+        await db.execute(select(Role).where(Role.name == "super_admin"))
+    ).scalar_one_or_none()
+    if not role:
+        print("⚠️  super_admin role missing — skip seed_super_admin_user")
+        return
+
+    async def _ensure_user(email: str, first: str, last: str) -> None:
+        user = (
+            await db.execute(select(User).where(User.email == email))
+        ).scalar_one_or_none()
+        if user is None:
+            user = User(
+                id=uuid.uuid4(),
+                first_name=first,
+                last_name=last,
+                email=email,
+                password_hash=hash_password(SEED_ADMIN_PASSWORD),
+                auth_provider="email",
+                is_active=True,
+                is_verified=True,
+                terms_accepted=True,
+                is_platform_user=True,
+            )
+            db.add(user)
+            await db.flush()
+            print(f"  CREATED {email}")
+        else:
+            user.password_hash = hash_password(SEED_ADMIN_PASSWORD)
+            user.is_active = True
+            user.is_verified = True
+            user.terms_accepted = True
+            user.is_platform_user = True
+            print(f"  UPDATED {email}")
+
+        profile = (
+            await db.execute(select(UserProfile).where(UserProfile.user_id == user.id))
+        ).scalar_one_or_none()
+        if profile is None:
+            db.add(UserProfile(
+                user_id=user.id,
+                full_legal_name=f"{first} {last}",
+                onboarding_step=4,
+                onboarding_completed=True,
+            ))
+        else:
+            profile.onboarding_step = 4
+            profile.onboarding_completed = True
+
+        # Login resolves via user_emails (verified), not users.email alone.
+        linked = (
+            await db.execute(
+                select(UserEmail).where(UserEmail.email == email.lower().strip())
+            )
+        ).scalar_one_or_none()
+        if linked is None:
+            db.add(UserEmail(
+                user_id=user.id,
+                email=email.lower().strip(),
+                is_verified=True,
+                is_primary=True,
+                source="signup",
+            ))
+            print(f"  CREATED_USER_EMAIL {email}")
+        else:
+            linked.user_id = user.id
+            linked.is_verified = True
+            linked.is_primary = True
+            print(f"  USER_EMAIL_OK {email}")
+
+        ur = (
+            await db.execute(
+                select(UserRole).where(
+                    UserRole.user_id == user.id,
+                    UserRole.role_id == role.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if ur is None:
+            others = (
+                await db.execute(select(UserRole).where(UserRole.user_id == user.id))
+            ).scalars().all()
+            for o in others:
+                await db.delete(o)
+            db.add(UserRole(user_id=user.id, role_id=role.id))
+
+    await _ensure_user(SUPER_ADMIN_EMAIL, "Vyuflo", "SuperAdmin")
+    await _ensure_user(LEGACY_ADMIN_EMAIL, "Vyuflo", "Admin")
+    await db.commit()
+    print(f"✅ Super admin ready: {SUPER_ADMIN_EMAIL} / {SEED_ADMIN_PASSWORD}")
+
+
+# =============================================================================
+# backfill_organization_members
+# Owners → org_admin; employer_employees → employee; firm connections → attorney
+# =============================================================================
+
+async def backfill_organization_members(db: AsyncSession):
+    async def _upsert(profile_id, user_id, org_role: str) -> bool:
+        existing = (
+            await db.execute(
+                select(OrganizationMember).where(
+                    OrganizationMember.employer_profile_id == profile_id,
+                    OrganizationMember.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            if not existing.is_active:
+                existing.is_active = True
+            # Prefer higher privilege if already present
+            rank = {"employee": 1, "attorney": 2, "hr": 3, "org_admin": 4}
+            if rank.get(org_role, 0) > rank.get(existing.org_role, 0):
+                existing.org_role = org_role
+            return False
+        db.add(OrganizationMember(
+            id=uuid.uuid4(),
+            employer_profile_id=profile_id,
+            user_id=user_id,
+            org_role=org_role,
+            is_active=True,
+        ))
+        return True
+
+    added = 0
+    profiles = (await db.execute(select(EmployerProfile))).scalars().all()
+    for ep in profiles:
+        if await _upsert(ep.id, ep.user_id, "org_admin"):
+            added += 1
+
+    links = (await db.execute(select(EmployerEmployee))).scalars().all()
+    for link in links:
+        if link.employer_profile_id and link.employee_id:
+            if await _upsert(link.employer_profile_id, link.employee_id, "employee"):
+                added += 1
+        # Also ensure the HR owner link is present as hr if not already org_admin
+        if link.employer_profile_id and link.employer_id:
+            existing = (
+                await db.execute(
+                    select(OrganizationMember).where(
+                        OrganizationMember.employer_profile_id == link.employer_profile_id,
+                        OrganizationMember.user_id == link.employer_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                if await _upsert(link.employer_profile_id, link.employer_id, "hr"):
+                    added += 1
+
+    # Attorneys connected via employer_firm_connections
+    conns = (
+        await db.execute(
+            select(EmployerFirmConnection).where(EmployerFirmConnection.is_active == True)
+        )
+    ).scalars().all()
+    for conn in conns:
+        attorneys = (
+            await db.execute(
+                select(AttorneyProfile).where(
+                    AttorneyProfile.firm_id == conn.firm_id,
+                    AttorneyProfile.is_active == True,
+                )
+            )
+        ).scalars().all()
+        for ap in attorneys:
+            if await _upsert(conn.employer_profile_id, ap.user_id, "attorney"):
+                added += 1
+
+    await db.commit()
+    print(f"✅ Organization members backfilled (+{added})")
 
 
 # =============================================================================
@@ -349,6 +658,7 @@ async def seed_subscription_plans(db: AsyncSession):
             max_applications=plan_data.get("max_applications"),
             max_documents=plan_data.get("max_documents"),
             max_messages=plan_data.get("max_messages"),
+            max_employees=plan_data.get("max_employees"),
             is_active=plan_data.get("is_active", True),
             is_public=plan_data.get("is_public", True),
             is_featured=plan_data.get("is_featured", False),

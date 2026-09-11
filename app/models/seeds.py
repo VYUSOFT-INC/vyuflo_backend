@@ -7,8 +7,14 @@ import json
 
 ROLES_SEED = [
     {
-        "name": "app_admin",
-        "description": "Full system administrator. Can manage users, roles, visa types, content, and support.",
+        "name": "super_admin",
+        "description": "Platform super administrator. Manages all organizations, org admins, and system-wide settings.",
+        "is_active": True,
+        "is_system": True,
+    },
+    {
+        "name": "org_admin",
+        "description": "Organization administrator. Manages users within their organization and can subscribe to plans (cannot edit pricing).",
         "is_active": True,
         "is_system": True,
     },
@@ -100,10 +106,17 @@ PERMISSIONS_SEED = [
     {"code": "settings.view",   "module": "settings",  "description": "View system settings",                            "is_system": True},
     {"code": "settings.manage", "module": "settings",  "description": "Modify system settings and security config",      "is_system": True},
     {"code": "billing.manage",  "module": "settings",  "description": "Manage subscriptions, pricing, and billing",      "is_system": True},
+    {"code": "billing.subscribe", "module": "settings", "description": "View public plans and subscribe (no plan edit)", "is_system": True},
     # --- RBAC P0 additions -------------------------------------------------
     {"code": "admin.data.manage",    "module": "admin", "description": "Access Admin Data browser (raw table CRUD)", "is_system": True},
     {"code": "hr.invite",            "module": "hr",    "description": "Invite employees by email/code/link",         "is_system": True},
     {"code": "hr.approvals.manage",  "module": "hr",    "description": "Approve, request edits, and bulk-approve HR documents", "is_system": True},
+
+    # --- Super admin / organization tenancy --------------------------------
+    {"code": "orgs.view_all",        "module": "orgs",  "description": "List and view all organizations",            "is_system": True},
+    {"code": "orgs.manage",          "module": "orgs",  "description": "Create and update organizations and org admins", "is_system": True},
+    {"code": "orgs.switch",          "module": "orgs",  "description": "Switch into an organization context (super admin)", "is_system": True},
+    {"code": "admins.super.manage",  "module": "admin", "description": "Create and manage platform super admins",    "is_system": True},
 
 ]
 
@@ -112,10 +125,36 @@ PERMISSIONS_SEED = [
 # 3. ROLE_PERMISSIONS — which role gets which permission codes
 # =============================================================================
 
+ORG_ADMIN_PERMISSIONS = [
+    "dashboard.view_own",
+    "dashboard.view_analytics",
+    "applications.view_all",
+    "applications.update_status",
+    "applications.add_comments",
+    "documents.view_all",
+    "documents.verify",
+    "users.view_own_profile",
+    "users.view_all",
+    "users.manage",
+    "visa_types.view",
+    "messages.send",
+    "messages.view_all_threads",
+    "notifications.view",
+    "support.view_all_tickets",
+    "support.manage_tickets",
+    "billing.subscribe",
+    "permissions.manage",
+    "hr.invite",
+    "hr.approvals.manage",
+]
+
 ROLE_PERMISSIONS_SEED = {
 
-    # app_admin gets ALL permissions
-    "app_admin": [p["code"] for p in PERMISSIONS_SEED],
+    # Platform super admin gets ALL permissions
+    "super_admin": [p["code"] for p in PERMISSIONS_SEED],
+
+    # Org-scoped admin — no platform data browser, global settings write, or super-admin create
+    "org_admin": ORG_ADMIN_PERMISSIONS,
 
     "hr": [
         "dashboard.view_own",
@@ -1658,17 +1697,6 @@ SYSTEM_SETTINGS_SEED = [
         "is_public": True,
         "is_readonly": False,
         "display_order": 1,
-    },
-    {
-    "key": "invitations.default_expiry_days",
-    "value": "7",
-    "value_type": "integer",
-    "setting_group": "invitations",
-    "label": "Invitation Link Expiry (days)",
-    "description": "Default number of days an HR invitation link stays valid before expiring.",
-    "is_public": False,
-    "is_readonly": False,
-    "display_order": 0,
     },
     {
     "key": "invitations.default_expiry_days",

@@ -10,15 +10,16 @@ role_filter accepts NATIVE role names: hr | app_admin | employee | attorney | al
 """
 
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, status, Depends
 
 from app.core.dependencies import Current_User, DBSession
-from app.core.core_permissions import PermissionChecker
+from app.core.org_scope import require_platform_console_dep
 from app.schemas.admin.notifications_reminders import AdminNotificationListResponse
 from app.schemas.attorney.notifications_reminders import ReminderListResponse, TabCountsResponse
 from app.services.admin import admin_notifications_service
@@ -26,6 +27,7 @@ from app.services.admin import admin_notifications_service
 admin_notifications_router = APIRouter(
     prefix="/admin/notifications-reminders",
     tags=["Admin — Notifications"],
+    dependencies=[Depends(require_platform_console_dep)],
 )
 
 _require_view = PermissionChecker("notifications.view_all")

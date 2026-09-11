@@ -21,14 +21,15 @@ Endpoints:
   DELETE /notification-templates/{template_id}           — soft-delete (is_active=False)
 """
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, status, Depends
 
 from app.core.dependencies import Current_User, DBSession
-from app.core.core_permissions import PermissionChecker
+from app.core.org_scope import require_platform_console_dep
 from app.schemas.admin.notification_template import (
     NotificationTemplateCreate,
     NotificationTemplateListResponse,
@@ -46,7 +47,7 @@ from app.services.admin.notification_template import (
     service_update_template,
 )
 
-notification_templates_router = APIRouter()
+notification_templates_router = APIRouter(dependencies=[Depends(require_platform_console_dep)])
 _require = PermissionChecker("notifications.manage")
 
 

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
  
 import math
 import uuid
@@ -30,7 +30,7 @@ from app.core.exceptions import ForbiddenException
  
  
 # =============================================================================
-# ── CONSTANTS
+# â”€â”€ CONSTANTS
 # =============================================================================
  
 _ACTIVE_STATUSES      = ("in_progress", "action_needed", "rfe_response")
@@ -49,7 +49,7 @@ _PIPELINE_META: dict[str, dict] = {
  
  
 # =============================================================================
-# ── PRIVATE HELPERS
+# â”€â”€ PRIVATE HELPERS
 # =============================================================================
  
 def _full_name(user: User) -> str:
@@ -85,7 +85,7 @@ def _delta_pct(current: int, previous: int) -> Optional[float]:
 async def _resolve_user_role(db: AsyncSession, user_id: uuid.UUID) -> str:
     """
     Returns highest-priority role: app_admin > hr > attorney > employee.
-    UserRole has NO is_active column — not filtered here.
+    UserRole has NO is_active column â€” not filtered here.
     """
     stmt = (
         select(Role.name)
@@ -96,14 +96,14 @@ async def _resolve_user_role(db: AsyncSession, user_id: uuid.UUID) -> str:
         )
     )
     role_names: list[str] = (await db.execute(stmt)).scalars().all()
-    for candidate in ("app_admin", "hr", "attorney", "employee"):
+    for candidate in ("super_admin", "app_admin", "org_admin", "hr", "attorney", "employee"):
         if candidate in role_names:
             return candidate
     return role_names[0] if role_names else "employee"
  
  
 def _scope_applications(stmt, user_role: str, user_id: uuid.UUID):
-    if user_role == "app_admin":
+    if user_role in ("app_admin", "super_admin"):
         return stmt
     if user_role == "hr":
         return stmt.where(Application.assigned_hr_id == user_id)
@@ -130,7 +130,7 @@ async def _bulk_profile_pics(
  
  
 # =============================================================================
-# ── 1. KPI SUMMARY CARDS
+# â”€â”€ 1. KPI SUMMARY CARDS
 # =============================================================================
  
 async def service_get_workspace_kpi(
@@ -174,7 +174,7 @@ async def service_get_workspace_kpi(
     )
     prev_active: int = (await db.execute(prev_active_stmt)).scalar_one()
  
-    if user_role == "app_admin":
+    if user_role in ("app_admin", "super_admin", "org_admin"):
         task_stmt = (
             select(func.count())
             .select_from(ApplicationTask)
@@ -208,7 +208,7 @@ async def service_get_workspace_kpi(
         Deadline.due_date     <  now,
     )
  
-    if user_role == "app_admin":
+    if user_role in ("app_admin", "super_admin", "org_admin"):
         overdue_stmt = (
             select(func.count())
             .select_from(Deadline)
@@ -247,7 +247,7 @@ async def service_get_workspace_kpi(
  
  
 # =============================================================================
-# ── 2. RECENT APPLICATIONS TABLE
+# â”€â”€ 2. RECENT APPLICATIONS TABLE
 # =============================================================================
  
 async def service_get_recent_applications(
@@ -355,7 +355,7 @@ async def service_get_recent_applications(
  
  
 # =============================================================================
-# ── 3. MY TASKS CHECKLIST
+# â”€â”€ 3. MY TASKS CHECKLIST
 # =============================================================================
  
 async def service_get_my_tasks(
@@ -448,7 +448,7 @@ async def service_get_my_tasks(
  
  
 # =============================================================================
-# ── 4. UPCOMING DEADLINES SIDEBAR
+# â”€â”€ 4. UPCOMING DEADLINES SIDEBAR
 # =============================================================================
  
 async def service_get_upcoming_deadlines(
@@ -570,7 +570,7 @@ async def service_get_upcoming_deadlines(
  
  
 # =============================================================================
-# ── 5. ACTIVITY FEED
+# â”€â”€ 5. ACTIVITY FEED
 # =============================================================================
  
 async def service_get_activity_feed(
@@ -668,7 +668,7 @@ async def service_get_activity_feed(
  
  
 # =============================================================================
-# ── 6. CASE PIPELINE CHART
+# â”€â”€ 6. CASE PIPELINE CHART
 # =============================================================================
  
 async def service_get_case_pipeline(
@@ -709,7 +709,7 @@ async def service_get_case_pipeline(
  
  
 # =============================================================================
-# ── 7. PENDING DOCUMENTS QUEUE
+# â”€â”€ 7. PENDING DOCUMENTS QUEUE
 # =============================================================================
  
 async def service_get_pending_documents(
@@ -791,7 +791,7 @@ async def service_get_pending_documents(
  
  
 # =============================================================================
-# ── 8. TEAM WORKLOAD PANEL
+# â”€â”€ 8. TEAM WORKLOAD PANEL
 # =============================================================================
  
 async def service_get_team_workload(
@@ -803,7 +803,7 @@ async def service_get_team_workload(
         raise ForbiddenException("Not authorized.")
  
     visible_roles = (
-        ["attorney", "hr", "app_admin"] if user_role == "app_admin"
+        ["attorney", "hr", "app_admin", "super_admin", "org_admin"] if user_role in ("app_admin", "super_admin")
         else ["attorney", "hr"]
     )
  
@@ -903,7 +903,7 @@ async def service_get_team_workload(
  
  
 # =============================================================================
-# ── 9. TODAY'S SCHEDULE  (NEW)
+# â”€â”€ 9. TODAY'S SCHEDULE  (NEW)
 #    Source: InterviewSession table
 #    Shows interviews scheduled for today scoped by role
 # =============================================================================
@@ -960,7 +960,7 @@ async def service_get_todays_schedule(
  
  
 # =============================================================================
-# ── 10. PERFORMANCE ANALYTICS  (NEW)
+# â”€â”€ 10. PERFORMANCE ANALYTICS  (NEW)
 #    Source: ApplicationTask table
 #    Tasks completed this week/month + on-time rate
 # =============================================================================
@@ -1014,7 +1014,7 @@ async def service_get_performance_analytics(
  
     # On-time = completed before or on deadline due_date
     # We approximate: task completed within 1 day of creation deadline
-    # (ApplicationTask has no due_date — use Deadline table for linked apps)
+    # (ApplicationTask has no due_date â€” use Deadline table for linked apps)
     on_time_count: int = (
         await db.execute(
             select(func.count()).select_from(
@@ -1060,7 +1060,7 @@ async def service_get_performance_analytics(
  
  
 # =============================================================================
-# ── 11. WEEKLY PROGRESS  (NEW)
+# â”€â”€ 11. WEEKLY PROGRESS  (NEW)
 #    Source: ApplicationTask table
 #    Tasks completed this week vs total + quick stats
 # =============================================================================
@@ -1129,7 +1129,7 @@ async def service_get_weekly_progress(
  
  
 # =============================================================================
-# ── 12. FAVORITES SIDEBAR  (NEW)
+# â”€â”€ 12. FAVORITES SIDEBAR  (NEW)
 #    Source: NewsArticleBookmark + NewsArticle tables
 #    Shows user's bookmarked news articles as favorites
 # =============================================================================
@@ -1167,7 +1167,7 @@ async def service_get_favorites(
  
  
 # =============================================================================
-# ── 13. WORKSPACES SIDEBAR  (NEW)
+# â”€â”€ 13. WORKSPACES SIDEBAR  (NEW)
 #    Source: Application table grouped by status
 #    Shows application status groups as workspace buckets
 # =============================================================================
@@ -1210,7 +1210,7 @@ async def service_get_workspaces_sidebar(
  
  
 # =============================================================================
-# ── 14. FULL DASHBOARD AGGREGATION  (UPDATED — all 13 widgets)
+# â”€â”€ 14. FULL DASHBOARD AGGREGATION  (UPDATED â€” all 13 widgets)
 # =============================================================================
  
 async def service_get_workspace_dashboard(

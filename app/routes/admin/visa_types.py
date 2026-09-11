@@ -14,16 +14,17 @@ ENDPOINTS
     DELETE /admin/visa-types/{id}          Soft delete
 """
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, status, Depends
 from fastapi.responses import StreamingResponse
 import io
 
 from app.core.dependencies import Current_User, DBSession
-from app.core.core_permissions import PermissionChecker
+from app.core.org_scope import assert_platform_console
 from app.schemas.visa_type import (
     VisaTypeCreate,
     VisaTypeExportRow,
@@ -46,7 +47,15 @@ from app.services.visa_type_service import (
 )
 
 visa_type_router = APIRouter()
-_require = PermissionChecker("visa_types.manage")
+_visa_manage = PermissionChecker("visa_types.manage")
+
+
+async def _require(
+    db: DBSession,
+    current_user: Current_User = Depends(_visa_manage),
+):
+    await assert_platform_console(db, current_user)
+    return current_user
 
 
 # =============================================================================

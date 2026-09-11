@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # =============================================================================
@@ -76,6 +76,8 @@ class SubscriptionPlanCreate(BaseModel):
                                                    description="null = unlimited")
     max_documents:           Optional[int] = Field(None, ge=1)
     max_messages:            Optional[int] = Field(None, ge=1)
+    max_employees:           Optional[int] = Field(None, ge=1,
+                                                   description="null = unlimited org seats")
     stripe_product_id:       Optional[str] = None
     stripe_price_id_monthly: Optional[str] = None
     stripe_price_id_annual:  Optional[str] = None
@@ -110,6 +112,8 @@ class SubscriptionPlanUpdate(BaseModel):
     max_applications:        Optional[int] = Field(None, ge=1)
     max_documents:           Optional[int] = Field(None, ge=1)
     max_messages:            Optional[int] = Field(None, ge=1)
+    max_employees:           Optional[int] = Field(None, ge=1,
+                                                   description="null = unlimited org seats")
     stripe_product_id:       Optional[str] = None
     stripe_price_id_monthly: Optional[str] = None
     stripe_price_id_annual:  Optional[str] = None
@@ -145,6 +149,7 @@ class SubscriptionPlanResponse(BaseModel):
     max_applications:        Optional[int]
     max_documents:           Optional[int]
     max_messages:            Optional[int]
+    max_employees:           Optional[int]
     stripe_product_id:       Optional[str]
     stripe_price_id_monthly: Optional[str]
     stripe_price_id_annual:  Optional[str]
@@ -223,18 +228,41 @@ class SubscriberDetail(SubscriberListItem):
     cancellation_reason: Optional[str]
 
 
+class SelfSubscribeRequest(BaseModel):
+    """POST /subscriptions/subscribe — self-service only (public plans)."""
+    plan_id: uuid.UUID
+    billing_cycle: BillingCycle = "monthly"
+
+
 class AssignPlanRequest(BaseModel):
     """
     POST /admin/subscriptions/assign
     Admin manually assigns a plan to a user (no Stripe payment)
-    Used for app_admin accounts, beta testers, comped plans
+    Used for app_admin accounts, beta testers, comped plans.
+
+    Org assign: pass employer_id (employer_profiles.id). Subscriptions remain
+    user-scoped — the plan is assigned to the employer owner user
+    (EmployerProfile.user_id). Smallest coherent change; no employer_id column
+    on user_subscriptions.
     """
-    user_id:       uuid.UUID
+    user_id:       Optional[uuid.UUID] = Field(
+        None, description="Target user for individual assign"
+    )
+    employer_id:   Optional[uuid.UUID] = Field(
+        None,
+        description="employer_profiles.id — prefer org assign to employer owner",
+    )
     plan_id:       uuid.UUID
     billing_cycle: BillingCycle = "monthly"
     admin_notes:   Optional[str] = Field(None, max_length=500)
     trial_days:    int           = Field(0, ge=0,
                                          description="Override trial days for this user")
+
+    @model_validator(mode="after")
+    def _require_user_or_employer(self):
+        if self.user_id is None and self.employer_id is None:
+            raise ValueError("Provide user_id and/or employer_id")
+        return self
 
 
 class ChangePlanRequest(BaseModel):

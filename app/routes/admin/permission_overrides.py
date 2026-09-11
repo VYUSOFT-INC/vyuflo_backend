@@ -6,13 +6,18 @@ Per-user RBAC override routes (P1).
     GET  /api/v1/users/{id}/effective-permissions
 """
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.core.core_permissions import PermissionChecker
 from app.core.dependencies import CurrentUserData, DBSession
+from app.core.org_scope import (
+    assert_user_in_active_org,
+    is_platform_admin,
+    resolve_effective_organization_id,
+)
 from app.schemas.admin.permission_overrides import (
     EffectivePermissionsResponse,
     PermissionOverrideResponse,
@@ -36,8 +41,9 @@ permission_overrides_router = APIRouter(tags=["RBAC — User Overrides"])
 async def get_user_permission_overrides(
     user_id: uuid.UUID,
     db: DBSession,
-    _: CurrentUserData = Depends(PermissionChecker("permissions.manage")),
+    current_user: CurrentUserData = Depends(PermissionChecker("permissions.manage")),
 ) -> PermissionOverridesListResponse:
+    await assert_user_in_active_org(db, current_user, user_id)
     items = await list_overrides(db, user_id)
     return PermissionOverridesListResponse(
         user_id=user_id,
@@ -56,11 +62,15 @@ async def put_user_permission_overrides(
     db: DBSession,
     current_user: CurrentUserData = Depends(PermissionChecker("permissions.manage")),
 ) -> PermissionOverridesListResponse:
+    await assert_user_in_active_org(db, current_user, user_id)
+    org_id = await resolve_effective_organization_id(db, current_user)
+    org_scoped = org_id is not None or not is_platform_admin(current_user.roles)
     items = await replace_overrides(
         db,
         user_id,
         [o.model_dump() for o in body.overrides],
         actor_id=current_user.user_id,
+        org_scoped=org_scoped,
     )
     return PermissionOverridesListResponse(
         user_id=user_id,
@@ -76,7 +86,8 @@ async def put_user_permission_overrides(
 async def get_user_effective_permissions(
     user_id: uuid.UUID,
     db: DBSession,
-    _: CurrentUserData = Depends(PermissionChecker("permissions.manage")),
+    current_user: CurrentUserData = Depends(PermissionChecker("permissions.manage")),
 ) -> EffectivePermissionsResponse:
+    await assert_user_in_active_org(db, current_user, user_id)
     data = await effective_permissions(db, user_id)
     return EffectivePermissionsResponse(**data)

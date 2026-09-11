@@ -52,16 +52,17 @@ NOTE ON ROUTE ORDER — critical FastAPI rule:
   to prevent FastAPI treating those strings as UUID path parameters.
 """
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import math
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, status, Depends
 from fastapi.responses import StreamingResponse
 
 from app.core.dependencies import Current_User, DBSession
-from app.core.core_permissions import PermissionChecker
+from app.core.org_scope import assert_platform_console, resolve_effective_organization_id
 from app.schemas.admin.subscription import (
     AssignPlanRequest,
     CancelSubscriptionRequest,
@@ -76,6 +77,7 @@ from app.schemas.admin.subscription import (
     PaymentGatewayUpsert,       # NEW — add to app/schemas/admin/subscription.py
     PlanToggle,
     RevenueAnalyticsResponse,
+    SelfSubscribeRequest,
     SubscriberDetail,
     SubscriberListResponse,
     SubscriptionPlanCreate,
@@ -104,6 +106,7 @@ from app.services.admin.subscription_service import (
     service_list_payment_gateways,
     service_list_plans,
     service_list_subscribers,
+    service_self_subscribe,
     service_toggle_coupon,
     service_toggle_payment_gateway,
     service_toggle_plan,
@@ -116,8 +119,24 @@ from app.services.admin.subscription_service import (
 subscription_router = APIRouter()
 
 # ── Permission guards ─────────────────────────────────────────────────────────
-_admin_only   = PermissionChecker("subscriptions.manage")
-_view_billing = PermissionChecker(["subscriptions.manage", "subscriptions.view"])
+_admin_perm = PermissionChecker("subscriptions.manage")
+_view_perm = PermissionChecker(["subscriptions.manage", "subscriptions.view"])
+
+
+async def _admin_only(
+    db: DBSession,
+    current_user: Current_User = Depends(_admin_perm),
+):
+    await assert_platform_console(db, current_user)
+    return current_user
+
+
+async def _view_billing(
+    db: DBSession,
+    current_user: Current_User = Depends(_view_perm),
+):
+    await assert_platform_console(db, current_user)
+    return current_user
 
 
 # =============================================================================
@@ -214,10 +233,12 @@ async def export_subscribers(
 @subscription_router.post(
     "/admin/subscriptions/assign",
     status_code=status.HTTP_201_CREATED,
-    summary="Admin manually assign a plan to a user",
+    summary="Admin manually assign a plan to a user or employer org",
     description=(
         "Assigns a plan without Stripe payment. "
         "Used for app_admin accounts, beta testers, comped plans. "
+        "Pass employer_id (employer_profiles.id) to assign to the org owner "
+        "(user_subscriptions remain user-scoped). "
         "Cancels any existing active subscription first."
     ),
 )
@@ -464,6 +485,7 @@ async def list_plans(
             max_applications         = plan.max_applications,
             max_documents            = plan.max_documents,
             max_messages             = plan.max_messages,
+            max_employees            = getattr(plan, "max_employees", None),
             stripe_product_id        = plan.stripe_product_id,
             stripe_price_id_monthly  = plan.stripe_price_id_monthly,
             stripe_price_id_annual   = plan.stripe_price_id_annual,
@@ -915,6 +937,43 @@ async def list_public_plans(
 
 
 # =============================================================================
+# ── SELF-SERVICE subscribe (org admin / any authenticated user)
+# POST /subscriptions/subscribe — public plans only; never edits plan catalog
+# =============================================================================
+
+@subscription_router.post(
+    "/subscriptions/subscribe",
+    status_code=status.HTTP_201_CREATED,
+    summary="Subscribe to a public plan (self-service)",
+    description=(
+        "Org admins and other authenticated users can pick an active public plan. "
+        "Does not allow creating or editing plans."
+    ),
+)
+async def self_subscribe(
+    payload: SelfSubscribeRequest,
+    db: DBSession,
+    current_user: Current_User,
+    _: Current_User = PermissionChecker(["billing.subscribe", "billing.manage"]),
+) -> dict:
+    org_id = await resolve_effective_organization_id(db, current_user)
+    sub = await service_self_subscribe(
+        db,
+        user_id=current_user.user_id,
+        plan_id=payload.plan_id,
+        billing_cycle=payload.billing_cycle,
+        organization_id=org_id,
+    )
+    return {
+        "message": "Subscribed successfully.",
+        "subscription_id": str(sub.id),
+        "status": sub.status,
+        "plan_id": str(sub.plan_id),
+        "billing_cycle": sub.billing_cycle,
+    }
+
+
+# =============================================================================
 # ── SELF-SERVICE — "My Subscription" (any authenticated user) ────────────────
 # GET /subscriptions/me
 # GET /subscriptions/me/invoices
@@ -936,7 +995,11 @@ async def get_my_subscription(
     db:           DBSession,
     current_user: Current_User,
 ) -> dict:
-    data = await service_get_my_subscription(db, current_user.user_id)
+    from app.core.org_scope import resolve_effective_organization_id
+    org_id = await resolve_effective_organization_id(db, current_user)
+    data = await service_get_my_subscription(
+        db, current_user.user_id, organization_id=org_id,
+    )
     return data
 
 

@@ -37,6 +37,9 @@ from sqlalchemy.orm import selectinload
 # ---------------------------------------------------------------------------
 from app.models.visamodels import User, UserSubscription, SubscriptionInvoice
 from app.models.visamodels import (
+    Application,
+    EmployerEmployee,
+    EmployerProfile,
     SubscriptionPlan,
     RevenueSnapshot,
     RevenueTarget,
@@ -51,6 +54,8 @@ from app.schemas.admin.revenue_dashboard import (
     FailingPaymentsDetailResponse,
     FailureCodeBreakdown,
     KPICardValue,
+    OrgRevenueMetricsItem,
+    OrgRevenueMetricsResponse,
     PlanDistributionResponse,
     PlanDistributionSlice,
     RecentTransactionsResponse,
@@ -1060,3 +1065,127 @@ async def service_export_revenue_report(
             ])
 
     return output.getvalue()
+
+# =============================================================================
+# BY-ORG METRICS
+# GET /admin/revenue/by-org
+# =============================================================================
+
+async def service_get_revenue_by_org(
+    db: AsyncSession,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    search: Optional[str] = None,
+) -> OrgRevenueMetricsResponse:
+    """
+    One row per employer_profiles org.
+
+    Subscriptions are user-scoped: we join the employer owner's
+    UserSubscription (EmployerProfile.user_id) for plan/MRR/status.
+    Employee counts come from employer_employees.
+    Cases = applications assigned to the employer owner (assigned_hr_id),
+    matching HR dashboard semantics.
+    """
+    filters = []
+    if search:
+        filters.append(EmployerProfile.company_name.ilike(f"%{search.strip()}%"))
+
+    count_stmt = select(func.count()).select_from(EmployerProfile)
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+    total = int((await db.execute(count_stmt)).scalar() or 0)
+    total_pages = max(1, math.ceil(total / page_size)) if page_size else 1
+    offset = (page - 1) * page_size
+
+    stmt = select(EmployerProfile).order_by(EmployerProfile.company_name.asc())
+    if filters:
+        stmt = stmt.where(*filters)
+    stmt = stmt.offset(offset).limit(page_size)
+    employers = (await db.execute(stmt)).scalars().all()
+
+    items: List[OrgRevenueMetricsItem] = []
+    for ep in employers:
+        # Employee tallies
+        tallies_q = await db.execute(
+            select(
+                func.count().label("total"),
+                func.coalesce(
+                    func.sum(case((EmployerEmployee.is_active.is_(True), 1), else_=0)),
+                    0,
+                ).label("active"),
+            ).where(EmployerEmployee.employer_profile_id == ep.id)
+        )
+        row = tallies_q.one()
+        employees_total = int(row.total or 0)
+        employees_active = int(row.active or 0)
+        employees_inactive = max(0, employees_total - employees_active)
+
+        # Cases for this HR/org owner
+        cases_q = await db.execute(
+            select(func.count()).select_from(Application).where(
+                Application.assigned_hr_id == ep.user_id
+            )
+        )
+        cases_count = int(cases_q.scalar() or 0)
+
+        # Owner subscription (prefer active-ish)
+        sub_q = await db.execute(
+            select(UserSubscription, SubscriptionPlan)
+            .join(SubscriptionPlan, SubscriptionPlan.id == UserSubscription.plan_id)
+            .where(UserSubscription.user_id == ep.user_id)
+            .order_by(
+                case(
+                    (UserSubscription.status == "active", 0),
+                    (UserSubscription.status == "trialing", 1),
+                    (UserSubscription.status == "past_due", 2),
+                    (UserSubscription.status == "paused", 3),
+                    else_=9,
+                ),
+                UserSubscription.created_at.desc(),
+            )
+            .limit(1)
+        )
+        sub_row = sub_q.first()
+        plan_slug = None
+        billing_cycle = None
+        mrr_cents = 0
+        subscription_status = None
+        if sub_row:
+            sub, plan = sub_row
+            plan_slug = plan.slug
+            billing_cycle = sub.billing_cycle
+            subscription_status = sub.status
+            if sub.effective_mrr_cents is not None:
+                mrr_cents = int(sub.effective_mrr_cents)
+            elif sub.billing_cycle == "annual":
+                mrr_cents = int(plan.price_annual_cents // 12) if plan.price_annual_cents else 0
+            elif sub.billing_cycle == "lifetime":
+                mrr_cents = 0
+            else:
+                mrr_cents = int(plan.price_monthly_cents or 0)
+            if sub.status not in ("active", "trialing", "past_due", "paused"):
+                mrr_cents = 0
+
+        items.append(
+            OrgRevenueMetricsItem(
+                employer_id=ep.id,
+                company_name=ep.company_name,
+                plan_slug=plan_slug,
+                billing_cycle=billing_cycle,
+                mrr_cents=mrr_cents,
+                employees_total=employees_total,
+                employees_active=employees_active,
+                employees_inactive=employees_inactive,
+                cases_count=cases_count,
+                subscription_status=subscription_status,
+            )
+        )
+
+    return OrgRevenueMetricsResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )

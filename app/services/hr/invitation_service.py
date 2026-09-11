@@ -977,8 +977,29 @@ async def _send_personal_email_verification(db: AsyncSession, user_id: uuid.UUID
 
 
 async def _get_employer_profile(db: AsyncSession, hr_user_id: uuid.UUID) -> Optional[EmployerProfile]:
+    """Resolve org via ownership first, then organization_members membership."""
     result = await db.execute(select(EmployerProfile).where(EmployerProfile.user_id == hr_user_id))
-    return result.scalars().first()
+    profile = result.scalars().first()
+    if profile:
+        return profile
+
+    from app.models.visamodels import OrganizationMember
+    mem = (
+        await db.execute(
+            select(OrganizationMember).where(
+                OrganizationMember.user_id == hr_user_id,
+                OrganizationMember.is_active == True,  # noqa: E712
+                OrganizationMember.org_role.in_(["org_admin", "hr"]),
+            ).order_by(OrganizationMember.created_at.asc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    if not mem:
+        return None
+    return (
+        await db.execute(
+            select(EmployerProfile).where(EmployerProfile.id == mem.employer_profile_id)
+        )
+    ).scalar_one_or_none()
 
 
 async def get_employer_domain(db: AsyncSession, hr_user_id: uuid.UUID) -> Optional[str]:
@@ -1081,6 +1102,19 @@ async def _link_employee_to_employer(
         is_active=True, work_email=invite.invited_email, created_by=employee_id,
     )
     await db_create(db, link)
+
+    # Keep organization_members in sync for multi-admin orgs
+    try:
+        from app.core.org_scope import upsert_organization_member
+        await upsert_organization_member(
+            db,
+            employer_profile_id=invite.employer_profile_id,
+            user_id=employee_id,
+            org_role="employee",
+            changed_by=employee_id,
+        )
+    except Exception:
+        pass
 
     profile_result = await db.execute(select(UserProfile).where(UserProfile.user_id == employee_id))
     profile = profile_result.scalars().first()
@@ -1500,7 +1534,9 @@ async def get_my_employees(db, hr_user_id, is_active=True, limit=50, offset=0):
     employer = await _get_employer_profile(db, hr_user_id)
     if not employer:
         return [], 0
-    filters = [EmployerEmployee.employer_id == hr_user_id]
+    # Scope by organization (employer_profile), not only the inviting HR user id —
+    # allows multiple HR / org_admins in the same org to see the roster.
+    filters = [EmployerEmployee.employer_profile_id == employer.id]
     if is_active is not None:
         filters.append(EmployerEmployee.is_active == is_active)
     count_result = await db.execute(select(func.count()).select_from(EmployerEmployee).where(*filters))
@@ -1518,7 +1554,8 @@ async def get_my_employees(db, hr_user_id, is_active=True, limit=50, offset=0):
 
         app_count_result = await db.execute(
             select(func.count()).select_from(Application).where(
-                Application.user_id == link.employee_id, Application.assigned_hr_id == hr_user_id,
+                Application.user_id == link.employee_id,
+                Application.assigned_hr_id.in_([hr_user_id, employer.user_id]),
                 Application.status.in_(["draft", "in_progress", "action_needed", "submitted", "rfe_response"]),
             )
         )

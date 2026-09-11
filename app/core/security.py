@@ -42,11 +42,13 @@ def create_access_token(
     first_name: str,
     last_name: str,
     token_version: int = 0,
+    active_organization_id: str | None = None,
 ) -> str:
     """
     token_version is checked on every request in get_current_user.
     Bumping a user's token_version in the DB invalidates every access token
     issued before the bump — instantly, without waiting for expiry.
+    active_organization_id: optional org context for super_admin switch / org users.
     """
     payload = {
         "sub": user_id,
@@ -57,6 +59,8 @@ def create_access_token(
         "token_version": token_version,
         "type": "access",
     }
+    if active_organization_id:
+        payload["active_organization_id"] = active_organization_id
     return _create_token(payload, timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
 
 

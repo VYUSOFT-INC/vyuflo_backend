@@ -21,7 +21,7 @@ from datetime import date, datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-RESERVED_ROLE_NAMES = {"app_admin", "hr", "employee", "attorney"}
+RESERVED_ROLE_NAMES = {"super_admin", "org_admin", "app_admin", "hr", "employee", "attorney"}
 
 # =============================================================================
 # CUSTOM ROLE schemas
@@ -51,7 +51,7 @@ class CustomRoleCreate(BaseModel):
         # Lowercase, strip spaces, replace spaces with underscores
         cleaned = v.strip().lower().replace(" ", "_")
         # Block names that clash with predefined roles
-        reserved = {"app_admin", "hr", "attorney", "employee"}
+        reserved = {"super_admin", "org_admin", "app_admin", "hr", "attorney", "employee"}
         if cleaned in reserved:
             raise ValueError(
                 f"'{cleaned}' is a predefined system role and cannot be recreated as a custom role."
@@ -250,7 +250,7 @@ UserDetail.model_rebuild()
 # side (their existing normaliseRole() helper already maps these aliases).
 # =============================================================================
 
-ALLOWED_ROLES = ("hr", "app_admin", "employee", "attorney")
+ALLOWED_ROLES = ("hr", "super_admin", "org_admin", "app_admin", "employee", "attorney")
 ALLOWED_STATUSES = ("Active", "Pending", "Suspended")
 
 
@@ -366,3 +366,29 @@ class AdminBulkRoleResponse(BaseModel):
     succeeded: int
     failed: int
     results: list[AdminBulkRoleResultItem]
+
+# =============================================================================
+# ADMIN RESET PASSWORD
+# POST /admin/users/{user_id}/reset-password
+# =============================================================================
+
+class AdminResetPasswordRequest(BaseModel):
+    """
+    Body for admin-triggered password reset.
+    - If temporary_password omitted and send_email=true: existing OTP email flow.
+    - If temporary_password provided: hash+set immediately; optionally email it.
+    """
+    send_email: bool = True
+    temporary_password: Optional[str] = Field(
+        None,
+        min_length=8,
+        max_length=128,
+        description="If set, hash+store as the new password",
+    )
+
+
+class AdminResetPasswordResponse(BaseModel):
+    user_id: uuid.UUID
+    email: str
+    email_sent: bool
+    reset_method: str  # "email_link" | "temporary_password"

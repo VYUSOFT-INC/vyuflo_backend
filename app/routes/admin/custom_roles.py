@@ -22,6 +22,7 @@ IMPORTANT — MIGRATION REQUIRED BEFORE USING:
 """
 
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 

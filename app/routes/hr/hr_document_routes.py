@@ -11,6 +11,7 @@ import os
 from typing import Optional
 from datetime import datetime, timezone
 
+from app.core.core_permissions import PermissionChecker
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +23,6 @@ from app.core.dependencies import get_current_user
 from app.models.visamodels import (
     Document, DocumentType, Application, DocumentActivity, ApplicationTask,
 )
-from app.core.core_permissions import PermissionChecker
 from app.schemas.attorney.document_request import DocumentRequestCreate, DocumentRequestPriority
 from app.schemas.employee.document import DocumentListResponse, DocumentResponse
 from app.services.employee import storage

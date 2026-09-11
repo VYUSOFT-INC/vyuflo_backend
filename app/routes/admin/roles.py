@@ -21,6 +21,7 @@ Exposes everything the admin "Roles & Permissions" screen calls:
 """
 
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 
@@ -29,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db                
 from app.core.dependencies import get_current_user  
+from app.core.org_scope import require_platform_console_dep
 from app.models.visamodels import User                  # ⚠️ ADJUST if your user model differs
 from app.services.employee import role_service
 from app.schemas.employee.role import (
@@ -41,13 +43,12 @@ from app.schemas.employee.role import (
     RoleResponse,
     RoleUpdate,
 )
-from app.core.core_permissions import PermissionChecker
 
 roles_router = APIRouter(tags=["Roles & Permissions"])
 
 
 # ===========================================================================
-# READS
+# READS — available to org admins (for user permission overrides UI)
 # ===========================================================================
 
 @roles_router.get("/roles", response_model=RoleListResponse)
@@ -61,7 +62,7 @@ async def list_roles(
 @roles_router.get("/permissions", response_model=PermissionListResponse)
 async def list_permissions(
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -78,7 +79,7 @@ async def get_role(
 
 
 # ===========================================================================
-# ROLE WRITES
+# ROLE WRITES — platform console only (not while in an org / not org_admin)
 # ===========================================================================
 
 @roles_router.post("/roles", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)
@@ -86,6 +87,7 @@ async def create_role(
     payload: RoleCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _platform=Depends(require_platform_console_dep),
     _rbac=Depends(PermissionChecker("roles.manage")),
 ):
     return await role_service.create_role(db, payload, current_user.user_id)
@@ -97,6 +99,7 @@ async def update_role(
     payload: RoleUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _platform=Depends(require_platform_console_dep),
     _rbac=Depends(PermissionChecker("roles.manage")),
 ):
     return await role_service.update_role(db, role_id, payload, current_user.user_id)
@@ -107,13 +110,14 @@ async def delete_role(
     role_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _platform=Depends(require_platform_console_dep),
     _rbac=Depends(PermissionChecker("roles.manage")),
 ):
     return await role_service.delete_role(db, role_id, current_user.user_id)
 
 
 # ===========================================================================
-# ROLE-PERMISSION WRITES  (toggles)
+# ROLE-PERMISSION WRITES  (toggles) — platform console only
 # ===========================================================================
 
 @roles_router.post("/roles/{role_id}/permissions")
@@ -122,6 +126,7 @@ async def assign_permission(
     payload: AssignPermissionRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _platform=Depends(require_platform_console_dep),
     _rbac=Depends(PermissionChecker("permissions.manage")),
 ):
     return await role_service.assign_permission(db, role_id, payload, current_user.user_id)
@@ -133,6 +138,7 @@ async def remove_permission(
     permission_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _platform=Depends(require_platform_console_dep),
     _rbac=Depends(PermissionChecker("permissions.manage")),
 ):
     return await role_service.remove_permission(db, role_id, permission_id, current_user.user_id)
@@ -144,6 +150,7 @@ async def bulk_replace_permissions(
     payload: BulkPermissionsRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _platform=Depends(require_platform_console_dep),
     _rbac=Depends(PermissionChecker("permissions.manage")),
 ):
     return await role_service.bulk_replace_permissions(db, role_id, payload, current_user.user_id)

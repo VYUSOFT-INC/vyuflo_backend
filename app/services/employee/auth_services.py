@@ -69,6 +69,54 @@ from app.services.employee.services import (
 from app.core.config import settings
 from app.services.employee.storage import resolve_url
 from app.services.employee.user_profile_service import get_avatar_display_url
+from app.core.org_scope import (
+    get_primary_organization_id,
+    get_user_organization_ids,
+    is_platform_admin,
+)
+
+ACTIVE_ORG_TTL = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+
+
+def _active_org_key(user_id: uuid.UUID) -> str:
+    return f"active_org:{user_id}"
+
+
+async def _get_stored_active_org(user_id: uuid.UUID) -> Optional[str]:
+    return await redis_get(_active_org_key(user_id))
+
+
+async def _set_stored_active_org(user_id: uuid.UUID, org_id: Optional[str]) -> None:
+    key = _active_org_key(user_id)
+    if org_id:
+        await redis_set(key, org_id, ACTIVE_ORG_TTL)
+    else:
+        await redis_delete(key)
+
+
+async def _resolve_token_org_id(db: AsyncSession, user_id: uuid.UUID, roles: list[str]) -> Optional[str]:
+    stored = await _get_stored_active_org(user_id)
+    if is_platform_admin(roles):
+        return stored
+    if stored:
+        org_ids = await get_user_organization_ids(db, user_id)
+        if uuid.UUID(stored) in org_ids:
+            return stored
+    primary = await get_primary_organization_id(db, user_id)
+    return str(primary) if primary else None
+
+
+async def _issue_access_token(db: AsyncSession, user: User, roles: list[str]) -> str:
+    active_org = await _resolve_token_org_id(db, user.id, roles)
+    return create_access_token(
+        str(user.id),
+        roles,
+        user.email,
+        user.first_name or "",
+        user.last_name or "",
+        user.token_version,
+        active_organization_id=active_org,
+    )
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -83,15 +131,14 @@ async def _find_user_by_login_identifier(db: AsyncSession, email: str) -> Option
          just the original signup one. This is what makes "both emails
          work for login" possible: a person can add a personal email
          alongside their work email, verify it, and log in with either
-         one going forward — neither replaces the other. Replaces the old
-         approach of checking only User.email directly.
+         one going forward — neither replaces the other.
 
-      2. EmployerEmployee.work_email — an org-issued login email, valid
+      2. users.email — direct account email (covers seeded/admin accounts
+         that may not yet have a user_emails row).
+
+      3. EmployerEmployee.work_email — an org-issued login email, valid
          only while that membership is still active OR still inside its
-         grace period (access_revoked_at is null or in the future). Kept
-         as a fallback for org-issued emails that were never separately
-         added to user_emails (shouldn't normally happen post-signup,
-         but covers older/edge-case rows).
+         grace period (access_revoked_at is null or in the future).
     """
     normalized = email.lower().strip()
 
@@ -105,7 +152,15 @@ async def _find_user_by_login_identifier(db: AsyncSession, email: str) -> Option
     if user:
         return user
 
-    # ── 2. Active (or in-grace-period) org-issued work email ────────────────
+    # ── 2. Direct users.email (case-insensitive; seeded / admin-created) ───
+    result = await db.execute(
+        select(User).where(func.lower(User.email) == normalized)
+    )
+    user = result.scalar_one_or_none()
+    if user:
+        return user
+
+    # ── 3. Active (or in-grace-period) org-issued work email ────────────────
     result = await db.execute(
         select(User)
         .join(EmployerEmployee, EmployerEmployee.employee_id == User.id)
@@ -365,9 +420,10 @@ async def service_login(
         )
 
     session_id    = new_session_id()
-    access_token  = create_access_token(str(user.id), roles, user.email, user.first_name or "", user.last_name or "", user.token_version)
+    access_token  = await _issue_access_token(db, user, roles)
     refresh_token = create_refresh_token(str(user.id), session_id)
     await _store_refresh_token(str(user.id), session_id, refresh_token)
+    active_org = await _resolve_token_org_id(db, user.id, roles)
     return {
         "access_token":    access_token,
         "refresh_token":   refresh_token,
@@ -378,6 +434,9 @@ async def service_login(
         "tour_hr_seen":       user_profile.tour_hr_seen        if user_profile else False,
         "tour_attorney_seen": user_profile.tour_attorney_seen  if user_profile else False,
         "tour_admin_seen":    user_profile.tour_admin_seen     if user_profile else False,
+        "active_organization_id": active_org,
+        "organization_ids": [str(x) for x in await get_user_organization_ids(db, user.id)],
+        "is_super_admin": is_platform_admin(roles),
         "user": {
             "id": user.id,
             "first_name": user.first_name,
@@ -463,7 +522,7 @@ async def service_sso_login(
     user_profile = await get_user_profile(db, user.id)
 
     session_id    = new_session_id()
-    access_token  = create_access_token(str(user.id), roles, user.email, user.first_name, user.last_name, user.token_version)
+    access_token  = await _issue_access_token(db, user, roles)
     refresh_token = create_refresh_token(str(user.id), session_id)
     await _store_refresh_token(str(user.id), session_id, refresh_token)
 
@@ -477,6 +536,9 @@ async def service_sso_login(
         "tour_hr_seen":       user_profile.tour_hr_seen        if user_profile else False,
         "tour_attorney_seen": user_profile.tour_attorney_seen  if user_profile else False,
         "tour_admin_seen":    user_profile.tour_admin_seen     if user_profile else False,
+        "active_organization_id": await _resolve_token_org_id(db, user.id, roles),
+        "organization_ids": [str(x) for x in await get_user_organization_ids(db, user.id)],
+        "is_super_admin": is_platform_admin(roles),
         "user": {
             "first_name": user.first_name,
             "last_name":  user.last_name,
@@ -525,12 +587,87 @@ async def service_refresh_token(db: AsyncSession, *, refresh_token: str) -> dict
         raise UnauthorizedException("User not found or inactive")
 
     roles = await get_user_role(db, user.id)
+    user_profile = await get_user_profile(db, user.id)
 
-    new_access  = create_access_token(str(user.id), roles, user.email, user.first_name, user.last_name, user.token_version)
+    new_access  = await _issue_access_token(db, user, roles)
     new_refresh = create_refresh_token(str(user.id), session_id)
     await _store_refresh_token(str(user.id), session_id, new_refresh)
 
-    return {"access_token": new_access, "refresh_token": new_refresh}
+    return {
+        "access_token":    new_access,
+        "refresh_token":   new_refresh,
+        "roles":           roles,
+        "profile_picture": get_avatar_display_url(user_profile) if user_profile else None,
+        "theme_color": user_profile.theme_color if user_profile else None,
+        "tour_employee_seen": user_profile.tour_employee_seen  if user_profile else False,
+        "tour_hr_seen":       user_profile.tour_hr_seen        if user_profile else False,
+        "tour_attorney_seen": user_profile.tour_attorney_seen  if user_profile else False,
+        "tour_admin_seen":    user_profile.tour_admin_seen     if user_profile else False,
+        "active_organization_id": await _resolve_token_org_id(db, user.id, roles),
+        "organization_ids": [str(x) for x in await get_user_organization_ids(db, user.id)],
+        "is_super_admin": is_platform_admin(roles),
+        "user": {
+            "id": user.id,
+            "first_name": user.first_name,
+            "last_name":  user.last_name,
+            "email":      user.email,
+            "phone":      user.phone,
+        },
+    }
+
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║                       ORG SWITCH (super admin)                           ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+async def service_switch_organization(
+    db: AsyncSession,
+    *,
+    user: User,
+    roles: list[str],
+    organization_id: uuid.UUID,
+) -> dict:
+    from app.core.exceptions import ForbiddenException, NotFoundException
+    from app.models.visamodels import EmployerProfile
+
+    org = (
+        await db.execute(select(EmployerProfile).where(EmployerProfile.id == organization_id))
+    ).scalar_one_or_none()
+    if not org:
+        raise NotFoundException("Organization not found.")
+
+    if not is_platform_admin(roles):
+        org_ids = await get_user_organization_ids(db, user.id)
+        if organization_id not in org_ids:
+            raise ForbiddenException("You do not have access to this organization.")
+
+    await _set_stored_active_org(user.id, str(organization_id))
+    access_token = await _issue_access_token(db, user, roles)
+    return {
+        "access_token": access_token,
+        "active_organization_id": str(organization_id),
+        "roles": roles,
+    }
+
+
+async def service_clear_organization(
+    db: AsyncSession,
+    *,
+    user: User,
+    roles: list[str],
+) -> dict:
+    from app.core.exceptions import ForbiddenException
+
+    if not is_platform_admin(roles):
+        raise ForbiddenException("Only platform super admins can clear organization context.")
+
+    await _set_stored_active_org(user.id, None)
+    access_token = await _issue_access_token(db, user, roles)
+    return {
+        "access_token": access_token,
+        "active_organization_id": None,
+        "roles": roles,
+    }
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗

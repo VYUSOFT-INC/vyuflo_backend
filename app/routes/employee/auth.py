@@ -31,6 +31,7 @@ from app.schemas.employee.auth import (
 )
 from app.services.employee.auth_services import (
     service_add_personal_email,
+    service_clear_organization,
     service_complete_password_reset,
     service_login,
     service_logout,
@@ -39,6 +40,7 @@ from app.services.employee.auth_services import (
     service_sign_out_all_devices,
     service_signup,
     service_sso_login,
+    service_switch_organization,
     service_verify_personal_email_otp,
     service_verify_reset_otp,
 )
@@ -46,6 +48,7 @@ from app.services.employee.services import db_get_by_field, db_get_by_id, get_us
 from app.core.core_permissions import get_effective_permissions
 from app.core.config import settings
 from app.services.employee.storage import resolve_url
+from app.schemas.admin.organizations import SwitchOrganizationRequest, SwitchOrganizationResponse
 
 router = APIRouter()
 
@@ -147,6 +150,11 @@ async def get_me(db: DBSession, current_user: Current_User):
     profile = await db_get_by_field(db, UserProfile, "user_id", current_user.user_id)
     permissions = sorted(await get_effective_permissions(current_user.user_id, db))
 
+    from app.core.org_scope import get_user_organization_ids, is_platform_admin
+    from app.services.employee.auth_services import _resolve_token_org_id
+
+    org_ids = [str(x) for x in await get_user_organization_ids(db, current_user.user_id)]
+    active_org = await _resolve_token_org_id(db, current_user.user_id, roles)
 
     return {
         "id":                   str(user.id),
@@ -156,8 +164,12 @@ async def get_me(db: DBSession, current_user: Current_User):
         "phone":                user.phone,
         "is_active":            user.is_active,
         "is_verified":          user.is_verified,
+        "is_platform_user":     bool(getattr(user, "is_platform_user", False)),
+        "is_super_admin":       is_platform_admin(roles),
         "roles":                roles,
         "permissions":          permissions,
+        "organization_ids":     org_ids,
+        "active_organization_id": active_org,
         "profile_picture":      await resolve_url(profile.profile_picture_url) if profile else None,
         "onboarding_step":      profile.onboarding_step      if profile else 1,
         "onboarding_completed": profile.onboarding_completed if profile else False,
@@ -165,7 +177,8 @@ async def get_me(db: DBSession, current_user: Current_User):
     }
 
 
-# ╔══════════════════════════════════════════════════════════════════════════╗
+# ╔══════════════════════════════════════════════════════════════════════════╗
+
 @router.get("/permissions")
 async def get_my_permissions(db: DBSession, current_user: Current_User):
     """Effective permission codes for the current user (mid-session refresh)."""
@@ -246,6 +259,9 @@ async def login(
         tour_hr_seen       = result["tour_hr_seen"],
         tour_attorney_seen = result["tour_attorney_seen"],
         tour_admin_seen    = result["tour_admin_seen"],
+        active_organization_id = result.get("active_organization_id"),
+        organization_ids   = result.get("organization_ids") or [],
+        is_super_admin     = result.get("is_super_admin", False),
     )
 
 
@@ -302,13 +318,55 @@ async def refresh_token(
 
     result = await service_refresh_token(db, refresh_token=refresh_token)
 
-    # Rotate the httpOnly cookie
+    # Rotate the httpOnly cookie + refresh ui_session so hard-reload bootstrap has user/roles
     _set_refresh_cookie(response, result["refresh_token"])
+    _set_ui_cookie(response, result["user"], result.get("theme_color"), result["roles"])
+    _set_avatar_session_cookie(response, str(result["user"]["id"]))
 
     return TokenResponse(
-        access_token  = result["access_token"],
-        refresh_token = None,
+        access_token       = result["access_token"],
+        refresh_token      = None,
+        roles              = result["roles"],
+        profile            = result["profile_picture"],
+        theme_color        = result["theme_color"],
+        user               = result["user"],
+        tour_employee_seen = result["tour_employee_seen"],
+        tour_hr_seen       = result["tour_hr_seen"],
+        tour_attorney_seen = result["tour_attorney_seen"],
+        tour_admin_seen    = result["tour_admin_seen"],
+        active_organization_id = result.get("active_organization_id"),
+        organization_ids   = result.get("organization_ids") or [],
+        is_super_admin     = result.get("is_super_admin", False),
     )
+
+
+@router.post("/switch-organization", response_model=SwitchOrganizationResponse)
+async def switch_organization(
+    body: SwitchOrganizationRequest,
+    db: DBSession,
+    current_user: Current_User,
+):
+    user = await db_get_by_id(db, User, current_user.user_id)
+    if not user:
+        raise NotFoundException("User not found.")
+    roles = await get_user_role(db, current_user.user_id)
+    result = await service_switch_organization(
+        db, user=user, roles=roles, organization_id=body.organization_id,
+    )
+    return SwitchOrganizationResponse(**result)
+
+
+@router.post("/clear-organization", response_model=SwitchOrganizationResponse)
+async def clear_organization(
+    db: DBSession,
+    current_user: Current_User,
+):
+    user = await db_get_by_id(db, User, current_user.user_id)
+    if not user:
+        raise NotFoundException("User not found.")
+    roles = await get_user_role(db, current_user.user_id)
+    result = await service_clear_organization(db, user=user, roles=roles)
+    return SwitchOrganizationResponse(**result)
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗

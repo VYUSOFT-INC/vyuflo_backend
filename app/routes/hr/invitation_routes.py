@@ -2,6 +2,7 @@
 import uuid
 from typing import Optional
 
+from app.core.core_permissions import PermissionChecker
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +29,6 @@ from app.schemas.hr.invitation_schemas import (
     EmployeeListResponse,
     ValidateTokenResponse,
 )
-from app.core.core_permissions import PermissionChecker
 from app.services.hr.invitation_service import (
     _get_employer_profile,
     create_email_invite,

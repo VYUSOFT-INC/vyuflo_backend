@@ -12,10 +12,10 @@ All endpoints grouped by section:
 
 Registration in main.py:
     from app.routers.billing import router as billing_router
-from app.core.core_permissions import PermissionChecker
     app.include_router(billing_router)
 """
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import math
 import uuid

@@ -11,14 +11,14 @@ All routes require `permissions.manage` — only app_admin has this.
 """
 
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Query, status
+from fastapi import Depends, APIRouter, Query, status
 
 from app.core.dependencies import Current_User, DBSession
-from app.core.core_permissions import PermissionChecker
 from app.schemas.rbac import (
     PermissionCreate,
     PermissionListResponse,

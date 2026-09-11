@@ -714,6 +714,8 @@ DASHBOARD_ROUTES: dict[str, str] = {
     "employee":  "/dashboard",
     "hr":        "/employer/dashboard",
     "attorney":  "/lawyer/dashboard",
+    "super_admin": "/admin/dashboard",
+    "org_admin": "/admin/dashboard",
     "app_admin": "/admin/dashboard",
 }
 

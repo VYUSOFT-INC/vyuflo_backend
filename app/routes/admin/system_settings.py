@@ -17,13 +17,14 @@ Endpoints:
   DELETE /settings/{key}                    — delete (blocked if is_readonly)
 """
 from __future__ import annotations
+from app.core.core_permissions import PermissionChecker
 
 from typing import Optional
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from app.core.dependencies import Current_User, DBSession
-# from app.core.core_permissions import PermissionChecker
+from app.core.org_scope import require_platform_console_dep
 from app.schemas.admin.system_settings import (
     MaintenanceModeUpdate,
     SystemSettingBulkUpdate,
@@ -43,8 +44,7 @@ from app.services.admin.system_settings import (
     service_update_setting,
 )
 
-system_settings_router = APIRouter()
-# _require = PermissionChecker("settings.manage")
+system_settings_router = APIRouter(dependencies=[Depends(require_platform_console_dep)])
 
 
 # =============================================================================
@@ -94,7 +94,7 @@ async def list_settings(
     search:        Optional[str] = Query(None, min_length=2, description="Search key or label"),
     public_only:   bool          = Query(False,  description="Return only is_public=True settings"),
 ) -> SystemSettingListResponse:
-    is_admin = "app_admin" in current_user.roles
+    is_admin = "super_admin" in current_user.roles or "app_admin" in current_user.roles
     # is_admin = any(ur.role.name == "app_admin" for ur in current_user.user_roles)
 
     result = await service_list_settings(
@@ -210,7 +210,7 @@ async def get_setting(
     current_user: Current_User,
 ) -> SystemSettingResponse:
     s = await service_get_setting(db, key)
-    is_admin = "app_admin" in current_user.roles
+    is_admin = "super_admin" in current_user.roles or "app_admin" in current_user.roles
     # is_admin = any(ur.role.name == "app_admin" for ur in current_user.user_roles)
     if not is_admin and not s.is_public:
         from app.core.exceptions import ForbiddenException

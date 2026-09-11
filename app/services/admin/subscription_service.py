@@ -28,6 +28,7 @@ from app.models.visamodels import (
     Application,
     AuditLog,
     Document,
+    EmployerProfile,
     PaymentGatewayConfig,
     PlanFeature,
     SubscriptionCoupon,
@@ -67,6 +68,48 @@ def _processing_days_label(days: Optional[int]) -> Optional[str]:
 
 ACTIVE_STATUSES = ("trialing", "active", "past_due", "paused")
 # statuses that count as "has a subscription"
+
+
+def _compute_effective_mrr_cents(plan: SubscriptionPlan, billing_cycle: str) -> int:
+    """Monthly recurring revenue in cents for revenue dashboards."""
+    cycle = (billing_cycle or "monthly").lower()
+    if cycle == "annual":
+        annual = int(plan.price_annual_cents or 0)
+        return annual // 12 if annual else 0
+    if cycle == "lifetime":
+        return 0
+    return int(plan.price_monthly_cents or 0)
+
+
+def _compute_period_end(
+    start: datetime,
+    billing_cycle: str,
+    *,
+    trial_end: Optional[datetime] = None,
+) -> datetime:
+    from datetime import timedelta
+
+    if trial_end is not None:
+        return trial_end
+    cycle = (billing_cycle or "monthly").lower()
+    if cycle == "annual":
+        return start + timedelta(days=365)
+    if cycle == "lifetime":
+        return start + timedelta(days=365 * 100)
+    return start + timedelta(days=30)
+
+
+def _period_charge_cents(plan: SubscriptionPlan, billing_cycle: str) -> int:
+    cycle = (billing_cycle or "monthly").lower()
+    if cycle == "annual":
+        return int(plan.price_annual_cents or 0)
+    if cycle == "lifetime":
+        return int(plan.price_annual_cents or plan.price_monthly_cents or 0)
+    return int(plan.price_monthly_cents or 0)
+
+
+def _new_invoice_number() -> str:
+    return f"INV-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
 
 
 # =============================================================================
@@ -124,17 +167,22 @@ async def service_get_subscription_stats(db: AsyncSession) -> Dict[str, Any]:
     """
     Computes all 4 KPI card values in one function.
     Runs 5 focused queries — keep cached for ~60 seconds in prod.
+
+    Active Subscribers / MRR align with the revenue dashboard: include
+    ``active`` + ``trialing`` (Starter/Pro seed plans start in trial).
+    MRR prefers ``effective_mrr_cents``, falling back to plan list price.
     """
     now = datetime.now(timezone.utc)
+    mrr_statuses = ("active", "trialing")
 
-    # Active subscriber count
+    # Active subscriber count (paying + trial — matches revenue KPI)
     active_q = await db.execute(
         select(func.count(UserSubscription.id))
-        .where(UserSubscription.status == "active")
+        .where(UserSubscription.status.in_(list(mrr_statuses)))
     )
     active_count = active_q.scalar() or 0
 
-    # Trial subscriber count
+    # Trial subscriber count (subset)
     trial_q = await db.execute(
         select(func.count(UserSubscription.id))
         .where(UserSubscription.status == "trialing")
@@ -159,49 +207,39 @@ async def service_get_subscription_stats(db: AsyncSession) -> Dict[str, Any]:
     )
     past_due_count = past_due_q.scalar() or 0
 
-    # MRR — sum active monthly amounts
-    # Join subscription → plan to get price
-    mrr_q = await db.execute(
-        select(
-            func.sum(
-                case(
-                    (UserSubscription.billing_cycle == "monthly",
-                     SubscriptionPlan.price_monthly_cents),
-                    (UserSubscription.billing_cycle == "annual",
-                     SubscriptionPlan.price_annual_cents / 12),
-                    else_=0
-                )
-            )
-        )
-        .select_from(UserSubscription)                                    # ← ADD THIS
-        .join(SubscriptionPlan, UserSubscription.plan_id == SubscriptionPlan.id)
-        .where(UserSubscription.status == "active")
+    # MRR — prefer cached effective_mrr_cents; else derive from plan price − discount
+    plan_list_mrr = case(
+        (
+            UserSubscription.billing_cycle == "monthly",
+            SubscriptionPlan.price_monthly_cents,
+        ),
+        (
+            UserSubscription.billing_cycle == "annual",
+            SubscriptionPlan.price_annual_cents / 12,
+        ),
+        else_=0,
     )
-    mrr_cents = int(mrr_q.scalar() or 0)
-
-    # Apply discounts (approximate — subtract cached discounts)
-    discount_q = await db.execute(
-        select(
-            func.sum(
-                case(
-                    (UserSubscription.discount_percent.isnot(None),
-                     case(
-                         (UserSubscription.billing_cycle == "monthly",
-                          SubscriptionPlan.price_monthly_cents *
-                          UserSubscription.discount_percent / 100),
-                         else_=SubscriptionPlan.price_annual_cents / 12 *
-                               UserSubscription.discount_percent / 100
-                     )),
-                    else_=0
-                )
-            )
-        )
+    discount_cents = case(
+        (
+            UserSubscription.discount_percent.isnot(None),
+            plan_list_mrr * UserSubscription.discount_percent / 100,
+        ),
+        else_=0,
+    )
+    mrr_expr = case(
+        (
+            UserSubscription.effective_mrr_cents.isnot(None),
+            UserSubscription.effective_mrr_cents,
+        ),
+        else_=func.greatest(plan_list_mrr - discount_cents, 0),
+    )
+    mrr_q = await db.execute(
+        select(func.coalesce(func.sum(mrr_expr), 0))
         .select_from(UserSubscription)
         .join(SubscriptionPlan, UserSubscription.plan_id == SubscriptionPlan.id)
-        .where(UserSubscription.status == "active")
+        .where(UserSubscription.status.in_(list(mrr_statuses)))
     )
-    discount_total = int(discount_q.scalar() or 0)
-    mrr_cents = max(0, mrr_cents - discount_total)
+    mrr_cents = int(mrr_q.scalar() or 0)
 
     total_q = await db.execute(
         select(func.count(UserSubscription.id))
@@ -347,6 +385,7 @@ async def service_create_plan(
         max_applications      = payload.max_applications,
         max_documents         = payload.max_documents,
         max_messages          = payload.max_messages,
+        max_employees         = getattr(payload, "max_employees", None),
         stripe_product_id     = payload.stripe_product_id,
         stripe_price_id_monthly = payload.stripe_price_id_monthly,
         stripe_price_id_annual  = payload.stripe_price_id_annual,
@@ -666,12 +705,33 @@ async def service_admin_assign_plan(
 ) -> UserSubscription:
     """
     Admin manually gives a user a plan.
-    No Stripe involved — sets assigned_by_admin=True.
+    No Stripe involved - sets assigned_by_admin=True.
     Cancels any existing active subscription first.
+
+    When employer_id is set (employer_profiles.id), prefer the org owner:
+    resolve EmployerProfile and assign to EmployerProfile.user_id.
+    user_subscriptions stay user-scoped (no employer_id column added).
+    If both user_id and employer_id are set, employer_id wins.
     """
+    target_user_id = getattr(payload, "user_id", None)
+    employer_id = getattr(payload, "employer_id", None)
+    employer_profile = None
+
+    if employer_id is not None:
+        ep_q = await db.execute(
+            select(EmployerProfile).where(EmployerProfile.id == employer_id)
+        )
+        employer_profile = ep_q.scalar_one_or_none()
+        if not employer_profile:
+            raise NotFoundException("Employer profile not found.")
+        target_user_id = employer_profile.user_id
+
+    if target_user_id is None:
+        raise BadRequestException("Provide user_id and/or employer_id.")
+
     # Check user exists
     user_q = await db.execute(
-        select(User).where(User.id == payload.user_id)
+        select(User).where(User.id == target_user_id)
     )
     user = user_q.scalar_one_or_none()
     if not user:
@@ -688,7 +748,7 @@ async def service_admin_assign_plan(
     # Cancel any existing active subscription
     existing_q = await db.execute(
         select(UserSubscription).where(
-            UserSubscription.user_id == payload.user_id,
+            UserSubscription.user_id == target_user_id,
             UserSubscription.status.in_(list(ACTIVE_STATUSES)),
         )
     )
@@ -702,36 +762,63 @@ async def service_admin_assign_plan(
         sub.updated_at     = now
 
     # Create new subscription
+    trial_end = None
+    if payload.trial_days > 0:
+        from datetime import timedelta
+        trial_end = now + timedelta(days=payload.trial_days)
+
+    notes = payload.admin_notes
+    if employer_profile is not None:
+        org_note = f"[org employer_id={employer_profile.id} company={employer_profile.company_name}]"
+        notes = f"{org_note} {notes}".strip() if notes else org_note
+
+    cycle = payload.billing_cycle or "monthly"
+    period_end = _compute_period_end(now, cycle, trial_end=trial_end)
+    mrr_cents = _compute_effective_mrr_cents(plan, cycle)
+    charge_cents = _period_charge_cents(plan, cycle)
+
     new_sub = UserSubscription(
         id                = uuid.uuid4(),
-        user_id           = payload.user_id,
+        user_id           = target_user_id,
         plan_id           = payload.plan_id,
         status            = "trialing" if payload.trial_days > 0 else "active",
-        billing_cycle     = payload.billing_cycle,
+        billing_cycle     = cycle,
         trial_start       = now if payload.trial_days > 0 else None,
-        trial_end         = (
-            datetime(now.year, now.month, now.day + payload.trial_days,
-                     tzinfo=timezone.utc)
-            if payload.trial_days > 0 else None
-        ),
+        trial_end         = trial_end,
         current_period_start = now,
-        current_period_end   = None,
+        current_period_end   = period_end,
         payment_processor = "manual",
+        effective_mrr_cents = mrr_cents,
         assigned_by_admin = True,
-        admin_notes       = payload.admin_notes,
+        admin_notes       = notes,
         created_by        = assigned_by,
         modified_by       = assigned_by,
         created_at        = now,
         updated_at        = now,
     )
     db.add(new_sub)
+    await db.flush()
 
-    # Update user's cached tier
-    await db.execute(
-        update(User)
-        .where(User.id == payload.user_id)
-        .values(subscription_tier=plan.slug)
-    )
+    db.add(SubscriptionInvoice(
+        id=uuid.uuid4(),
+        subscription_id=new_sub.id,
+        invoice_number=_new_invoice_number(),
+        subtotal_cents=charge_cents,
+        discount_cents=0,
+        tax_cents=0,
+        total_cents=charge_cents,
+        currency=getattr(plan, "currency", None) or "USD",
+        status="paid",
+        billing_period_start=now,
+        billing_period_end=period_end,
+        due_date=now,
+        paid_at=now,
+        payment_processor="manual",
+        created_by=assigned_by,
+        modified_by=assigned_by,
+        created_at=now,
+        updated_at=now,
+    ))
 
     await _write_audit_log(
         db,
@@ -740,12 +827,17 @@ async def service_admin_assign_plan(
         resource_type = "user_subscription",
         resource_id   = new_sub.id,
         new_value     = {
-            "user_id":  str(payload.user_id),
+            "user_id":  str(target_user_id),
+            "employer_id": str(employer_id) if employer_id else None,
             "plan_id":  str(payload.plan_id),
             "plan_name": plan.name,
             "status":   new_sub.status,
+            "effective_mrr_cents": mrr_cents,
         },
-        description   = f"Admin manually assigned plan '{plan.name}' to user {payload.user_id}.",
+        description   = (
+            f"Admin manually assigned plan '{plan.name}' to user {target_user_id}"
+            + (f" (employer {employer_id})." if employer_id else ".")
+        ),
         severity      = "warning",
     )
 
@@ -754,10 +846,135 @@ async def service_admin_assign_plan(
     return new_sub
 
 
-# =============================================================================
-# 10. CHANGE PLAN
-# PATCH /admin/subscriptions/{id}/change-plan
-# =============================================================================
+async def service_self_subscribe(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    plan_id: uuid.UUID,
+    billing_cycle: str = "monthly",
+    organization_id: Optional[uuid.UUID] = None,
+) -> UserSubscription:
+    """
+    Org/self-service subscribe: pick a public active plan only.
+    Never edits plan definitions. Optional organization_id assigns to org owner.
+    """
+    from datetime import timedelta
+
+    plan = (
+        await db.execute(
+            select(SubscriptionPlan).where(
+                SubscriptionPlan.id == plan_id,
+                SubscriptionPlan.is_active == True,  # noqa: E712
+                SubscriptionPlan.is_public == True,  # noqa: E712
+            )
+        )
+    ).scalar_one_or_none()
+    if not plan:
+        raise NotFoundException("Plan not found or not available for subscription.")
+
+    target_user_id = user_id
+    org_note = None
+    if organization_id is not None:
+        ep = (
+            await db.execute(
+                select(EmployerProfile).where(EmployerProfile.id == organization_id)
+            )
+        ).scalar_one_or_none()
+        if not ep:
+            raise NotFoundException("Organization not found.")
+        target_user_id = ep.user_id
+        org_note = f"[self-subscribe org={ep.id} company={ep.company_name}]"
+
+    existing_q = await db.execute(
+        select(UserSubscription).where(
+            UserSubscription.user_id == target_user_id,
+            UserSubscription.status.in_(list(ACTIVE_STATUSES)),
+        )
+    )
+    now = datetime.now(timezone.utc)
+    for sub in existing_q.scalars().all():
+        sub.status = "cancelled"
+        sub.cancelled_at = now
+        sub.cancellation_reason = "Superseded by self-service plan change"
+        sub.modified_by = user_id
+        sub.updated_at = now
+
+    trial_days = int(plan.trial_days or 0)
+    trial_end = now + timedelta(days=trial_days) if trial_days > 0 else None
+    cycle = billing_cycle if billing_cycle in ("monthly", "annual") else "monthly"
+    period_end = _compute_period_end(now, cycle, trial_end=trial_end)
+    mrr_cents = _compute_effective_mrr_cents(plan, cycle)
+    charge_cents = _period_charge_cents(plan, cycle)
+
+    new_sub = UserSubscription(
+        id=uuid.uuid4(),
+        user_id=target_user_id,
+        plan_id=plan.id,
+        status="trialing" if trial_days > 0 else "active",
+        billing_cycle=cycle,
+        trial_start=now if trial_days > 0 else None,
+        trial_end=trial_end,
+        current_period_start=now,
+        current_period_end=period_end,
+        payment_processor="manual",
+        effective_mrr_cents=mrr_cents,
+        assigned_by_admin=False,
+        admin_notes=org_note,
+        created_by=user_id,
+        modified_by=user_id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(new_sub)
+    await db.flush()
+
+    # Invoice so super-admin revenue / transactions pick up the subscription.
+    invoice = SubscriptionInvoice(
+        id=uuid.uuid4(),
+        subscription_id=new_sub.id,
+        invoice_number=_new_invoice_number(),
+        subtotal_cents=charge_cents,
+        discount_cents=0,
+        tax_cents=0,
+        total_cents=charge_cents,
+        currency=getattr(plan, "currency", None) or "USD",
+        status="paid" if charge_cents == 0 or trial_days > 0 else "paid",
+        billing_period_start=now,
+        billing_period_end=period_end,
+        due_date=now,
+        paid_at=now,
+        payment_processor="manual",
+        created_by=user_id,
+        modified_by=user_id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(invoice)
+
+    await _write_audit_log(
+        db,
+        actor_id=user_id,
+        action="subscription.self_subscribed",
+        resource_type="user_subscription",
+        resource_id=new_sub.id,
+        new_value={
+            "user_id": str(target_user_id),
+            "organization_id": str(organization_id) if organization_id else None,
+            "plan_id": str(plan.id),
+            "plan_name": plan.name,
+            "status": new_sub.status,
+            "effective_mrr_cents": mrr_cents,
+            "current_period_end": period_end.isoformat(),
+            "invoice_number": invoice.invoice_number,
+        },
+        description=f"User subscribed to plan '{plan.name}'.",
+        severity="info",
+    )
+
+    await db.commit()
+    await db.refresh(new_sub)
+    return new_sub
+
 
 async def service_change_plan(
     db:              AsyncSession,
@@ -789,13 +1006,6 @@ async def service_change_plan(
         sub.admin_notes = payload.admin_notes
     sub.modified_by = modified_by
     sub.updated_at  = datetime.now(timezone.utc)
-
-    # Update cached tier on user
-    await db.execute(
-        update(User)
-        .where(User.id == sub.user_id)
-        .values(subscription_tier=plan.slug)
-    )
 
     await _write_audit_log(
         db,
@@ -846,14 +1056,6 @@ async def service_cancel_subscription(
     sub.cancellation_reason = payload.cancellation_reason
     sub.modified_by         = cancelled_by
     sub.updated_at          = now
-
-    # If immediate: downgrade user to free tier
-    if payload.cancel_immediately:
-        await db.execute(
-            update(User)
-            .where(User.id == sub.user_id)
-            .values(subscription_tier="free")
-        )
 
     await _write_audit_log(
         db,
@@ -1341,47 +1543,81 @@ async def service_export_subscribers(
 async def service_get_my_subscription(
     db:      AsyncSession,
     user_id: uuid.UUID,
+    *,
+    organization_id: Optional[uuid.UUID] = None,
 ) -> Dict[str, Any]:
     """
     Returns the caller's own current subscription plus live usage against
-    plan quotas. No admin fields are exposed (no other users' data, no
-    Stripe internals beyond what the subscriber themself should see).
+    plan quotas. When organization_id is set, resolves the org owner's
+    subscription (self-subscribe assigns to the employer owner).
     """
+    lookup_user_id = user_id
+    company_name = None
+    if organization_id is not None:
+        ep = (
+            await db.execute(
+                select(EmployerProfile).where(EmployerProfile.id == organization_id)
+            )
+        ).scalar_one_or_none()
+        if ep:
+            lookup_user_id = ep.user_id
+            company_name = ep.company_name
+
     result = await db.execute(
         select(UserSubscription)
         .options(selectinload(UserSubscription.plan).selectinload(SubscriptionPlan.features))
         .where(
-            UserSubscription.user_id == user_id,
+            UserSubscription.user_id == lookup_user_id,
             UserSubscription.status.in_(list(ACTIVE_STATUSES)),
         )
         .order_by(UserSubscription.created_at.desc())
     )
     sub = result.scalars().first()
 
+    # Fallback: caller's own subscription if org owner has none
+    if not sub and lookup_user_id != user_id:
+        result = await db.execute(
+            select(UserSubscription)
+            .options(selectinload(UserSubscription.plan).selectinload(SubscriptionPlan.features))
+            .where(
+                UserSubscription.user_id == user_id,
+                UserSubscription.status.in_(list(ACTIVE_STATUSES)),
+            )
+            .order_by(UserSubscription.created_at.desc())
+        )
+        sub = result.scalars().first()
+
     if not sub:
         return {
             "has_subscription": False,
             "plan_name": None,
             "status": None,
+            "organization_name": company_name,
         }
 
     plan = sub.plan
+    usage_user_id = sub.user_id
 
-    # Usage counts — reuses existing tables, no new columns needed.
     apps_count = (await db.execute(
-        select(func.count(Application.id)).where(Application.user_id == user_id)
+        select(func.count(Application.id)).where(Application.user_id == usage_user_id)
     )).scalar() or 0
     docs_count = (await db.execute(
-        select(func.count(Document.id)).where(Document.user_id == user_id)
+        select(func.count(Document.id)).where(Document.user_id == usage_user_id)
     )).scalar() or 0
 
     def _quota(used: int, limit: Optional[int]) -> Dict[str, Any]:
         return {
             "used": used,
-            "limit": limit,               # null = unlimited
+            "limit": limit,
             "remaining": (limit - used) if limit is not None else None,
             "is_unlimited": limit is None,
         }
+
+    price_display = (
+        _cents_to_display(plan.price_annual_cents, plan.currency)
+        if sub.billing_cycle == "annual"
+        else _cents_to_display(plan.price_monthly_cents, plan.currency)
+    )
 
     return {
         "has_subscription":     True,
@@ -1389,12 +1625,16 @@ async def service_get_my_subscription(
         "plan_id":              plan.id,
         "plan_name":            plan.name,
         "plan_slug":            plan.slug,
+        "plan_description":     plan.description,
         "status":               sub.status,
         "billing_cycle":        sub.billing_cycle,
+        "price_display":        price_display,
+        "effective_mrr_display": _cents_to_display(sub.effective_mrr_cents or 0, plan.currency),
         "current_period_start": sub.current_period_start,
         "current_period_end":   sub.current_period_end,
         "trial_end":            sub.trial_end,
         "cancel_at_period_end": sub.cancel_at_period_end,
+        "organization_name":    company_name,
         "features": [
             {
                 "feature_text": f.feature_text,

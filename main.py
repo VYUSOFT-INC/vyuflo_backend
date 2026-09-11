@@ -27,7 +27,8 @@ from app.routes.employee.message import message_router
 from app.routes.employee.application import application_router,application_task_router,application_history_router
 from app.routes.employee.employee_forms import employee_forms_router          
 from app.services.employee.expiry_reminder_service import activate_pending_document_replacements, check_and_send_expiry_reminders, mark_expired_documents
-from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_notification_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types,seed_document_field_configurations
+from app.services.admin.subscription_renewal_service import check_and_send_subscription_renewal_reminders
+from app.services.employee.seeddata_service import  seed_document_types, seed_fee_templates, seed_notification_templates, seed_rbac, seed_subscription_plans, seed_support_articles, seed_system_settings, seed_visa_types,seed_document_field_configurations, migrate_app_admin_to_super_admin, seed_super_admin_user, backfill_organization_members
 from app.routes.employee.visa_types import visa_type_router
 from app.routes.employee.dashboard import dashboard_router
 from app.routes.employee.user_profile import user_profile_router
@@ -54,6 +55,7 @@ from app.routes.admin.system_audit import system_audit_router
 from app.routes.admin.workspace import workspace_router
 from app.routes.admin.document_field_config import document_field_config_router
 from app.routes.admin.admin_support import admin_support_router
+from app.routes.admin.organizations import organizations_router
 from app.routes.attorney.intake import intake_router
 from app.routes.attorney.analytics import analytics_router
 from app.routes.attorney.calendar import calendar_router
@@ -155,6 +157,21 @@ async def _ensure_notif_template_unique_constraint() -> None:
         """))
 
 
+async def _ensure_org_tenancy_columns() -> None:
+    """Add columns/tables that create_all skips on already-existing tables."""
+    from sqlalchemy import text
+
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS is_platform_user BOOLEAN NOT NULL DEFAULT FALSE;
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_users_is_platform_user
+            ON users (is_platform_user);
+        """))
+
+
 async def _run_expiry_reminder_check():
     """
     The actual job APScheduler calls. Creates its own DB session since
@@ -189,6 +206,18 @@ async def _run_mark_expired_documents():
         print(f"⚠️  Mark-expired-documents check failed: {type(e).__name__}: {e}")
 
 
+async def _run_subscription_renewal_reminders():
+    """Email org admins when a subscription period is ending / overdue."""
+    print("cron job (subscription_renewal_reminders) is working")
+    try:
+        async with AsyncSessionLocal() as db:
+            sent = await check_and_send_subscription_renewal_reminders(db)
+            if sent:
+                print(f"Sent {sent} subscription renewal reminder email(s)")
+    except Exception as e:
+        print(f"Subscription renewal reminder check failed: {type(e).__name__}: {e}")
+
+
 async def _run_activate_pending_document_replacements():
     """
     Performs the old→'superseded' handoff for documents that were
@@ -218,11 +247,16 @@ async def lifespan(app: FastAPI):
     await _ensure_pg_enum_values("visa_category_enum", _VISA_CATEGORY_ENUM_VALUES)
     # 1c. Sync unique constraint needed by notification template seed
     await _ensure_notif_template_unique_constraint()
+    # 1d. Org tenancy columns (is_platform_user); organization_members via create_all
+    await _ensure_org_tenancy_columns()
 
 
     # 2. Run seed safely
     async with AsyncSessionLocal() as db:
         await seed_rbac(db)                  # roles, permissions, role_permissions
+        await migrate_app_admin_to_super_admin(db)
+        await seed_super_admin_user(db)
+        await backfill_organization_members(db)
         await seed_visa_types(db)            # visa_types
         await seed_document_types(db)        # document_types
         await seed_subscription_plans(db)    # subscription_plans + plan_features
@@ -255,10 +289,19 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
 
+    renewal_job = scheduler.add_job(
+        _run_subscription_renewal_reminders,
+        trigger=CronTrigger(hour=9, minute=0, timezone=ZoneInfo("Asia/Kolkata")),
+        id="subscription_renewal_reminders",
+        misfire_grace_time=3600,
+        replace_existing=True,
+    )
+
     scheduler.start()
     print(f"⏰ Scheduler started — expiry_reminder_check next run at: {job.next_run_time}")
     print(f"⏰ Scheduler started — mark_expired_documents_check next run at: {expired_job.next_run_time}")
     print(f"⏰ Scheduler started — activate_pending_document_replacements_check next run at: {activation_job.next_run_time}")
+    print(f"⏰ Scheduler started — subscription_renewal_reminders next run at: {renewal_job.next_run_time}")
     yield
     print("🛑 Shutting down...")
     scheduler.shutdown(wait=False)
@@ -283,10 +326,24 @@ app = FastAPI(
 # ─────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['http://localhost:5174','https://designate-donated-subsoil.ngrok-free.dev'],
+    allow_origins=list(dict.fromkeys([
+        *(settings.CORS_ORIGINS or []),
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+    ])),
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "ngrok-skip-browser-warning",
+    ],
 )
 
 
@@ -332,6 +389,7 @@ app.include_router(document_field_config_router, prefix="/api/v1",tags=["Admin �
 app.include_router(user_management_router, prefix="/api/v1",tags=["User Management"])
 app.include_router(permission_overrides_router, prefix="/api/v1", tags=["RBAC Overrides"])
 app.include_router(admin_data_router, prefix="/api/v1", tags=["Admin Data"])
+app.include_router(organizations_router, prefix="/api/v1", tags=["Admin — Organizations"])
 app.include_router(admin_notifications_router, prefix="/api/v1/admin")
 app.include_router(custom_roles_router,prefix="/api/v1",tags=["Custom Roles"])
 app.include_router(system_settings_router, prefix="/api/v1",tags=["System Settings"])

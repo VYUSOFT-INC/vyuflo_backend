@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.org_scope import require_platform_console_dep
 from app.models.visamodels import User
 from app.schemas.admin.system_audit import (
     ActivityTimelineResponse,
@@ -28,7 +29,7 @@ from app.schemas.admin.system_audit import (
 )
 from app.services.admin import system_audit_service
 
-system_audit_router = APIRouter()
+system_audit_router = APIRouter(dependencies=[Depends(require_platform_console_dep)])
 
 
 @system_audit_router.get("/admin/audit/dashboard/full", response_model=AuditDashboardFullResponse)

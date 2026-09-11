@@ -28,7 +28,7 @@ from app.services.employee.document_field_config_service import (
 
 document_field_config_router = APIRouter()
 
-_admin_only = Depends(RoleChecker(["app_admin"]))
+_admin_only = Depends(RoleChecker(["super_admin", "app_admin"]))
 
 
 @document_field_config_router.get(

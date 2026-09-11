@@ -10,13 +10,13 @@ Mount in main.py:
 import uuid
 from typing import Annotated, List, Optional
 
+from app.core.core_permissions import PermissionChecker
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # ---------------------------------------------------------------------------
 # Project imports  (adjust paths to match your project layout)
 # ---------------------------------------------------------------------------
-from app.core.core_permissions import PermissionChecker
 from app.core.database import get_db                        # your AsyncSession dep
 from app.core.dependencies import CurrentUserData, get_current_user   # your auth dep → UUID
 from app.schemas.employee.application import (
