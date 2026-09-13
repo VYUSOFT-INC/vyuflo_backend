@@ -1,4 +1,3 @@
-
 """
 application_service.py — Service layer for Applications, Status History, and Tasks.
 
@@ -58,6 +57,18 @@ from app.services.employee.notification_service import (
     fire_case_status_changed,
     fire_hr_approval_changed,
 )
+
+# ── Shared HR-relay state machine — single source of truth, also imported
+#    by app/services/hr/hr_task_service.py. Do NOT redefine local copies of
+#    pack/unpack here; that's exactly the drift this module exists to avoid.
+from app.services.employee.task_relay import (
+    advance_relay_on_completion,
+    pack_task_description,
+    unpack_task_description,
+)
+
+from app.core.core_permissions import get_effective_permissions
+from app.models.visamodels import Application, EmployerEmployee
 
 
 # =============================================================================
@@ -222,33 +233,6 @@ async def create_application(
     await fire_case_created(db, refreshed, actor_id=current_user_id)
 
     return ApplicationResponse.model_validate(refreshed)
-
-
-# async def get_application(
-#     db: AsyncSession,
-#     application_id: uuid.UUID,
-#     current_user_id: uuid.UUID,
-# ) -> ApplicationResponse:
-#     result = await db.execute(
-#         select(Application)
-#         .options(joinedload(Application.visa_type))
-#         .where(Application.id == application_id)
-#     )
-#     app = result.scalars().first()
-#     if not app:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Application {application_id} not found.",
-#         )
-#     if app.user_id != current_user_id:
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN,
-#             detail="You do not have access to this application.",
-#         )
-#     return ApplicationResponse.model_validate(app)
-
-from app.core.core_permissions import get_effective_permissions
-from app.models.visamodels import Application, EmployerEmployee
 
 
 async def get_application(
@@ -597,6 +581,36 @@ async def list_tasks(
     db: AsyncSession,
     application_id: uuid.UUID,
 ) -> List[TaskResponse]:
+    """
+    GET /applications/{application_id}/tasks
+
+    This is the EMPLOYEE-facing checklist endpoint.
+
+    FIXED (two layers):
+
+    1. This used to return EVERY task on the application unconditionally,
+       with no filter on `assigned_to` at all — so tasks meant for the
+       attorney (assigned_to="attorney", from HR's "Request Document from
+       Attorney") or for HR directly (assigned_to="hr", the NEW
+       target="hr" attorney-direct-request feature) were leaking straight
+       into the employee's own checklist alongside their real tasks. Now
+       only ever returns tasks where assigned_to == "employee" — the
+       employee should never see a task that isn't theirs to act on.
+
+    2. Even among assigned_to == "employee" tasks, an attorney-origin
+       intake request (target="employee") starts at
+       relay_status="pending_hr_intake" — HR hasn't reviewed it yet.
+       attorney_create_task() sets assigned_to="employee" on that task
+       immediately, well before HR's explicit "Assign to Employee" action
+       (hr_assign_intake_task, which advances relay_status to
+       "assigned_to_employee"). Without this check, the employee's portal
+       would show the lawyer's unreviewed request the instant it was
+       created — bypassing the entire point of the HR checkpoint. Now
+       excludes any attorney-origin task still sitting at
+       "pending_hr_intake"; everything else (HR-origin tasks, and
+       attorney-origin tasks HR has already assigned onward) shows
+       exactly as before.
+    """
     await _assert_application_exists(db, application_id)
 
     result = await db.execute(
@@ -606,7 +620,17 @@ async def list_tasks(
         .order_by(ApplicationTask.sort_order)
     )
     tasks = result.scalars().all()
-    return [_build_task_response(t) for t in tasks]
+
+    visible = []
+    for t in tasks:
+        _, _, _, assigned_to, relay_status, origin, _ = unpack_task_description(t.description)
+        if assigned_to != "employee":
+            continue
+        if origin == "attorney" and relay_status == "pending_hr_intake":
+            continue
+        visible.append(t)
+
+    return [_build_task_response(t) for t in visible]
 
 
 async def create_task(
@@ -657,12 +681,43 @@ async def complete_task(
     payload: TaskCompleteRequest,
     current_user_id: uuid.UUID,
 ) -> TaskResponse:
-    await _assert_task_exists(db, application_id, task_id)
+    """
+    PATCH /applications/{application_id}/tasks/{task_id}/complete
+
+    Employee-facing task completion. FIXED — this previously had NO
+    ownership check at all: any authenticated user who knew a task_id
+    could mark it complete regardless of whose application it belonged
+    to. Now requires app.user_id == current_user_id, matching the pattern
+    already used by update_application/delete_application above.
+
+    Also advances the HR-relay state machine (see
+    app/services/employee/task_relay.py and hr_task_service.py's
+    docstring for the full state machine) when this task originated from
+    an attorney's intake request. Ordinary employee/HR-created tasks are
+    unaffected — advance_relay_on_completion is a no-op for origin="hr".
+    """
+    task = await _assert_task_exists(db, application_id, task_id)
+
+    app = await _assert_application_exists(db, application_id)
+    if app.user_id != current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this application's tasks.",
+        )
+
+    priority, text, due_date, assigned_to, relay_status, origin, target = unpack_task_description(task.description)
+    new_relay_status = advance_relay_on_completion(relay_status, origin, payload.is_completed)
 
     update_data: dict = {
         "is_completed": payload.is_completed,
         "modified_by":  current_user_id,
     }
+    if new_relay_status != relay_status:
+        update_data["description"] = pack_task_description(
+            priority, text, due_date, assigned_to,
+            relay_status=new_relay_status, origin=origin, target=target,
+        )
+
     if payload.is_completed:
         update_data["completed_at"] = datetime.now(timezone.utc)
         update_data["completed_by"] = current_user_id
@@ -675,7 +730,6 @@ async def complete_task(
 
     await db_update(db, ApplicationTask, task_id, update_data)
 
-    # Reload with document relationship
     result = await db.execute(
         select(ApplicationTask)
         .options(joinedload(ApplicationTask.document))
@@ -685,28 +739,20 @@ async def complete_task(
     return _build_task_response(updated)
 
 
-def _unpack_description(raw: Optional[str]) -> str:
-    """Strips HR's JSON priority/due_date packing, returning plain text only.
-    Mirrors hr_task_service.py's _unpack_description — kept local rather than
-    imported so employee-side code doesn't depend on the HR module."""
-    if not raw:
-        return ""
-    try:
-        if raw.startswith("{"):
-            data = json.loads(raw)
-            return data.get("text", "")
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return raw  # legacy plain text
-
-
 def _build_task_response(task: ApplicationTask) -> TaskResponse:
+    """Build TaskResponse, decoding the plain-text description via the
+    shared task_relay module. (The old local _unpack_description that only
+    stripped the JSON packing has been removed — this now goes through the
+    same single source of truth as hr_task_service.py, so there is exactly
+    one packing/unpacking scheme in the codebase, not two that can drift.)
+    """
     doc = getattr(task, "document", None)
+    _, plain_text, _, _, _, _, _ = unpack_task_description(task.description)
     return TaskResponse(
         id             = task.id,
         application_id = task.application_id,
         task_name      = task.task_name,
-        description    = _unpack_description(task.description) or None,
+        description    = plain_text or None,
         is_required    = task.is_required,
         is_completed   = task.is_completed,
         sort_order     = task.sort_order,

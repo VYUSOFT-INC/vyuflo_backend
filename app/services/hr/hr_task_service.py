@@ -1,10 +1,19 @@
-
-# app/services/hr/hr_task_service.py
 """
 Task service for HR-facing case management.
 
-Why this is separate from application_service.py:
-  application_service.py uses `app.user_id == current_user_id` for access control —
+HR can:
+  - List tasks on any case assigned to them
+  - Mark tasks complete / incomplete (on behalf of employee)
+  - Add custom tasks to a case
+  - Update task metadata
+  - Delete custom (non-required) tasks
+
+Uses the same ApplicationTask model as the employee flow.
+Separate schemas so HR responses can include extra fields
+(e.g. who_should_complete, visibility to employee).
+
+Why this is separate from application_services.py:
+  application_services.py uses `app.user_id == current_user_id` for access control —
   which means only the employee can call those task endpoints.
 
   HR owns cases via `assigned_hr_id == hr_user_id`. This service:
@@ -13,10 +22,33 @@ Why this is separate from application_service.py:
     3. Returns HRTaskResponse (same shape as TaskResponse, different priority field)
 
 The underlying ApplicationTask model and DB table are shared.
+
+Relay state machine (for attorney-initiated intake tasks, target="employee"):
+  Lawyer creates a task ("intake ask") -> origin="attorney", relay_status="pending_hr_intake"
+    -> HR reviews & assigns to employee -> relay_status="assigned_to_employee"
+    -> employee completes it -> relay_status auto-advances to "pending_hr_relay"
+    -> HR explicitly relays -> relay_status="sent_to_lawyer" (only now does the lawyer see it)
+
+  Existing HR-created tasks (origin="hr", e.g. "Request Document from Attorney")
+  keep relay_status="sent_to_lawyer" from creation — fully unaffected, no new gate.
+
+NEW — target="hr" tasks (attorney asks HR directly, no employee involved):
+  assigned_to is "hr" from creation, relay_status is never gated on.
+  hr_complete_task() below (the same one used for everything else) is all
+  that's needed to mark these done — no new endpoint required. HR sees
+  them via the ordinary hr_list_tasks() below; the frontend groups them
+  separately from the pending_hr_intake queue since they need no
+  "Assign to Employee" step at all.
+
+FIXED (dedup): this file previously defined its OWN local copies of
+_pack_description / _unpack_description / _advance_relay_on_completion,
+identical in logic to app/services/employee/task_relay.py but a second,
+separate copy. Both files now import the SAME three functions from the
+shared module; only the local names (`_pack_description` etc.) are kept
+via aliasing so no call site elsewhere in this file needed to change.
 """
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime, timezone
 from typing import List
@@ -33,6 +65,15 @@ from app.schemas.hr.hr_task_schemas import (
     HRTaskUpdate,
     HRTaskCompleteRequest,
     HRTaskResponse,
+)
+
+# ── Shared HR-relay state machine — single source of truth, also imported
+#    by app/services/employee/application_services.py. Aliased to the
+#    original local names so every call site below is unchanged.
+from app.services.employee.task_relay import (
+    pack_task_description as _pack_description,
+    unpack_task_description as _unpack_description,
+    advance_relay_on_completion as _advance_relay_on_completion,
 )
 
 
@@ -80,52 +121,10 @@ async def _assert_task_belongs_to_case(
     return task
 
 
-def _parse_priority(description: str | None) -> str:
-    """
-    Priority is stored as a JSON prefix in description:
-      {"priority": "critical", "text": "Upload I-129 Form", "due_date": "2026-09-01"}
-    Falls back to "medium" for legacy plain-text descriptions.
-    """
-    if not description:
-        return "medium"
-    try:
-        if description.startswith("{"):
-            data = json.loads(description)
-            return data.get("priority", "medium")
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return "medium"
-
-
-def _pack_description(priority: str, text: str | None, due_date: str | None = None) -> str:
-    """
-    Store priority + due_date in description JSON so we don't need new columns.
-    due_date is an ISO date string ("YYYY-MM-DD") or None — there is no due_date
-    column on ApplicationTask, so it rides along in the same JSON blob as priority.
-    """
-    return json.dumps(
-        {"priority": priority, "text": text or "", "due_date": due_date},
-        ensure_ascii=False,
-    )
-
-
-def _unpack_description(raw: str | None) -> tuple[str, str, str | None]:
-    """Returns (priority, plain_text_description, due_date)."""
-    if not raw:
-        return "medium", "", None
-    try:
-        if raw.startswith("{"):
-            data = json.loads(raw)
-            return data.get("priority", "medium"), data.get("text", ""), data.get("due_date")
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return "medium", raw, None  # legacy plain text
-
-
 def _build_response(task: ApplicationTask) -> HRTaskResponse:
-    """Build HRTaskResponse, decoding priority + due_date from description JSON."""
+    """Build HRTaskResponse, decoding all packed fields from description JSON."""
     doc = getattr(task, "document", None)
-    priority, plain_desc, due_date = _unpack_description(task.description)
+    priority, plain_desc, due_date, assigned_to, relay_status, origin, target = _unpack_description(task.description)
     return HRTaskResponse(
         id             = task.id,
         application_id = task.application_id,
@@ -136,6 +135,10 @@ def _build_response(task: ApplicationTask) -> HRTaskResponse:
         sort_order     = task.sort_order,
         priority       = priority,
         due_date       = due_date,
+        assigned_to    = assigned_to,
+        relay_status   = relay_status,
+        origin         = origin,
+        target         = target,
         completed_at   = task.completed_at,
         completed_by   = task.completed_by,
         created_at     = task.created_at,
@@ -163,7 +166,11 @@ async def hr_list_tasks(
     GET /hr/cases/:application_id/tasks
     Returns all tasks for a case, ordered by sort_order.
     HR can see tasks auto-created from visa_type.required_documents
-    (created by hr_create_case) plus any custom tasks added later.
+    (created by hr_create_case) plus any custom tasks added later — and,
+    per the relay/target model, EVERY attorney-origin task regardless of
+    stage (pending_hr_intake, target="hr", etc.) — HR is the one party
+    that should always see everything on their own case; the gating is
+    only ever about what the EMPLOYEE or the ATTORNEY see.
     """
     await _assert_hr_owns_case(db, application_id, hr_user_id)
 
@@ -178,7 +185,8 @@ async def hr_list_tasks(
 
 
 # =============================================================================
-# CREATE TASK
+# CREATE TASK  (HR-initiated — unaffected: origin="hr", relay_status="sent_to_lawyer",
+# target="employee" default, though target isn't meaningful for HR-origin tasks)
 # =============================================================================
 
 async def hr_create_task(
@@ -197,7 +205,10 @@ async def hr_create_task(
     task = ApplicationTask(
         application_id = application_id,
         task_name      = payload.task_name,
-        description    = _pack_description(payload.priority, payload.description, payload.due_date),
+        description    = _pack_description(
+            payload.priority, payload.description, payload.due_date, payload.assigned_to,
+            relay_status="sent_to_lawyer", origin="hr", target="employee",
+        ),
         is_required    = payload.is_required,
         is_completed   = False,
         sort_order     = payload.sort_order,
@@ -231,13 +242,19 @@ async def hr_update_task(
     if payload.task_name is not None:
         update_data["task_name"] = payload.task_name
 
-    # Re-pack description if priority, text, or due_date changed
-    if payload.description is not None or payload.priority is not None or payload.due_date is not None:
-        current_priority, current_text, current_due_date = _unpack_description(task.description)
+    # Re-pack description if priority, text, due_date, or assigned_to changed
+    if payload.description is not None or payload.priority is not None or payload.due_date is not None or payload.assigned_to is not None:
+        current_priority, current_text, current_due_date, current_assigned_to, current_relay, current_origin, current_target = _unpack_description(task.description)
         new_priority = payload.priority    or current_priority
         new_text     = payload.description if payload.description is not None else current_text
         new_due_date = payload.due_date    if payload.due_date is not None else current_due_date
-        update_data["description"] = _pack_description(new_priority, new_text, new_due_date)
+        new_assigned_to = payload.assigned_to or current_assigned_to
+        # relay_status/origin/target are NEVER touched by this general-purpose
+        # update — they only move via the dedicated relay endpoints below.
+        update_data["description"] = _pack_description(
+            new_priority, new_text, new_due_date, new_assigned_to,
+            relay_status=current_relay, origin=current_origin, target=current_target,
+        )
 
     if payload.is_required is not None:
         update_data["is_required"] = payload.is_required
@@ -263,7 +280,7 @@ async def hr_update_task(
 
 
 # =============================================================================
-# COMPLETE / UNCOMPLETE TASK
+# COMPLETE / UNCOMPLETE TASK — advances relay_status when applicable
 # =============================================================================
 
 async def hr_complete_task(
@@ -276,19 +293,31 @@ async def hr_complete_task(
     """
     PATCH /hr/cases/:application_id/tasks/:task_id/complete
 
-    HR marks a task complete on behalf of the employee (or their own HR tasks).
-    This is what the Action Items checkboxes in HRCaseDetail call.
+    HR marks a task complete on behalf of the employee (or their own HR tasks) —
+    and this is ALSO how HR completes a target="hr" attorney-direct-request
+    task: no separate endpoint needed. advance_relay_on_completion() is a
+    no-op for target="hr" tasks (their relay_status never reaches
+    "assigned_to_employee"), so this just flips is_completed for them,
+    exactly like completing any ordinary task.
 
     When completing: records completed_at, completed_by, and optional document_id.
     When uncompleting (is_completed=false): clears all completion fields.
     """
     await _assert_hr_owns_case(db, application_id, hr_user_id)
-    await _assert_task_belongs_to_case(db, application_id, task_id)
+    task = await _assert_task_belongs_to_case(db, application_id, task_id)
+
+    priority, text, due_date, assigned_to, relay_status, origin, target = _unpack_description(task.description)
+    new_relay_status = _advance_relay_on_completion(relay_status, origin, payload.is_completed)
 
     update_data: dict = {
         "is_completed": payload.is_completed,
         "modified_by":  hr_user_id,
     }
+    if new_relay_status != relay_status:
+        update_data["description"] = _pack_description(
+            priority, text, due_date, assigned_to,
+            relay_status=new_relay_status, origin=origin, target=target,
+        )
 
     if payload.is_completed:
         update_data["completed_at"] = datetime.now(timezone.utc)
@@ -311,6 +340,102 @@ async def hr_complete_task(
     )
     updated = result.scalars().first()
     return _build_response(updated)
+
+
+# =============================================================================
+# HR assigns a lawyer-created intake task to the employee
+# =============================================================================
+
+async def hr_assign_intake_task(
+    db: AsyncSession,
+    application_id: uuid.UUID,
+    task_id: uuid.UUID,
+    hr_user_id: uuid.UUID,
+) -> HRTaskResponse:
+    """
+    PATCH /hr/cases/{application_id}/tasks/{task_id}/assign-intake
+
+    HR reviews a task the ATTORNEY created with target="employee"
+    (relay_status="pending_hr_intake") and pushes it to the employee.
+    Only valid on attorney-origin, target="employee" tasks still sitting
+    at that exact stage — this is a deliberate HR checkpoint, not a
+    rubber stamp: HR is the one who decides the employee should see it.
+
+    target="hr" tasks never reach this function at all — they're
+    assigned_to="hr" from creation and HR completes them directly via
+    hr_complete_task() above, with no "assign to employee" step.
+    """
+    await _assert_hr_owns_case(db, application_id, hr_user_id)
+    task = await _assert_task_belongs_to_case(db, application_id, task_id)
+
+    priority, text, due_date, assigned_to, relay_status, origin, target = _unpack_description(task.description)
+    if origin != "attorney" or relay_status != "pending_hr_intake":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Task is not awaiting HR intake review (origin={origin}, relay_status={relay_status}).",
+        )
+
+    await db_update(db, ApplicationTask, task_id, {
+        "description": _pack_description(
+            priority, text, due_date, "employee",
+            relay_status="assigned_to_employee", origin=origin, target=target,
+        ),
+        "modified_by": hr_user_id,
+    })
+
+    result = await db.execute(
+        select(ApplicationTask)
+        .options(joinedload(ApplicationTask.document))
+        .where(ApplicationTask.id == task_id)
+    )
+    return _build_response(result.scalars().first())
+
+
+# =============================================================================
+# HR relays a completed attorney-origin task back to the lawyer
+# =============================================================================
+
+async def hr_relay_task_to_attorney(
+    db: AsyncSession,
+    application_id: uuid.UUID,
+    task_id: uuid.UUID,
+    hr_user_id: uuid.UUID,
+) -> HRTaskResponse:
+    """
+    PATCH /hr/cases/{application_id}/tasks/{task_id}/relay-to-lawyer
+
+    Mirrors hr_assign_document_to_attorney() in hr_approval_service.py —
+    same "HR is the explicit final step" pattern, now for tasks. Only valid
+    once the employee has completed the task and it's sitting in
+    "pending_hr_relay" (see advance_relay_on_completion in task_relay.py).
+
+    Not applicable to target="hr" tasks — they never enter "pending_hr_relay"
+    since there's no employee step for them at all.
+    """
+    await _assert_hr_owns_case(db, application_id, hr_user_id)
+    task = await _assert_task_belongs_to_case(db, application_id, task_id)
+
+    priority, text, due_date, assigned_to, relay_status, origin, target = _unpack_description(task.description)
+    if origin != "attorney" or relay_status != "pending_hr_relay":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Task is not awaiting relay to the lawyer (origin={origin}, relay_status={relay_status}, completed={task.is_completed}).",
+        )
+
+    await db_update(db, ApplicationTask, task_id, {
+        "description": _pack_description(
+            priority, text, due_date, assigned_to,
+            relay_status="sent_to_lawyer", origin=origin, target=target,
+        ),
+        "modified_by": hr_user_id,
+    })
+
+    result = await db.execute(
+        select(ApplicationTask)
+        .options(joinedload(ApplicationTask.document))
+        .where(ApplicationTask.id == task_id)
+    )
+    return _build_response(result.scalars().first())
 
 
 # =============================================================================

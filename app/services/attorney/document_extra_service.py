@@ -16,6 +16,27 @@
 #      that was never implemented — they 403'd for anyone but the document's
 #      owner. Now they use get_case_role() as a fallback when the caller
 #      isn't the owner.
+#   5. NEW (this pass) — list_documents_filtered()'s attorney branch scoped
+#      ONLY by case assignment (Application.assigned_attorney_id == user_id),
+#      with no status or assignment-to-attorney check at all. That meant an
+#      attorney calling GET /documents/filter — exactly what
+#      CaseDetailPage.tsx's VerifiedDocumentsList calls via
+#      documentsApi.filterDocuments() — could see every document on the
+#      case regardless of whether HR had verified it, let alone explicitly
+#      assigned it to them. This directly violated the HR-middle-barrier
+#      rule (Flow 1): "employee sends to HR -> HR verifies -> HR assigns to
+#      lawyer -> only THEN does the lawyer see it." The single-document
+#      /view endpoint's _can_access_document() in document_service.py
+#      already enforced verified-only + case-assignment; this list endpoint
+#      had no equivalent, so document metadata (name, type, existence) was
+#      leaking through this endpoint one layer earlier than the file
+#      content itself. Now requires BOTH Document.status == "verified" AND
+#      Document.assigned_to_attorney_at IS NOT NULL — the same two-condition
+#      rule hr_assign_document_to_attorney()'s docstring in
+#      hr_approval_service.py already documents as the intended behavior,
+#      and the same rule HRCaseDetail.tsx's LawyerVerifiedDocuments already
+#      enforces client-side on the HR side. This closes the gap so the
+#      backend actually matches what both frontends assume.
 #
 # New in this pass — the HR-relay workflow:
 #   - upload_document_for_client(): if an ATTORNEY uploads, the document is
@@ -177,7 +198,7 @@ async def delete_document(
 
 
 # =============================================================================
-# PATCH /documents/{id}/status — FIX: now actually checks permission
+# PATCH /documents/{id}/status — now actually checks permission
 # =============================================================================
 
 async def update_document_status(
@@ -194,8 +215,7 @@ async def update_document_status(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
 
-    # FIX: this was completely missing before. Verify/reject requires
-    # attorney/hr/app_admin standing on the document's case.
+    # Requires attorney/hr/app_admin standing on the document's case.
     if not doc.application_id:
         raise HTTPException(status_code=422, detail="Document is not attached to a case.")
     result = await db.execute(select(Application).where(Application.id == doc.application_id))
@@ -272,7 +292,8 @@ async def trigger_ocr(db: AsyncSession, document_id: uuid.UUID, user_id: uuid.UU
 
 
 # =============================================================================
-# GET /documents/filter — FIX: role-aware scoping instead of attorney-only
+# GET /documents/filter — role-aware scoping, attorney branch now gated by
+# verified + assigned_to_attorney status (see fix #5 in the header comment)
 # =============================================================================
 
 async def list_documents_filtered(
@@ -292,8 +313,21 @@ async def list_documents_filtered(
     if "app_admin" in roles:
         pass  # no ownership filter — sees everything, narrowed by application_id/status below
     elif "attorney" in roles:
+        # FIXED: previously scoped ONLY by case assignment, which meant an
+        # attorney could see every document on their case regardless of
+        # verification or explicit hand-off — bypassing the HR-middle-
+        # barrier rule (employee -> HR verifies -> HR assigns to lawyer ->
+        # only then can the lawyer see it). Now requires the SAME two
+        # conditions hr_assign_document_to_attorney() enforces when setting
+        # assigned_to_attorney_at: status == "verified" AND
+        # assigned_to_attorney_at IS NOT NULL. A caller explicitly passing
+        # status= for some other value together with the attorney role will
+        # get the intersection of both filters, which correctly yields zero
+        # results rather than silently ignoring the attorney's own gate.
         stmt = stmt.join(Application, Document.application_id == Application.id).where(
-            Application.assigned_attorney_id == user_id
+            Application.assigned_attorney_id == user_id,
+            Document.status == "verified",
+            Document.assigned_to_attorney_at.isnot(None),
         )
     elif "hr" in roles:
         stmt = stmt.join(Application, Document.application_id == Application.id).where(
@@ -344,7 +378,7 @@ async def get_my_rejected_documents(db: AsyncSession, user_id: uuid.UUID) -> lis
 
 
 # =============================================================================
-# POST /documents/upload-for-client — FIX: correct call signature + HR relay
+# POST /documents/upload-for-client — correct call signature + HR relay
 # =============================================================================
 
 async def upload_document_for_client(db, actor_id, application_id, document_type, category, file):
@@ -365,8 +399,6 @@ async def upload_document_for_client(db, actor_id, application_id, document_type
     is_attorney_originated = (role == "attorney")
     initial_status = "pending_hr_release" if is_attorney_originated else "uploaded"
 
-    # FIX: upload_document() has no actor_id param — this used to crash
-    # every time this endpoint was called.
     doc_response = await upload_document(
         db=db, user_id=application.user_id, application_id=application_id,
         document_type=document_type, category=category, file=file,
@@ -411,7 +443,7 @@ async def upload_document_for_client(db, actor_id, application_id, document_type
 
 
 # =============================================================================
-# NEW — HR reviews an attorney-uploaded document sitting in 'pending_hr_release'
+# HR reviews an attorney-uploaded document sitting in 'pending_hr_release'
 # =============================================================================
 
 async def hr_review_uploaded_document(
@@ -461,7 +493,7 @@ async def hr_review_uploaded_document(
         ))
         from app.services.admin.admin_notification_fanout import fan_out_notification_to_admins
         await fan_out_notification_to_admins(db, _notif)
-    else: 
+    else:
         await db_update(db, Document, document_id, {
             "status": "rejected", "rejection_reason": reason,
             "verified_by": hr_user_id, "verified_at": datetime.now(timezone.utc),
@@ -490,7 +522,7 @@ async def hr_review_uploaded_document(
 
 
 # =============================================================================
-# NEW — HR's queue of attorney uploads awaiting release
+# HR's queue of attorney uploads awaiting release
 # =============================================================================
 
 async def hr_list_pending_document_releases(

@@ -67,6 +67,7 @@ from app.routes.attorney.notifications_reminders import notifications_reminders_
 from app.routes.attorney.lawyer_dashboard import lawyer_dashboard_router
 from app.routes.attorney.employee_forms_review_routes import employee_forms_review_router 
 # hr routes
+from app.routes.hr.hr_payment_status_routes import hr_payment_status_router
 from app.routes.hr.hr_dashboard_routes import hr_dashboard_router
 from app.routes.hr.invitation_routes import invitation_router
 from app.routes.hr.hr_case_routes import hr_case_router
@@ -367,6 +368,7 @@ app.include_router(hr_case_letters_router,prefix="/api/v1/hr", tags=["Case Gener
 app.include_router(hr_employee_forms_router,prefix="/api/v1/hr", tags=["HR Employee Forms"] ) 
 app.include_router(hr_employee_forms_review_router, prefix="/api/v1/hr", tags=["HR Form Review"])   
 app.include_router(company_profile_router, prefix="/api/v1", tags=["company-profile"])
+app.include_router(hr_payment_status_router, prefix="/api/v1/hr", tags=["HR Payment Status"])
 
 
 

@@ -7,7 +7,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, Float, String, Boolean, DateTime, Date, Time,
+    Column, Float, Numeric, String, Boolean, DateTime, Date, Time,
     Integer, Enum, Text, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy import text
@@ -782,7 +782,7 @@ class ApplicationTask(Base):
     document_id  = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
     is_renewal             = Column(Boolean, nullable=False, server_default="false")
     renewal_of_document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
-
+    assigned_to = Column(String(20), nullable=False, server_default="employee")
     created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime(timezone=True),
@@ -873,6 +873,96 @@ class DocumentType(Base):
                          onupdate=lambda: datetime.now(timezone.utc))
 
 
+
+
+class ApplicationFiling(Base):
+    __tablename__ = "application_filings"
+ 
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    application_id  = Column(UUID(as_uuid=True), ForeignKey("applications.id"),
+                             nullable=False, index=True)
+ 
+    # "lca" (filed with DOL) | "petition" (filed with USCIS) | "rfe_response" |
+    # "appeal" — open string rather than a DB enum so a new filing type
+    # never needs a migration to add.
+    filing_type     = Column(String(30), nullable=False)
+ 
+    receipt_number  = Column(String(100), nullable=False)
+    filed_date      = Column(Date, nullable=False)
+    fee_amount      = Column(Numeric(10, 2), nullable=True)
+    notes           = Column(Text, nullable=True)
+ 
+    # Proof-of-payment document, uploaded through the existing document
+    # pipeline BEFORE this row is created — this just links to it.
+    document_id     = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
+ 
+    filed_by        = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)  # the attorney
+ 
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc))
+ 
+    application = relationship("Application", backref="filings")
+    document    = relationship("Document")
+
+# =============================================================================
+# ADD THIS to app/models/visamodels.py, near ApplicationFiling.
+# =============================================================================
+
+class PaymentStatusUpdate(Base):
+    """
+    A lightweight, append-only "heads up" the attorney sends BEFORE a real
+    filing exists (no receipt number yet) — e.g. "I'm currently processing
+    the USCIS petition fee payment." Distinct from ApplicationFiling, which
+    records a COMPLETED filing with a receipt number, filed_date, etc.
+
+    Two-step relay, same pattern as Document.assigned_to_attorney_at and
+    the ApplicationTask relay state machine (see
+    app/services/employee/task_relay.py):
+      1. Attorney creates a row here -> HR is notified immediately.
+      2. HR explicitly clicks "Notify Employee" -> relayed_to_employee_at/by
+         get set -> employee is notified. Until that click, the employee
+         hears nothing — HR is the deliberate checkpoint, exactly as with
+         every other attorney -> employee path in this app.
+
+    Append-only / no update-in-place for the "in progress" fact itself —
+    each new status the attorney sends is its own row, so the case has a
+    full history of "attorney said X was happening, and when HR passed it
+    on." relayed_to_employee_at is the only field that ever changes after
+    creation.
+    """
+    __tablename__ = "payment_status_updates"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    application_id = Column(UUID(as_uuid=True), ForeignKey("applications.id"),
+                            nullable=False, index=True)
+
+    # Same open-string convention as ApplicationFiling.filing_type — no DB
+    # enum, so a new filing type never needs a migration to add.
+    filing_type    = Column(String(30), nullable=False)
+    note           = Column(Text, nullable=True)
+
+    # The attorney who marked this "in progress".
+    created_by_user = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+
+    # Set only once HR explicitly relays it onward — this is the gate.
+    relayed_to_employee_at = Column(DateTime(timezone=True), nullable=True)
+    relayed_to_employee_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    created_by  = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at  = Column(DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc))
+
+    application = relationship("Application", backref="payment_status_updates")
+
 # =============================================================================
 # TABLE 17 — documents
 # =============================================================================
@@ -930,6 +1020,8 @@ class Document(Base):
     modified_by      = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at       = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at       = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    assigned_to_attorney_at = Column(DateTime(timezone=True), nullable=True)
+    assigned_to_attorney_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     user             = relationship("User",         foreign_keys=[user_id],
                                     back_populates="documents")
@@ -1016,7 +1108,7 @@ class DocumentActivity(Base):
         Enum("uploaded", "status_changed", "verified", "rejected",
              "downloaded", "viewed", "version_updated", "ocr_completed",
              "document_requested",     
-             "request_fulfilled",  
+             "request_fulfilled", "assigned_to_attorney", 
              name="doc_activity_enum"),
         nullable=False
     )
@@ -1342,7 +1434,7 @@ class Notification(Base):
         Enum("missing_document", "deadline_approaching", "policy_update",
              "document_approved", "case_status_updated", "participant_added",
              "document_comment", "weekly_summary", "security_alert",
-             "payment_receipt", "immigration_news",
+             "payment_receipt","payment_in_progress", "immigration_news",
              "approval_pending", "approval_resolved", "compliance_alert",
              "employee_onboarded", "employee_profile_updated",
              "task_assigned","new_device_login", "failed_login_alert",

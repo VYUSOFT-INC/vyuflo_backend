@@ -20,14 +20,13 @@ class DocumentResponse(BaseModel):
     user_id:         uuid.UUID
     application_id:  Optional[uuid.UUID]
     document_type_id: uuid.UUID
-    # ← frontend-friendly field names
-    name:            str              # = file_name
-    file_size_bytes: int              # = file_size_kb * 1024
-    file_type:       str              # = file_format
+    name:            str
+    file_size_bytes: int
+    file_type:       str
     status:          DocumentStatus
-    document_type:   Optional[str]    # from DocumentType.name
-    category:        Optional[str]    # from DocumentType.category
-    uploaded_at:     datetime         # = created_at
+    document_type:   Optional[str]
+    category:        Optional[str]
+    uploaded_at:     datetime
     verified_at:     Optional[datetime]
     rejection_reason: Optional[str]
     total_pages:     Optional[int]
@@ -37,6 +36,8 @@ class DocumentResponse(BaseModel):
     activates_on: Optional[date] = None
     task_id:         Optional[uuid.UUID] = None
     task_name:       Optional[str]       = None
+    assigned_to_attorney_at: Optional[datetime] = None   # ADD
+    assigned_to_attorney_by: Optional[uuid.UUID] = None  # ADD
 
     model_config = ConfigDict(from_attributes=True)
 

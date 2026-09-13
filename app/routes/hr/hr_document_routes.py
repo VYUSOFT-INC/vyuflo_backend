@@ -30,6 +30,7 @@ from app.services.employee.document_service import (
 )
 from app.services.employee.services import db_create, db_update
 from app.services.hr.hr_document_request_service import hr_create_document_request
+from app.services.hr.hr_approval_service import hr_assign_all_verified_documents_to_attorney
 from app.services.employee.notification_service import fire_document_verified, fire_document_rejected
 
 
@@ -116,6 +117,8 @@ def _to_response(doc: Document, task_id: uuid.UUID | None = None, task_name: str
         version          = doc.version,
         task_id          = task_id,
         task_name        = task_name,
+        assigned_to_attorney_at = doc.assigned_to_attorney_at,
+        assigned_to_attorney_by = doc.assigned_to_attorney_by,
     )
 
 
@@ -160,7 +163,7 @@ async def hr_list_documents(
     result = await db.execute(stmt)
     docs = result.scalars().all()
 
-    # NEW — reverse lookup: which task (if any) currently has document_id
+    # Reverse lookup: which task (if any) currently has document_id
     # pointing at each of these documents? A document with no matching task
     # is either a genuine "Additional Document" or a stale/orphaned upload
     # that never got linked (or was superseded by a later re-upload) — this
@@ -248,6 +251,31 @@ async def hr_upload_document_for_case(
     # Upload as the employee (not the HR user) — same as hr_upload_document()
     return await upload_document(
         db, application.user_id, application_id, document_type, category, file
+    )
+
+
+# ── PATCH /hr/cases/:applicationId/documents/assign-all-to-attorney ──────────
+# NEW — the single, case-scoped "Assign to Lawyer" button. Replaces the old
+# per-document assign button that used to appear on every verified card.
+# Assigns every currently-verified, not-yet-assigned document on this case
+# in one action. Idempotent: already-assigned documents are never touched
+# again, so clicking this repeatedly — including after the employee
+# uploads and HR verifies a brand-new document later — only ever picks up
+# what's newly eligible since the last click. See
+# hr_assign_all_verified_documents_to_attorney()'s docstring in
+# hr_approval_service.py for the full behavior.
+
+@hr_document_router.patch(
+    "/cases/{application_id}/documents/assign-all-to-attorney",
+    summary="Assign every verified, unassigned document on this case to the attorney",
+)
+async def hr_assign_all_documents_to_attorney(
+    application_id: uuid.UUID,
+    db:             AsyncSession = Depends(get_db),
+    current_user                 = Depends(get_current_user),
+) -> dict:
+    return await hr_assign_all_verified_documents_to_attorney(
+        db, current_user.user_id, application_id,
     )
 
 

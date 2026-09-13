@@ -3,6 +3,15 @@
 CORRECTION: an earlier delivery of this file was accidentally truncated
 after hr_update_case_status, cutting off hr_update_approval and
 hr_list_case_history. Both are restored below — this is the complete file.
+
+FURTHER CORRECTION: this file previously also defined its own
+list_attorney_tasks() / complete_attorney_task(), which queried
+ApplicationTask.assigned_to as a real column. That column doesn't exist
+on the model — assigned_to lives inside description as packed JSON (see
+hr_task_service.py's _pack_description/_unpack_description). Those two
+functions have been removed; the correct, JSON-aware versions live in
+app.services.attorney.new_case_service and are what new_case_routes.py
+actually calls.
 """
 from __future__ import annotations
 
@@ -35,6 +44,7 @@ from app.models.visamodels import (
     EmployerFirmConnection,
     AttorneyProfile, 
     LawFirm,
+    Notification,
     User,
     UserProfile,
     VisaType,
@@ -171,42 +181,6 @@ async def _resolve_employee_link(
         )
     return link
 
-# async def _validate_attorney_from_connected_firm(
-#     db: AsyncSession,
-#     employer_profile_id: uuid.UUID,
-#     attorney_user_id: uuid.UUID,
-# ) -> None:
-#     """
-#     Raises 403 unless the given attorney belongs to a firm this employer
-#     is actually connected to.
-#     """
-#     attorney = await db.execute(
-#         select(AttorneyProfile).where(AttorneyProfile.user_id == attorney_user_id)
-#     )
-#     attorney = attorney.scalars().first()
-#     if not attorney:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-#                             detail="Attorney not found.")
-#     if not attorney.firm_id:
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN,
-#             detail="This attorney is not part of any firm and cannot be assigned.",
-#         )
-
-#     connection = await db.execute(
-#         select(EmployerFirmConnection).where(
-#             EmployerFirmConnection.employer_profile_id == employer_profile_id,
-#             EmployerFirmConnection.firm_id             == attorney.firm_id,
-#             EmployerFirmConnection.is_active            == True,
-#         )
-#     )
-#     if not connection.scalars().first():
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN,
-#             detail="This attorney's firm is not connected to your company. "
-#                     "Choose an attorney from a firm you're connected to.",
-#         )
- 
 
 async def _validate_attorney_from_connected_firm(
     db: AsyncSession,
@@ -715,8 +689,6 @@ async def hr_update_case(
 
     if payload.target_date is not None:
         update_data["due_date"] = payload.target_date
-    # if payload.attorney_user_id is not None:
-        # update_data["assigned_attorney_id"] = payload.attorney_user_id
     if payload.attorney_user_id is not None:
         emp_profile_result = await db.execute(
             select(EmployerProfile).where(EmployerProfile.user_id == hr_user_id)
@@ -764,8 +736,8 @@ async def hr_update_case(
         await fire_case_assigned_to_hr(
             db, updated_app, new_hr_id=hr_user_id, actor_id=hr_user_id
         )
-        # NEW — notify the newly-assigned attorney (this was the real gap —
-        # fire_case_assigned_to_hr only notifies HR + employee, never the attorney)
+        # notify the newly-assigned attorney (fire_case_assigned_to_hr only
+        # notifies HR + employee, never the attorney)
         from app.services.employee.notification_service import _create_notification
         await _create_notification(
             db, user_id=new_attorney_id, notification_type="case_status_updated",
